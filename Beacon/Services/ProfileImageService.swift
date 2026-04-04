@@ -9,7 +9,7 @@ final class ProfileImageService {
     static let shared = ProfileImageService()
     
     private let supabase = AppEnvironment.shared.supabaseClient
-    private let bucketName = "hacksbucket"
+    private let bucketName = "profile-images"
     
     private init() {}
     
@@ -66,38 +66,62 @@ final class ProfileImageService {
         _ imageData: Data,
         for communityId: UUID
     ) async throws -> ProfileImageResult {
-        print("[ProfileImage] ⬆️ Uploading profile image")
+        print("[ProfileImage] ⬆️ Starting profile image upload")
+        print("[ProfileImage]    Bucket: \(bucketName)")
         print("[ProfileImage]    Community ID: \(communityId)")
+        print("[ProfileImage]    Data size: \(imageData.count) bytes")
         
         let timestamp = Int(Date().timeIntervalSince1970)
         let storagePath = "avatars/\(communityId.uuidString)/\(timestamp).jpg"
         
-        print("[ProfileImage]    Storage path: \(storagePath)")
+        print("[ProfileImage]    Upload path: \(storagePath)")
         
-        try await supabase.storage
-            .from(bucketName)
-            .upload(
-                storagePath,
-                data: imageData,
-                options: FileOptions(
-                    contentType: "image/jpeg",
-                    upsert: false
+        do {
+            try await supabase.storage
+                .from(bucketName)
+                .upload(
+                    storagePath,
+                    data: imageData,
+                    options: FileOptions(
+                        contentType: "image/jpeg",
+                        upsert: false
+                    )
                 )
+            print("[ProfileImage] ✅ Upload successful to bucket '\(bucketName)' at path '\(storagePath)'")
+        } catch {
+            print("[ProfileImage] ❌ Upload FAILED to bucket '\(bucketName)'")
+            print("[ProfileImage]    Path: \(storagePath)")
+            print("[ProfileImage]    Error: \(error)")
+            print("[ProfileImage]    Error detail: \(error.localizedDescription)")
+            throw error
+        }
+        
+        let publicURL: URL
+        do {
+            publicURL = try supabase.storage
+                .from(bucketName)
+                .getPublicURL(path: storagePath)
+            print("[ProfileImage] ✅ Public URL generated: \(publicURL.absoluteString)")
+        } catch {
+            print("[ProfileImage] ❌ Public URL generation FAILED for path '\(storagePath)' in bucket '\(bucketName)'")
+            print("[ProfileImage]    Error: \(error)")
+            throw error
+        }
+        
+        do {
+            try await updateCommunityProfile(
+                communityId: communityId,
+                imageUrl: publicURL.absoluteString,
+                imagePath: storagePath
             )
-        
-        print("[ProfileImage] ✅ Upload successful")
-        
-        let publicURL = try supabase.storage
-            .from(bucketName)
-            .getPublicURL(path: storagePath)
-        
-        print("[ProfileImage]    Public URL: \(publicURL)")
-        
-        try await updateCommunityProfile(
-            communityId: communityId,
-            imageUrl: publicURL.absoluteString,
-            imagePath: storagePath
-        )
+            print("[ProfileImage] ✅ Avatar URL persisted to community table")
+            print("[ProfileImage]    image_url: \(publicURL.absoluteString)")
+            print("[ProfileImage]    image_path: \(storagePath)")
+        } catch {
+            print("[ProfileImage] ❌ Failed to persist avatar URL to community table")
+            print("[ProfileImage]    Error: \(error)")
+            throw error
+        }
         
         return ProfileImageResult(
             imageUrl: publicURL.absoluteString,
@@ -113,6 +137,7 @@ final class ProfileImageService {
     ) async throws {
         print("[ProfileImage] 🗑️ Removing profile image")
         print("[ProfileImage]    Community ID: \(communityId)")
+        print("[ProfileImage]    Current path: \(currentImagePath ?? "nil")")
         
         try await updateCommunityProfile(
             communityId: communityId,
@@ -120,10 +145,11 @@ final class ProfileImageService {
             imagePath: nil
         )
         
-        print("[ProfileImage] ✅ Database fields cleared")
+        print("[ProfileImage] ✅ Database fields cleared (image_url, image_path set to nil)")
         
         if let imagePath = currentImagePath, !imagePath.isEmpty {
             do {
+                print("[ProfileImage] 🗑️ Deleting storage file from bucket '\(bucketName)': \(imagePath)")
                 try await supabase.storage
                     .from(bucketName)
                     .remove(paths: [imagePath])
@@ -152,13 +178,17 @@ final class ProfileImageService {
             image_path: imagePath
         )
         
+        print("[ProfileImage] 💾 Updating community table for id: \(communityId)")
+        print("[ProfileImage]    image_url: \(imageUrl ?? "nil")")
+        print("[ProfileImage]    image_path: \(imagePath ?? "nil")")
+        
         try await supabase
             .from("community")
             .update(update)
             .eq("id", value: communityId.uuidString)
             .execute()
         
-        print("[ProfileImage] ✅ Community profile updated")
+        print("[ProfileImage] ✅ Community profile updated in database")
     }
 }
 

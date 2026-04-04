@@ -102,20 +102,47 @@ final class AuthService: ObservableObject {
 
     private func loadCurrentUser() async {
         do {
-            // Use ProfileService for deterministic profile resolution
-            let result = try await ProfileService.shared.resolveCurrentProfile()
+            let session = try await supabase.auth.session
             
-            await MainActor.run {
-                self.currentUser = result.profile
-                self.profileState = result.state
-                self.isAuthenticated = true
+            // Use CommunityIdentityService for canonical profile resolution
+            // This reads from the community table where image_url is persisted
+            let result = try await CommunityIdentityService.shared.resolveOrCreateProfile(for: session)
+            
+            switch result {
+            case .resolved(let profile):
+                await MainActor.run {
+                    self.currentUser = profile
+                    self.profileState = profile.profileState
+                    self.isAuthenticated = true
+                }
+                
+                #if DEBUG
+                print("[Auth] ✅ Profile loaded from community table")
+                print("[Auth]    State: \(profile.profileState.rawValue)")
+                print("[Auth]    Name: \(profile.name)")
+                print("[Auth]    Avatar URL: \(profile.imageUrl ?? "nil")")
+                #endif
+                
+            case .ambiguous(let candidates):
+                // Use first candidate as fallback
+                if let first = candidates.first {
+                    await MainActor.run {
+                        self.currentUser = first
+                        self.profileState = first.profileState
+                        self.isAuthenticated = true
+                    }
+                    
+                    #if DEBUG
+                    print("[Auth] ⚠️ Ambiguous profile resolution, using first of \(candidates.count) candidates")
+                    #endif
+                } else {
+                    await MainActor.run {
+                        self.currentUser = nil
+                        self.profileState = .missing
+                        self.isAuthenticated = true
+                    }
+                }
             }
-            
-            #if DEBUG
-            print("[Auth] ✅ Profile loaded")
-            print("[Auth]    State: \(result.state.rawValue)")
-            print("[Auth]    Name: \(result.profile.name)")
-            #endif
             
         } catch {
             print("[Auth] ❌ Error loading user: \(error)")
@@ -130,8 +157,11 @@ final class AuthService: ObservableObject {
     
     // MARK: - Profile Refresh
     
-    /// Refreshes the current user profile after updates
+    /// Refreshes the current user profile after updates.
+    /// Reloads from the community table to pick up avatar URL changes.
     func refreshProfile() async {
+        print("[Auth] 🔄 Refreshing profile...")
         await loadCurrentUser()
+        print("[Auth] 🔄 Profile refresh complete. Avatar URL: \(currentUser?.imageUrl ?? "nil")")
     }
 }
