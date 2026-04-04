@@ -1,11 +1,11 @@
 // MARK: - Verification checklist
 //
 // After any future edit, confirm:
-//   1. Xcode Shift+Cmd+F → "connected_user_id" → 0 results
-//   2. Xcode Shift+Cmd+F → "connectedUserId"   → 0 results
+//   1. Xcode Shift+Cmd+F → "from_user_id" in connections context → 0 results
+//   2. Xcode Shift+Cmd+F → "to_user_id" in connections context   → 0 results
 //   3. Shift+Cmd+K (clean build folder), then Cmd+R
 //   4. Tap Network tab — no PGRST200 in console
-//   5. Console shows the three ✅ debug lines below
+//   5. Console shows the ✅ debug lines below
 
 import Foundation
 import Supabase
@@ -19,31 +19,58 @@ final class ConnectionService {
 
     // MARK: - createConnection
 
-    /// Inserts an accepted connection from the current user to `communityId`.
-    /// Columns written: from_user_id, to_user_id, status — nothing else.
-    func createConnection(to communityId: String) async throws {
+    /// Inserts an accepted connection from the current user to `profileId`.
+    /// Columns written: requester_profile_id, addressee_profile_id, event_id, status.
+    /// All IDs are profiles.id — never auth.users.id.
+    func createConnection(to profileId: String) async throws {
         guard let currentUser = AuthService.shared.currentUser else {
             throw ConnectionError.notAuthenticated
         }
-        guard let toId = UUID(uuidString: communityId) else {
+        guard let toId = UUID(uuidString: profileId) else {
             throw ConnectionError.invalidQRCode
         }
 
+        // Resolve event_id if user is currently in an event
+        let eventId: String? = await MainActor.run {
+            EventJoinService.shared.currentEventID
+        }
+
+        print("[Connection] Creating connection:")
+        print("[Connection]   requester_profile_id = \(currentUser.id) (profiles.id)")
+        print("[Connection]   addressee_profile_id = \(toId) (profiles.id)")
+        print("[Connection]   event_id             = \(eventId ?? "nil")")
+        print("[Connection]   status               = accepted")
+
         struct Payload: Encodable {
-            let fromUserId: UUID
-            let toUserId: UUID
+            let requesterProfileId: UUID
+            let addresseeProfileId: UUID
+            let eventId: String?
             let status: String
             enum CodingKeys: String, CodingKey {
-                case fromUserId = "from_user_id"
-                case toUserId   = "to_user_id"
+                case requesterProfileId = "requester_profile_id"
+                case addresseeProfileId = "addressee_profile_id"
+                case eventId            = "event_id"
                 case status
             }
         }
 
-        try await supabase
-            .from("connections")
-            .insert(Payload(fromUserId: currentUser.id, toUserId: toId, status: "accepted"))
-            .execute()
+        do {
+            try await supabase
+                .from("connections")
+                .insert(Payload(
+                    requesterProfileId: currentUser.id,
+                    addresseeProfileId: toId,
+                    eventId: eventId,
+                    status: "accepted"
+                ))
+                .execute()
+
+            print("[Connection] ✅ Connection inserted successfully")
+        } catch {
+            print("[Connection] ❌ Connection insert failed: \(error)")
+            print("[Connection]   full error: \(String(describing: error))")
+            throw error
+        }
     }
 
     // MARK: - createConnectionIfNeeded
@@ -54,19 +81,23 @@ final class ConnectionService {
     }
 
     /// Creates a connection if one doesn't already exist. Returns the outcome.
-    func createConnectionIfNeeded(to communityId: String) async throws -> ConnectResult {
+    func createConnectionIfNeeded(to profileId: String) async throws -> ConnectResult {
         guard let currentUser = AuthService.shared.currentUser else {
             throw ConnectionError.notAuthenticated
         }
-        guard let toId = UUID(uuidString: communityId) else {
+        guard let toId = UUID(uuidString: profileId) else {
             throw ConnectionError.invalidQRCode
         }
 
-        let userId = currentUser.id.uuidString
+        let myId = currentUser.id.uuidString
         let targetId = toId.uuidString
 
-        // Check both directions
-        let orFilter = "and(from_user_id.eq.\(userId),to_user_id.eq.\(targetId)),and(from_user_id.eq.\(targetId),to_user_id.eq.\(userId))"
+        // Check both directions using the real column names
+        let orFilter = "and(requester_profile_id.eq.\(myId),addressee_profile_id.eq.\(targetId)),and(requester_profile_id.eq.\(targetId),addressee_profile_id.eq.\(myId))"
+
+        print("[Connection] Checking existing connection:")
+        print("[Connection]   myId     = \(myId)")
+        print("[Connection]   targetId = \(targetId)")
 
         struct Row: Decodable { let id: UUID }
         let existing: [Row] = try await supabase
@@ -78,38 +109,41 @@ final class ConnectionService {
             .value
 
         if !existing.isEmpty {
+            print("[Connection] ℹ️ Connection already exists (id: \(existing[0].id))")
             return .alreadyExists
         }
 
-        try await createConnection(to: communityId)
+        try await createConnection(to: profileId)
         return .created
     }
 
     // MARK: - fetchConnections
 
     /// Fetches every accepted connection where the current user is on either side,
-    /// with both community profiles embedded via explicit FK constraint names.
+    /// with both profiles embedded via explicit FK constraint names.
     func fetchConnections() async throws -> [Connection] {
         guard let currentUser = AuthService.shared.currentUser else {
             return []
         }
 
-        let userId = currentUser.id.uuidString
+        let myId = currentUser.id.uuidString
 
         let selectClause = """
             id,
-            from_user_id,
-            to_user_id,
+            requester_profile_id,
+            addressee_profile_id,
+            event_id,
+            status,
             created_at,
-            from_profile:community!connections_from_user_id_fkey(id, name),
-            to_profile:community!connections_to_user_id_fkey(id, name)
+            updated_at,
+            requester_profile:profiles!connections_requester_profile_id_fkey(id, name),
+            addressee_profile:profiles!connections_addressee_profile_id_fkey(id, name)
             """
 
-        let orFilter = "from_user_id.eq.\(userId),to_user_id.eq.\(userId)"
+        let orFilter = "requester_profile_id.eq.\(myId),addressee_profile_id.eq.\(myId)"
 
-        print("✅ fetchConnections running")
-        print("✅ selectClause:", selectClause)
-        print("✅ orFilter:", orFilter)
+        print("[Connection] fetchConnections running")
+        print("[Connection]   myId: \(myId)")
 
         return try await supabase
             .from("connections")
