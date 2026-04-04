@@ -17,27 +17,42 @@ final class BeaconRegistryService {
     
     // MARK: - Public API
     
-    /// Fetch active beacons and update cache
+    /// Fetch active beacons and update cache.
+    /// NOTE: The public.beacons table may not exist in all environments.
+    /// Fails gracefully — returns empty cache if the table is missing.
     func refreshBeacons() async throws {
         
-        let beacons: [Beacon] = try await supabase
-            .from("beacons")
-            .select()
-            .eq("is_active", value: true)
-            .execute()
-            .value
-        
-        cache.beacons = Dictionary(
-            uniqueKeysWithValues: beacons.map { ($0.beaconKey, $0) }
-        )
-        
-        cache.lastRefreshed = Date()
-        
-        saveCacheToDisk()
-        
-        #if DEBUG
-        print("✅ Refreshed \(beacons.count) active beacons")
-        #endif
+        do {
+            let beacons: [Beacon] = try await supabase
+                .from("beacons")
+                .select()
+                .eq("is_active", value: true)
+                .execute()
+                .value
+            
+            cache.beacons = Dictionary(
+                uniqueKeysWithValues: beacons.map { ($0.beaconKey, $0) }
+            )
+            
+            cache.lastRefreshed = Date()
+            
+            saveCacheToDisk()
+            
+            #if DEBUG
+            print("[BeaconRegistry] ✅ Refreshed \(beacons.count) active beacons")
+            #endif
+        } catch {
+            let message = String(describing: error)
+            if message.contains("PGRST") || message.contains("relation") || message.contains("does not exist") {
+                print("[BeaconRegistry] ⚠️ public.beacons table not available — using empty cache")
+                cache.beacons = [:]
+                cache.lastRefreshed = Date()
+                saveCacheToDisk()
+            } else {
+                print("[BeaconRegistry] ❌ Beacon refresh failed: \(error)")
+                throw error
+            }
+        }
     }
     
     /// Get beacon by beacon_key from cache

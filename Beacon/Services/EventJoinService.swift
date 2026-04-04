@@ -76,27 +76,30 @@ final class EventJoinService: ObservableObject {
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
 
-            #if DEBUG
-            print("[Presence] ▶️ Starting event_attendees heartbeat")
-            #endif
+            print("[EventJoin] ▶️ Starting event_attendees heartbeat (eventId=\(eventId), profileId=\(profileId))")
 
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(self.heartbeatInterval * 1_000_000_000))
                 guard !Task.isCancelled else { break }
 
+                // Check auth before writing — stop if session is gone
+                let hasAuth = await MainActor.run { AuthService.shared.isAuthenticated }
+                guard hasAuth else {
+                    print("[EventJoin] 🛑 Auth lost — stopping heartbeat")
+                    break
+                }
+
                 do {
                     try await self.touchAttendance(eventId: eventId, profileId: profileId)
                     #if DEBUG
-                    print("[Presence] ✅ Updated event_attendees heartbeat")
+                    print("[EventJoin] ✅ Heartbeat tick")
                     #endif
                 } catch {
-                    print("[Presence] ⚠️ Heartbeat failed: \(error)")
+                    print("[EventJoin] ⚠️ Heartbeat failed: \(error.localizedDescription)")
                 }
             }
 
-            #if DEBUG
-            print("[Presence] ⏹️ Heartbeat loop exited")
-            #endif
+            print("[EventJoin] ⏹️ Heartbeat loop exited")
         }
     }
 
@@ -117,6 +120,7 @@ final class EventJoinService: ObservableObject {
 
     func leaveEvent() {
         heartbeatTask?.cancel()
+        heartbeatTask = nil
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
@@ -128,9 +132,27 @@ final class EventJoinService: ObservableObject {
         presence.reset()
         EventContextService.shared.clearCache()
 
-        #if DEBUG
-        print("[EventJoin] 👋 Left event")
-        #endif
+        print("[EventJoin] 👋 Left event, heartbeat stopped")
+    }
+
+    /// Called by AuthService when auth becomes invalid.
+    /// Stops heartbeat and clears event state to prevent RLS failures.
+    func stopDueToAuthLoss() {
+        print("[EventJoin] 🛑 Stopping due to auth loss")
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+
+        BLEAdvertiserService.shared.stopEventAdvertising()
+        BLEScannerService.shared.stopScanning()
+
+        currentEventID = nil
+        currentEventName = nil
+        isEventJoined = false
+        joinError = nil
+
+        EventContextService.shared.clearCache()
+
+        print("[EventJoin] ✅ Event state cleared due to auth loss")
     }
 
     // MARK: - Backend

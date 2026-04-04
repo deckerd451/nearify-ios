@@ -24,11 +24,11 @@ struct EventAttendanceRow: Codable, Identifiable {
 
 struct NearifyProfileRow: Decodable {
     let id: UUID
-    let authUserId: UUID
+    let userId: UUID
 
     enum CodingKeys: String, CodingKey {
         case id
-        case authUserId = "auth_user_id"
+        case userId = "user_id"
     }
 }
 
@@ -67,6 +67,13 @@ final class EventPresenceService: ObservableObject {
         #if DEBUG
         print("[Presence] manual reset")
         #endif
+        stopHeartbeat(clearContext: true)
+    }
+
+    /// Called by AuthService when auth state becomes invalid.
+    /// Stops heartbeat immediately to prevent RLS failures.
+    func stopDueToAuthLoss() {
+        print("[Presence] 🛑 Stopping due to auth loss — cancelling heartbeat")
         stopHeartbeat(clearContext: true)
     }
 
@@ -123,9 +130,7 @@ final class EventPresenceService: ObservableObject {
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
 
-            #if DEBUG
-            print("[Presence] ▶️ Starting event_attendees heartbeat")
-            #endif
+            print("[Presence] ▶️ Starting event_attendees heartbeat (eventId=\(eventId), profileId=\(profileId))")
 
             await self.touchAttendance(eventId: eventId, profileId: profileId)
 
@@ -133,15 +138,23 @@ final class EventPresenceService: ObservableObject {
                 try? await Task.sleep(nanoseconds: UInt64(self.heartbeatInterval * 1_000_000_000))
                 guard !Task.isCancelled else { break }
 
+                // Check auth before writing — stop if session is gone
+                let hasAuth = await MainActor.run { AuthService.shared.isAuthenticated }
+                guard hasAuth else {
+                    print("[Presence] 🛑 Auth lost — stopping heartbeat")
+                    break
+                }
+
                 let shouldContinue = await MainActor.run { self.isQRJoinActive }
-                guard shouldContinue else { break }
+                guard shouldContinue else {
+                    print("[Presence] ⏹️ QR join no longer active — stopping heartbeat")
+                    break
+                }
 
                 await self.touchAttendance(eventId: eventId, profileId: profileId)
             }
 
-            #if DEBUG
             print("[Presence] ⏹️ Heartbeat loop exited")
-            #endif
         }
     }
 
@@ -308,17 +321,15 @@ final class EventPresenceService: ObservableObject {
 
             let rows: [NearifyProfileRow] = try await supabase
                 .from("profiles")
-                .select("id, auth_user_id")
-                .eq("auth_user_id", value: authUserId.uuidString)
+                .select("id, user_id")
+                .eq("user_id", value: authUserId.uuidString)
                 .limit(1)
                 .execute()
                 .value
 
             return rows.first?.id
         } catch {
-            #if DEBUG
             print("[Presence] ❌ Error resolving profiles.id from auth.uid(): \(error)")
-            #endif
             return nil
         }
     }

@@ -26,19 +26,29 @@ struct BeaconApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if authService.isAuthenticated, let currentUser = authService.currentUser {
-                    // Route based on profile state
-                    switch authService.profileState {
-                    case .ready:
-                        // Profile complete - enter main app
-                        MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
+                if authService.isAuthenticated {
+                    if let currentUser = authService.currentUser {
+                        // Route based on profile state
+                        switch authService.profileState {
+                        case .ready:
+                            MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
 
-                    case .incomplete, .missing:
-                        // Profile needs completion
-                        ProfileCompletionView(profile: currentUser) {
-                            Task {
-                                await authService.refreshProfile()
+                        case .incomplete, .missing:
+                            ProfileCompletionView(profile: currentUser) {
+                                Task {
+                                    await authService.refreshProfile()
+                                }
                             }
+                        }
+                    } else {
+                        // Authenticated but profile still loading — show loading indicator
+                        // instead of flashing LoginView
+                        VStack(spacing: 16) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                            Text("Loading profile…")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         }
                     }
                 } else {
