@@ -2,7 +2,8 @@ import Foundation
 import UIKit
 import Supabase
 
-/// Service for managing profile image uploads, updates, and deletions
+/// Service for managing profile image uploads, updates, and deletions.
+/// Writes avatar_url to public.profiles (the canonical profile table).
 @MainActor
 final class ProfileImageService {
     
@@ -61,18 +62,19 @@ final class ProfileImageService {
     
     // MARK: - Upload
     
-    /// Uploads a profile image and updates the community profile
+    /// Uploads a profile image to storage and persists the public URL
+    /// into public.profiles.avatar_url for the given profile row.
     func uploadProfileImage(
         _ imageData: Data,
-        for communityId: UUID
+        for profileId: UUID
     ) async throws -> ProfileImageResult {
         print("[ProfileImage] ⬆️ Starting profile image upload")
         print("[ProfileImage]    Bucket: \(bucketName)")
-        print("[ProfileImage]    Community ID: \(communityId)")
+        print("[ProfileImage]    Profile ID: \(profileId)")
         print("[ProfileImage]    Data size: \(imageData.count) bytes")
         
         let timestamp = Int(Date().timeIntervalSince1970)
-        let storagePath = "avatars/\(communityId.uuidString)/\(timestamp).jpg"
+        let storagePath = "avatars/\(profileId.uuidString)/\(timestamp).jpg"
         
         print("[ProfileImage]    Upload path: \(storagePath)")
         
@@ -109,16 +111,14 @@ final class ProfileImageService {
         }
         
         do {
-            try await updateCommunityProfile(
-                communityId: communityId,
-                imageUrl: publicURL.absoluteString,
-                imagePath: storagePath
+            try await updateProfileAvatarUrl(
+                profileId: profileId,
+                avatarUrl: publicURL.absoluteString
             )
-            print("[ProfileImage] ✅ Avatar URL persisted to community table")
-            print("[ProfileImage]    image_url: \(publicURL.absoluteString)")
-            print("[ProfileImage]    image_path: \(storagePath)")
+            print("[ProfileImage] ✅ avatar_url persisted to public.profiles")
+            print("[ProfileImage]    avatar_url: \(publicURL.absoluteString)")
         } catch {
-            print("[ProfileImage] ❌ Failed to persist avatar URL to community table")
+            print("[ProfileImage] ❌ Failed to persist avatar_url to public.profiles")
             print("[ProfileImage]    Error: \(error)")
             throw error
         }
@@ -132,20 +132,19 @@ final class ProfileImageService {
     // MARK: - Remove
     
     func removeProfileImage(
-        for communityId: UUID,
+        for profileId: UUID,
         currentImagePath: String?
     ) async throws {
         print("[ProfileImage] 🗑️ Removing profile image")
-        print("[ProfileImage]    Community ID: \(communityId)")
+        print("[ProfileImage]    Profile ID: \(profileId)")
         print("[ProfileImage]    Current path: \(currentImagePath ?? "nil")")
         
-        try await updateCommunityProfile(
-            communityId: communityId,
-            imageUrl: nil,
-            imagePath: nil
+        try await updateProfileAvatarUrl(
+            profileId: profileId,
+            avatarUrl: nil
         )
         
-        print("[ProfileImage] ✅ Database fields cleared (image_url, image_path set to nil)")
+        print("[ProfileImage] ✅ avatar_url cleared in public.profiles")
         
         if let imagePath = currentImagePath, !imagePath.isEmpty {
             do {
@@ -161,34 +160,28 @@ final class ProfileImageService {
         }
     }
     
-    // MARK: - Database Update
+    // MARK: - Database Update (public.profiles)
     
-    private func updateCommunityProfile(
-        communityId: UUID,
-        imageUrl: String?,
-        imagePath: String?
+    private func updateProfileAvatarUrl(
+        profileId: UUID,
+        avatarUrl: String?
     ) async throws {
-        struct ImageUpdate: Encodable {
-            let image_url: String?
-            let image_path: String?
+        struct AvatarUpdate: Encodable {
+            let avatar_url: String?
         }
         
-        let update = ImageUpdate(
-            image_url: imageUrl,
-            image_path: imagePath
-        )
+        let update = AvatarUpdate(avatar_url: avatarUrl)
         
-        print("[ProfileImage] 💾 Updating community table for id: \(communityId)")
-        print("[ProfileImage]    image_url: \(imageUrl ?? "nil")")
-        print("[ProfileImage]    image_path: \(imagePath ?? "nil")")
+        print("[ProfileImage] 💾 Updating public.profiles.avatar_url for id: \(profileId)")
+        print("[ProfileImage]    avatar_url: \(avatarUrl ?? "nil")")
         
         try await supabase
-            .from("community")
+            .from("profiles")
             .update(update)
-            .eq("id", value: communityId.uuidString)
+            .eq("id", value: profileId.uuidString)
             .execute()
         
-        print("[ProfileImage] ✅ Community profile updated in database")
+        print("[ProfileImage] ✅ public.profiles row updated")
     }
 }
 

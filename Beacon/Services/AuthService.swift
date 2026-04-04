@@ -40,6 +40,7 @@ final class AuthService: ObservableObject {
             let session = try await supabase.auth.session
             await handleAuthStateChange(session: session)
         } catch {
+            print("[Auth] ⚠️ No existing session found")
             await MainActor.run {
                 self.isAuthenticated = false
                 self.currentUser = nil
@@ -50,6 +51,7 @@ final class AuthService: ObservableObject {
 
     private func handleAuthStateChange(session: Session?) async {
         guard let session = session, !session.isExpired else {
+            print("[Auth] 🔒 Session nil or expired — clearing auth state")
             await MainActor.run {
                 self.isAuthenticated = false
                 self.currentUser = nil
@@ -58,6 +60,7 @@ final class AuthService: ObservableObject {
             return
         }
 
+        print("[Auth] 🔑 Valid session detected for user: \(session.user.id)")
         await loadCurrentUser()
     }
 
@@ -69,12 +72,14 @@ final class AuthService: ObservableObject {
             self.currentUser = nil
             self.profileState = .missing
         }
+        print("[Auth] 👋 Signed out, auth state cleared")
     }
 
     // MARK: - OAuth
 
     @MainActor
     func signInWithOAuth(provider: Provider) async throws {
+        print("[Auth] 🌐 Starting OAuth for provider: \(provider)")
         let url = try supabase.auth.getOAuthSignInURL(
             provider: provider,
             redirectTo: URL(string: "beacon://callback")
@@ -89,79 +94,71 @@ final class AuthService: ObservableObject {
             print("[Auth] ⚠️ handleOAuthCallback called with non-OAuth URL — rejected: \(url.absoluteString)")
             return
         }
+        print("[Auth] 🔗 Processing OAuth callback...")
         do {
-            _ = try await supabase.auth.session(from: url)
+            let session = try await supabase.auth.session(from: url)
+            print("[Auth] ✅ OAuth session established for user: \(session.user.id)")
             await loadCurrentUser()
+            print("[Auth] 🟢 Post-OAuth state: isAuthenticated=\(isAuthenticated), profileState=\(profileState.rawValue)")
         } catch {
             print("[Auth] ❌ OAuth callback error: \(error)")
+            print("[Auth] 🔴 Setting auth state to unauthenticated after OAuth failure")
             self.isAuthenticated = false
             self.currentUser = nil
             self.profileState = .missing
         }
     }
 
+    // MARK: - Profile Loading (reads from public.profiles)
+
     private func loadCurrentUser() async {
+        print("[Auth] 📥 Loading current user from public.profiles...")
         do {
-            let session = try await supabase.auth.session
-            
-            // Use CommunityIdentityService for canonical profile resolution
-            // This reads from the community table where image_url is persisted
-            let result = try await CommunityIdentityService.shared.resolveOrCreateProfile(for: session)
-            
-            switch result {
-            case .resolved(let profile):
-                await MainActor.run {
-                    self.currentUser = profile
-                    self.profileState = profile.profileState
-                    self.isAuthenticated = true
-                }
-                
-                #if DEBUG
-                print("[Auth] ✅ Profile loaded from community table")
-                print("[Auth]    State: \(profile.profileState.rawValue)")
-                print("[Auth]    Name: \(profile.name)")
-                print("[Auth]    Avatar URL: \(profile.imageUrl ?? "nil")")
-                #endif
-                
-            case .ambiguous(let candidates):
-                // Use first candidate as fallback
-                if let first = candidates.first {
-                    await MainActor.run {
-                        self.currentUser = first
-                        self.profileState = first.profileState
-                        self.isAuthenticated = true
-                    }
-                    
-                    #if DEBUG
-                    print("[Auth] ⚠️ Ambiguous profile resolution, using first of \(candidates.count) candidates")
-                    #endif
-                } else {
-                    await MainActor.run {
-                        self.currentUser = nil
-                        self.profileState = .missing
-                        self.isAuthenticated = true
-                    }
-                }
+            let result = try await ProfileService.shared.resolveCurrentProfile()
+
+            await MainActor.run {
+                self.currentUser = result.profile
+                self.profileState = result.state
+                self.isAuthenticated = true
             }
-            
+
+            print("[Auth] ✅ Profile loaded from public.profiles")
+            print("[Auth]    Profile ID: \(result.profile.id)")
+            print("[Auth]    State: \(result.state.rawValue)")
+            print("[Auth]    Name: \(result.profile.name)")
+            print("[Auth]    Avatar URL: \(result.profile.imageUrl ?? "nil")")
+            print("[Auth]    isAuthenticated: true")
+
         } catch {
-            print("[Auth] ❌ Error loading user: \(error)")
-            
+            print("[Auth] ❌ Error loading user from public.profiles: \(error)")
+            print("[Auth] 🔴 Profile load failed — setting isAuthenticated=true (session valid) but currentUser=nil")
+
+            // Keep isAuthenticated=true if we have a valid session
+            // This prevents OAuth buttons from getting stuck/greyed out
+            let hasSession: Bool
+            do {
+                let session = try await supabase.auth.session
+                hasSession = !session.isExpired
+            } catch {
+                hasSession = false
+            }
+
             await MainActor.run {
                 self.currentUser = nil
                 self.profileState = .missing
-                self.isAuthenticated = false
+                self.isAuthenticated = hasSession
             }
+            print("[Auth]    isAuthenticated: \(hasSession) (based on session validity)")
         }
     }
-    
+
     // MARK: - Profile Refresh
-    
-    /// Refreshes the current user profile after updates.
-    /// Reloads from the community table to pick up avatar URL changes.
+
+    /// Refreshes the current user profile from public.profiles.
+    /// Call after profile edits or avatar uploads to update UI immediately.
     func refreshProfile() async {
-        print("[Auth] 🔄 Refreshing profile...")
+        print("[Auth] 🔄 Refreshing profile from public.profiles...")
         await loadCurrentUser()
-        print("[Auth] 🔄 Profile refresh complete. Avatar URL: \(currentUser?.imageUrl ?? "nil")")
+        print("[Auth] 🔄 Refresh complete. Avatar URL: \(currentUser?.imageUrl ?? "nil"), state: \(profileState.rawValue)")
     }
 }
