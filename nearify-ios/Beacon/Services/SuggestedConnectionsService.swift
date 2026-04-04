@@ -118,8 +118,8 @@ final class SuggestedConnectionsService {
 
     // MARK: - User Profile Resolution
 
-    /// Fetch user profiles from community table
-    /// CRITICAL: community.id is the foreign key, NOT auth.uid
+    /// Fetch user profiles from public.profiles
+    /// profiles.id is the foreign key used in interaction_edges
     private func fetchUserProfiles(for userIds: [UUID]) async -> [UUID: String] {
         guard !userIds.isEmpty else { return [:] }
 
@@ -127,7 +127,7 @@ final class SuggestedConnectionsService {
             let filters = userIds.map { "id.eq.\($0.uuidString)" }.joined(separator: ",")
 
             let response: [CommunityProfile] = try await supabase
-                .from("community")
+                .from("profiles")
                 .select("id, name")
                 .or(filters)
                 .execute()
@@ -135,15 +135,15 @@ final class SuggestedConnectionsService {
 
             return Dictionary(uniqueKeysWithValues: response.map { ($0.id, $0.name) })
         } catch {
-            print("⚠️ Failed to fetch user profiles: \(error)")
+            print("⚠️ Failed to fetch user profiles from public.profiles: \(error)")
             return [:]
         }
     }
 
-    // MARK: - Current User Community ID Resolution
+    // MARK: - Current User Profile ID Resolution
 
-    /// Resolve current user's community.id from auth session
-    /// CRITICAL: Must map auth.uid() → community.id
+    /// Resolve current user's profiles.id from auth session
+    /// Maps auth.uid() → profiles.user_id → profiles.id
     func resolveCurrentUserCommunityId() async throws -> UUID {
         let session = try await supabase.auth.session
         let authUserId = session.user.id
@@ -151,7 +151,7 @@ final class SuggestedConnectionsService {
 
         do {
             let response: [CommunityProfile] = try await supabase
-                .from("community")
+                .from("profiles")
                 .select("id, name")
                 .eq("user_id", value: authUserId.uuidString)
                 .limit(1)
@@ -159,7 +159,7 @@ final class SuggestedConnectionsService {
                 .value
 
             if let profile = response.first {
-                print("✅ Resolved community.id via user_id: \(profile.id)")
+                print("✅ Resolved profiles.id via user_id: \(profile.id)")
                 return profile.id
             }
         } catch {
@@ -168,7 +168,7 @@ final class SuggestedConnectionsService {
 
         if let email = userEmail {
             let response: [CommunityProfile] = try await supabase
-                .from("community")
+                .from("profiles")
                 .select("id, name")
                 .eq("email", value: email)
                 .limit(1)
@@ -176,7 +176,7 @@ final class SuggestedConnectionsService {
                 .value
 
             if let profile = response.first {
-                print("✅ Resolved community.id via email: \(profile.id)")
+                print("✅ Resolved profiles.id via email: \(profile.id)")
                 return profile.id
             }
         }
@@ -184,7 +184,7 @@ final class SuggestedConnectionsService {
         throw NSError(
             domain: "SuggestedConnectionsService",
             code: 404,
-            userInfo: [NSLocalizedDescriptionKey: "Could not resolve community.id for current user"]
+            userInfo: [NSLocalizedDescriptionKey: "Could not resolve profiles.id for current user"]
         )
     }
 }

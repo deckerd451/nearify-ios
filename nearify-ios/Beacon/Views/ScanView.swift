@@ -348,9 +348,18 @@ struct ScanView: View {
         Task {
             do {
                 try await Task.sleep(nanoseconds: 300_000_000)
-                let profile = try await CommunityIdentityService.shared.loadProfile(
-                    communityId: UUID(uuidString: communityId)!
-                )
+                guard let profileId = UUID(uuidString: communityId) else {
+                    await MainActor.run {
+                        phase = .failure(message: "Invalid profile ID")
+                    }
+                    return
+                }
+                guard let profile = try await ProfileService.shared.fetchProfileById(profileId) else {
+                    await MainActor.run {
+                        phase = .failure(message: "Profile not found")
+                    }
+                    return
+                }
 
                 await MainActor.run {
                     scannedProfile = profile

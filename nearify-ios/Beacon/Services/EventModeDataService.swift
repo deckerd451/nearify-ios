@@ -90,7 +90,7 @@ final class EventModeDataService {
                 .joined(separator: ",")
             
             let response: [EventModeCommunityProfile] = try await supabase
-                .from("community")
+                .from("profiles")
                 .select("id, name, avatar_url")
                 .or(filters)
                 .execute()

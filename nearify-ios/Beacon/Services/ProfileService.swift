@@ -1,6 +1,9 @@
 import Foundation
 import Supabase
 
+/// Canonical profile service. All reads/writes go to public.profiles.
+/// Identity mapping: auth.users.id -> profiles.user_id
+/// App-facing identity: profiles.id
 @MainActor
 final class ProfileService {
 
@@ -16,43 +19,39 @@ final class ProfileService {
         let session = try await supabase.auth.session
         let authUser = session.user
 
-        #if DEBUG
-        print("[Profile] 🔍 Resolving Nearify profile")
+        print("[Profile] 🔍 Resolving profile from public.profiles")
         print("[Profile]    Auth ID: \(authUser.id)")
         print("[Profile]    Email: \(authUser.email ?? "none")")
-        #endif
 
         if let profile = try await fetchProfile(userId: authUser.id) {
-            #if DEBUG
-            print("[Profile] ✅ Existing profile found: \(profile.id)")
-            #endif
+            print("[Profile] ✅ Existing profile found in public.profiles")
+            print("[Profile]    Profile ID: \(profile.id)")
+            print("[Profile]    Name: \(profile.name)")
+            print("[Profile]    Avatar URL: \(profile.imageUrl ?? "nil")")
             return ResolvedProfileResult(
                 authUser: authUser,
                 profile: profile,
-                state: .ready
+                state: profile.profileState
             )
         }
 
-        #if DEBUG
         print("[Profile] 📝 No profile found, creating via ensure_profile RPC")
-        #endif
 
         let profile = try await ensureProfile(authUser: authUser)
 
-        #if DEBUG
         print("[Profile] ✅ Profile ensured: \(profile.id)")
-        #endif
 
         return ResolvedProfileResult(
             authUser: authUser,
             profile: profile,
-            state: .ready
+            state: profile.profileState
         )
     }
 
     // MARK: - Fetch Profile
 
     private func fetchProfile(userId: UUID) async throws -> User? {
+        print("[Profile] 📥 Querying public.profiles WHERE user_id = \(userId)")
         do {
             let profiles: [NearifyProfile] = try await supabase
                 .from("profiles")
@@ -63,21 +62,50 @@ final class ProfileService {
                 .value
 
             guard let profile = profiles.first else {
+                print("[Profile] ℹ️ No rows returned from public.profiles for user_id: \(userId)")
                 return nil
             }
 
+            print("[Profile] ✅ Row loaded: id=\(profile.id), avatar_url=\(profile.avatar_url ?? "nil")")
             return mapToUser(profile)
 
         } catch {
             let message = String(describing: error)
 
             if message.contains("0 rows") || message.contains("PGRST116") {
+                print("[Profile] ℹ️ No profile row (PGRST116) for user_id: \(userId)")
                 return nil
             }
 
-            #if DEBUG
-            print("[Profile] ❌ Fetch failed: \(error)")
-            #endif
+            print("[Profile] ❌ Fetch from public.profiles failed: \(error)")
+            throw error
+        }
+    }
+
+    // MARK: - Fetch Profile by ID
+
+    /// Loads a profile by profiles.id (the app-facing identity).
+    /// Used by ScanView and other features that resolve profiles by ID.
+    func fetchProfileById(_ profileId: UUID) async throws -> User? {
+        print("[Profile] 📥 Querying public.profiles WHERE id = \(profileId)")
+        do {
+            let profile: NearifyProfile = try await supabase
+                .from("profiles")
+                .select("id,user_id,name,email,avatar_url,bio")
+                .eq("id", value: profileId.uuidString)
+                .single()
+                .execute()
+                .value
+
+            print("[Profile] ✅ Row loaded: id=\(profile.id), name=\(profile.name ?? "nil")")
+            return mapToUser(profile)
+        } catch {
+            let message = String(describing: error)
+            if message.contains("0 rows") || message.contains("PGRST116") {
+                print("[Profile] ℹ️ No profile row for id: \(profileId)")
+                return nil
+            }
+            print("[Profile] ❌ Fetch by id from public.profiles failed: \(error)")
             throw error
         }
     }
@@ -108,16 +136,21 @@ final class ProfileService {
         profileId: UUID,
         name: String?,
         bio: String?,
-        skills: [String]?,
-        interests: [String]?
+        avatarUrl: String? = nil,
+        clearAvatar: Bool = false,
+        skills: [String]? = nil,
+        interests: [String]? = nil
     ) async throws {
-        #if DEBUG
-        print("[Profile] 💾 Updating Nearify profile: \(profileId)")
-        #endif
+        print("[Profile] 💾 Updating public.profiles row: \(profileId)")
+        print("[Profile]    name: \(name ?? "nil")")
+        print("[Profile]    bio: \(bio ?? "nil")")
+        print("[Profile]    avatar_url: \(clearAvatar ? "(clearing)" : avatarUrl ?? "(unchanged)")")
 
         let payload = ProfileUpdatePayload(
             name: name,
-            bio: bio
+            bio: bio,
+            avatar_url: avatarUrl,
+            includeAvatarUrl: avatarUrl != nil || clearAvatar
         )
 
         try await supabase
@@ -126,9 +159,7 @@ final class ProfileService {
             .eq("id", value: profileId.uuidString)
             .execute()
 
-        #if DEBUG
-        print("[Profile] ✅ Nearify profile updated")
-        #endif
+        print("[Profile] ✅ public.profiles updated for id: \(profileId)")
     }
 
     // MARK: - Mapping
@@ -163,6 +194,23 @@ private struct EnsureProfileParams: Encodable {
 private struct ProfileUpdatePayload: Encodable {
     let name: String?
     let bio: String?
+    let avatar_url: String?
+    let includeAvatarUrl: Bool
+
+    /// Only encodes avatar_url when explicitly requested (upload or clear).
+    /// Prevents name/bio-only edits from accidentally nulling the avatar.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(bio, forKey: .bio)
+        if includeAvatarUrl {
+            try container.encode(avatar_url, forKey: .avatar_url)
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, bio, avatar_url
+    }
 }
 
 // MARK: - Models
