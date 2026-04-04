@@ -42,8 +42,14 @@ final class NearifyIngestionService {
         fromProfileId: UUID,
         toProfileId: UUID
     ) {
+        print("[Ingest] ENTER ingestQRConfirmedInteraction")
+        print("[Ingest]   eventId        = \(eventId)")
+        print("[Ingest]   fromProfileId  = \(fromProfileId)")
+        print("[Ingest]   toProfileId    = \(toProfileId)")
+
         let interactionType = "qr_confirmed"
         let dedupeKey = "\(eventId)|\(fromProfileId)|\(toProfileId)|\(interactionType)"
+        print("[Ingest]   dedupeKey      = \(dedupeKey)")
 
         // Duplicate check (timestamp-based suppression)
         let dominated: Bool = dedupeQueue.sync {
@@ -56,20 +62,17 @@ final class NearifyIngestionService {
         }
 
         if dominated {
-            #if DEBUG
-            print("[Ingest] QR confirmed interaction dropped as duplicate")
-            #endif
+            print("[Ingest] SKIP — duplicate suppressed within \(dedupeWindow)s window")
             return
         }
 
-        #if DEBUG
-        print("[Ingest] QR confirmed interaction queued")
-        print("[Ingest]    event: \(eventId)")
-        print("[Ingest]    from: \(fromProfileId) → to: \(toProfileId)")
-        #endif
+        print("[Ingest] QR confirmed interaction queued for background insert")
 
         Task(priority: .utility) { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                print("[Ingest] SKIP — self was deallocated before insert task ran")
+                return
+            }
             await self.insertInteraction(
                 eventId: eventId,
                 fromProfileId: fromProfileId,
@@ -90,16 +93,21 @@ final class NearifyIngestionService {
         fromAuthUserId: UUID? = nil,
         toAuthUserId: UUID? = nil
     ) {
+        print("[Ingest] ENTER legacy ingestQRConfirmedConnection")
+        print("[Ingest]   fromCommunityId = \(fromCommunityId)")
+        print("[Ingest]   toCommunityId   = \(toCommunityId)")
+        print("[Ingest]   fromAuthUserId  = \(fromAuthUserId?.uuidString ?? "nil")")
+        print("[Ingest]   toAuthUserId    = \(toAuthUserId?.uuidString ?? "nil")")
+
         // Resolve event ID from current session
         Task { @MainActor in
             guard let eventIdString = EventJoinService.shared.currentEventID,
                   let eventId = UUID(uuidString: eventIdString) else {
-                #if DEBUG
-                print("[Ingest] ⚠️ Legacy bridge: no active event — skipping ingestion")
-                #endif
+                print("[Ingest] SKIP — legacy bridge: EventJoinService.currentEventID is nil or invalid")
                 return
             }
 
+            print("[Ingest] Legacy bridge resolved eventId = \(eventId), forwarding to new API")
             // fromCommunityId and toCommunityId are already profile IDs in this codebase
             self.ingestQRConfirmedInteraction(
                 eventId: eventId,
@@ -118,6 +126,8 @@ final class NearifyIngestionService {
         interactionType: String,
         attempt: Int
     ) async {
+        print("[Ingest] insertInteraction attempt \(attempt + 1)/\(maxRetries + 1)")
+
         let payload = InteractionEventPayload(
             event_id: eventId.uuidString,
             from_profile_id: fromProfileId.uuidString,
@@ -128,22 +138,29 @@ final class NearifyIngestionService {
             signal_strength: 0
         )
 
+        print("[Ingest] PRE-INSERT payload:")
+        print("[Ingest]   event_id        = \(payload.event_id)")
+        print("[Ingest]   from_profile_id = \(payload.from_profile_id)")
+        print("[Ingest]   to_profile_id   = \(payload.to_profile_id)")
+        print("[Ingest]   interaction_type = \(payload.interaction_type)")
+        print("[Ingest]   strength        = \(payload.strength)")
+        print("[Ingest]   dwell_seconds   = \(payload.dwell_seconds)")
+        print("[Ingest]   signal_strength = \(payload.signal_strength)")
+
         do {
             try await supabase
                 .from("interaction_events")
                 .insert(payload)
                 .execute()
 
-            #if DEBUG
-            print("[Ingest] QR confirmed interaction inserted")
-            #endif
+            print("[Ingest] ✅ INSERT SUCCESS into public.interaction_events")
         } catch {
-            print("[Ingest] QR confirmed interaction failed: \(error.localizedDescription)")
+            print("[Ingest] ❌ INSERT FAILED: \(error)")
+            print("[Ingest]   localizedDescription: \(error.localizedDescription)")
+            print("[Ingest]   full error: \(String(describing: error))")
 
             if attempt < maxRetries {
-                #if DEBUG
-                print("[Ingest] QR confirmed interaction failed, retrying")
-                #endif
+                print("[Ingest] 🔄 Retrying in 2s (attempt \(attempt + 2)/\(maxRetries + 1))")
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 await insertInteraction(
                     eventId: eventId,
@@ -153,7 +170,7 @@ final class NearifyIngestionService {
                     attempt: attempt + 1
                 )
             } else {
-                print("[Ingest] ⛔ Giving up after \(attempt + 1) attempt(s)")
+                print("[Ingest] ⛔ GIVING UP after \(attempt + 1) attempt(s) — interaction lost")
             }
         }
     }

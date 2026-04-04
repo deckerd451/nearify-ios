@@ -286,14 +286,32 @@ struct ConnectAttendeeView: View {
                     AttendeeStateResolver.shared.refreshConnections()
 
                     // Fire-and-forget: ingest QR-confirmed interaction into interaction_events
-                    if let currentUser = AuthService.shared.currentUser,
-                       let eventIdString = EventJoinService.shared.currentEventID,
+                    let currentUser = AuthService.shared.currentUser
+                    let eventIdString = EventJoinService.shared.currentEventID
+
+                    print("[QR-Direct] ── Ingestion gate check ──")
+                    print("[QR-Direct]   currentUser          = \(currentUser?.id.uuidString ?? "NIL")")
+                    print("[QR-Direct]   currentUser.userId   = \(currentUser?.userId?.uuidString ?? "NIL") (auth ID — NOT used)")
+                    print("[QR-Direct]   eventIdString         = \(eventIdString ?? "NIL")")
+                    print("[QR-Direct]   attendee.id (target)  = \(attendee.id)")
+
+                    if let currentUser = currentUser,
+                       let eventIdString = eventIdString,
                        let eventId = UUID(uuidString: eventIdString) {
+                        print("[QR-Direct] ✅ All values present — calling ingestion")
+                        print("[QR-Direct]   eventId       = \(eventId)")
+                        print("[QR-Direct]   fromProfileId = \(currentUser.id) (profiles.id)")
+                        print("[QR-Direct]   toProfileId   = \(attendee.id) (profiles.id)")
                         NearifyIngestionService.shared.ingestQRConfirmedInteraction(
                             eventId: eventId,
                             fromProfileId: currentUser.id,
                             toProfileId: attendee.id
                         )
+                    } else {
+                        print("[QR-Direct] ❌ SKIP ingestion — missing values:")
+                        if currentUser == nil { print("[QR-Direct]   REASON: currentUser is nil") }
+                        if eventIdString == nil { print("[QR-Direct]   REASON: currentEventID is nil — user may not have joined an event") }
+                        if let s = eventIdString, UUID(uuidString: s) == nil { print("[QR-Direct]   REASON: currentEventID '\(s)' is not a valid UUID") }
                     }
                 }
             } catch {
@@ -339,15 +357,36 @@ struct ConnectAttendeeView: View {
                     AttendeeStateResolver.shared.refreshConnections()
 
                     // Fire-and-forget: ingest QR-confirmed interaction into interaction_events
-                    if let currentUser = AuthService.shared.currentUser,
-                       let toCommunityId = UUID(uuidString: scannedId),
-                       let eventIdString = EventJoinService.shared.currentEventID,
+                    let currentUser = AuthService.shared.currentUser
+                    let toCommunityId = UUID(uuidString: scannedId)
+                    let eventIdString = EventJoinService.shared.currentEventID
+
+                    print("[QR-Scan] ── Ingestion gate check ──")
+                    print("[QR-Scan]   currentUser          = \(currentUser?.id.uuidString ?? "NIL")")
+                    print("[QR-Scan]   currentUser.userId   = \(currentUser?.userId?.uuidString ?? "NIL") (auth ID — NOT used)")
+                    print("[QR-Scan]   eventIdString         = \(eventIdString ?? "NIL")")
+                    print("[QR-Scan]   scannedId (raw)       = \(scannedId)")
+                    print("[QR-Scan]   toCommunityId (UUID?) = \(toCommunityId?.uuidString ?? "NIL")")
+
+                    if let currentUser = currentUser,
+                       let toCommunityId = toCommunityId,
+                       let eventIdString = eventIdString,
                        let eventId = UUID(uuidString: eventIdString) {
+                        print("[QR-Scan] ✅ All values present — calling ingestion")
+                        print("[QR-Scan]   eventId       = \(eventId)")
+                        print("[QR-Scan]   fromProfileId = \(currentUser.id) (profiles.id)")
+                        print("[QR-Scan]   toProfileId   = \(toCommunityId) (profiles.id)")
                         NearifyIngestionService.shared.ingestQRConfirmedInteraction(
                             eventId: eventId,
                             fromProfileId: currentUser.id,
                             toProfileId: toCommunityId
                         )
+                    } else {
+                        print("[QR-Scan] ❌ SKIP ingestion — missing values:")
+                        if currentUser == nil { print("[QR-Scan]   REASON: currentUser is nil") }
+                        if toCommunityId == nil { print("[QR-Scan]   REASON: scannedId '\(scannedId)' failed UUID parse") }
+                        if eventIdString == nil { print("[QR-Scan]   REASON: currentEventID is nil — user may not have joined an event") }
+                        if let s = eventIdString, UUID(uuidString: s) == nil { print("[QR-Scan]   REASON: currentEventID '\(s)' is not a valid UUID") }
                     }
                 }
             } catch {
