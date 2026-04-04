@@ -34,8 +34,8 @@ final class EventJoinService: ObservableObject {
         do {
             let profile = try await ensureProfile()
 
-            let attendee = try await joinEventRPC(eventID: eventUUID)
-
+            _ = try await joinEventRPC(eventID: eventUUID)
+            
             let event = try await fetchEvent(eventID: eventUUID)
 
             currentEventID = event.id.uuidString
@@ -52,6 +52,11 @@ final class EventJoinService: ObservableObject {
             BLEScannerService.shared.startScanning()
 
             startHeartbeat(profileId: profile.id, eventId: event.id)
+
+            // Preload event context for intelligence pipeline (fire-and-forget)
+            Task(priority: .utility) {
+                await EventContextService.shared.fetchContext(eventId: event.id)
+            }
 
             #if DEBUG
             print("[EventJoin] ✅ Joined event: \(event.name)")
@@ -121,6 +126,7 @@ final class EventJoinService: ObservableObject {
         isEventJoined = false
 
         presence.reset()
+        EventContextService.shared.clearCache()
 
         #if DEBUG
         print("[EventJoin] 👋 Left event")

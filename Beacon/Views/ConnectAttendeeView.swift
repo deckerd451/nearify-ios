@@ -284,6 +284,17 @@ struct ConnectAttendeeView: View {
                         print("[Connect] ℹ️ Already connected with \(attendee.name)")
                     }
                     AttendeeStateResolver.shared.refreshConnections()
+
+                    // Fire-and-forget: ingest QR-confirmed interaction into interaction_events
+                    if let currentUser = AuthService.shared.currentUser,
+                       let eventIdString = EventJoinService.shared.currentEventID,
+                       let eventId = UUID(uuidString: eventIdString) {
+                        NearifyIngestionService.shared.ingestQRConfirmedInteraction(
+                            eventId: eventId,
+                            fromProfileId: currentUser.id,
+                            toProfileId: attendee.id
+                        )
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -326,6 +337,18 @@ struct ConnectAttendeeView: View {
                         print("[Connect] ℹ️ QR: already connected with \(scannedId)")
                     }
                     AttendeeStateResolver.shared.refreshConnections()
+
+                    // Fire-and-forget: ingest QR-confirmed interaction into interaction_events
+                    if let currentUser = AuthService.shared.currentUser,
+                       let toCommunityId = UUID(uuidString: scannedId),
+                       let eventIdString = EventJoinService.shared.currentEventID,
+                       let eventId = UUID(uuidString: eventIdString) {
+                        NearifyIngestionService.shared.ingestQRConfirmedInteraction(
+                            eventId: eventId,
+                            fromProfileId: currentUser.id,
+                            toProfileId: toCommunityId
+                        )
+                    }
                 }
             } catch {
                 await MainActor.run {
