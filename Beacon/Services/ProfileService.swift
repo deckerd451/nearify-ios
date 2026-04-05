@@ -55,7 +55,7 @@ final class ProfileService {
         do {
             let profiles: [NearifyProfile] = try await supabase
                 .from("profiles")
-                .select("id,user_id,name,email,avatar_url,bio")
+                .select("id,user_id,name,email,avatar_url,bio,skills,interests")
                 .eq("user_id", value: userId.uuidString)
                 .limit(1)
                 .execute()
@@ -66,7 +66,7 @@ final class ProfileService {
                 return nil
             }
 
-            print("[Profile] ✅ Row loaded: id=\(profile.id), avatar_url=\(profile.avatar_url ?? "nil")")
+            print("[Profile] ✅ Row loaded: id=\(profile.id), avatar_url=\(profile.avatar_url ?? "nil"), skills=\(profile.skills ?? []), interests=\(profile.interests ?? [])")
             return mapToUser(profile)
 
         } catch {
@@ -91,7 +91,7 @@ final class ProfileService {
         do {
             let profile: NearifyProfile = try await supabase
                 .from("profiles")
-                .select("id,user_id,name,email,avatar_url,bio")
+                .select("id,user_id,name,email,avatar_url,bio,skills,interests")
                 .eq("id", value: profileId.uuidString)
                 .single()
                 .execute()
@@ -145,12 +145,16 @@ final class ProfileService {
         print("[Profile]    name: \(name ?? "nil")")
         print("[Profile]    bio: \(bio ?? "nil")")
         print("[Profile]    avatar_url: \(clearAvatar ? "(clearing)" : avatarUrl ?? "(unchanged)")")
+        print("[Profile]    skills: \(skills ?? [])")
+        print("[Profile]    interests: \(interests ?? [])")
 
         let payload = ProfileUpdatePayload(
             name: name,
             bio: bio,
             avatar_url: avatarUrl,
-            includeAvatarUrl: avatarUrl != nil || clearAvatar
+            includeAvatarUrl: avatarUrl != nil || clearAvatar,
+            skills: skills,
+            interests: interests
         )
 
         try await supabase
@@ -171,8 +175,8 @@ final class ProfileService {
             name: profile.name ?? "User",
             email: profile.email,
             bio: profile.bio,
-            skills: nil,
-            interests: nil,
+            skills: profile.skills,
+            interests: profile.interests,
             imageUrl: profile.avatar_url,
             imagePath: nil,
             profileCompleted: true,
@@ -196,9 +200,12 @@ private struct ProfileUpdatePayload: Encodable {
     let bio: String?
     let avatar_url: String?
     let includeAvatarUrl: Bool
+    let skills: [String]?
+    let interests: [String]?
 
     /// Only encodes avatar_url when explicitly requested (upload or clear).
     /// Prevents name/bio-only edits from accidentally nulling the avatar.
+    /// Skills and interests are always included when non-nil.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(name, forKey: .name)
@@ -206,10 +213,12 @@ private struct ProfileUpdatePayload: Encodable {
         if includeAvatarUrl {
             try container.encode(avatar_url, forKey: .avatar_url)
         }
+        try container.encodeIfPresent(skills, forKey: .skills)
+        try container.encodeIfPresent(interests, forKey: .interests)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, bio, avatar_url
+        case name, bio, avatar_url, skills, interests
     }
 }
 
@@ -222,6 +231,8 @@ struct NearifyProfile: Decodable {
     let email: String?
     let avatar_url: String?
     let bio: String?
+    let skills: [String]?
+    let interests: [String]?
 }
 
 struct ResolvedProfileResult {
