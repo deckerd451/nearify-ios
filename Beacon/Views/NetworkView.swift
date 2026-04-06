@@ -12,6 +12,7 @@ struct NetworkView: View {
     @State private var showPresenceTestResult = false
     @State private var selectedAttendee: EventAttendee?
     @State private var viewMode: ViewMode = .visualization
+    @State private var showSuggestions = false
 
     enum ViewMode {
         case visualization
@@ -72,21 +73,43 @@ struct NetworkView: View {
     // MARK: - States
 
     private var inactiveState: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "person.3")
-                .font(.system(size: 60))
-                .foregroundColor(.gray)
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 12) {
+                    Image(systemName: "person.3")
+                        .font(.system(size: 48))
+                        .foregroundColor(.gray)
 
-            Text("No Active Event")
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
+                    Text("No Active Event")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
 
-            Text("Join an event to see nearby attendees")
-                .font(.subheadline)
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+                    Text("Join an event to see nearby attendees")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+                .padding(.top, 32)
+
+                // Suggested Connections section
+                NavigationLink(destination: SuggestedConnectionsView()) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.blue)
+                        Text("People You May Know")
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding()
+                    .background(Color.white.opacity(0.06))
+                    .cornerRadius(12)
+                }
+                .padding(.horizontal)
+            }
         }
     }
 
@@ -94,6 +117,26 @@ struct NetworkView: View {
         ScrollView {
             VStack(spacing: 0) {
                 eventHeader
+
+                // Suggested Connections link
+                NavigationLink(destination: SuggestedConnectionsView()) {
+                    HStack {
+                        Image(systemName: "sparkles")
+                            .foregroundColor(.blue)
+                        Text("People You May Know")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.04))
+                }
+
                 nearbyDevicesSection
 
                 if displayAttendees.isEmpty {

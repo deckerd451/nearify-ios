@@ -26,16 +26,6 @@ struct EventModeView: View {
                     if bleService.isScanning {
                         eventStatusCard
                         nearbyAttendeesCard
-
-                        NavigationLink(destination: SuggestedConnectionsView()) {
-                            Label("Suggested Connections", systemImage: "person.2.fill")
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(12)
-                        }
-
                         technicalDiagnostics
                     }
 
