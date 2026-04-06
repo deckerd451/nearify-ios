@@ -31,23 +31,11 @@ struct InteractionEdge: Codable, Identifiable {
 
 // MARK: - SuggestedConnection
 
-/// UI model combining InteractionEdge with user display info
+/// UI model for a suggested connection based on shared event attendance
 struct SuggestedConnection: Identifiable {
     let id: UUID
-    let edgeId: UUID
     let otherUserId: UUID
     let displayName: String
-    let overlapMinutes: Int
-    let confidence: Double
-    let createdAt: Date
-    
-    init(edge: InteractionEdge, currentUserId: UUID, displayName: String) {
-        self.id = edge.id
-        self.edgeId = edge.id
-        self.otherUserId = edge.fromUserId == currentUserId ? edge.toUserId : edge.fromUserId
-        self.displayName = displayName
-        self.overlapMinutes = (edge.overlapSeconds ?? 0) / 60
-        self.confidence = edge.confidence ?? 0.0
-        self.createdAt = edge.createdAt
-    }
+    let sharedEvents: Int
+    let lastSeenAt: Date
 }
