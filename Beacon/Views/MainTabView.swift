@@ -3,14 +3,14 @@ import Combine
 
 enum AppTab: Int {
     case home = 0
-    case myQR = 1
-    case scan = 2
-    case event = 3
-    case profile = 4
-    
+    case scan = 1
+    case event = 2
+    case profile = 3
+
     // Legacy aliases for backward compatibility
     static let eventMode = AppTab.event
     static let network = AppTab.event
+    static let myQR = AppTab.profile
 }
 
 struct MainTabView: View {
@@ -28,12 +28,6 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.home)
 
-            MyQRView(currentUser: currentUser)
-                .tabItem {
-                    Label("My QR", systemImage: "qrcode")
-                }
-                .tag(AppTab.myQR)
-
             ScanView(selectedTab: $selectedTab)
                 .tabItem {
                     Label("Scan", systemImage: "camera")
@@ -46,7 +40,7 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.event)
 
-            ProfileTabView(currentUser: currentUser)
+            MyQRView(currentUser: currentUser)
                 .tabItem {
                     Label("Profile", systemImage: "person.circle")
                 }
