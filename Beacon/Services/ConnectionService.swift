@@ -4,7 +4,7 @@
 //   1. Xcode Shift+Cmd+F → "from_user_id" in connections context → 0 results
 //   2. Xcode Shift+Cmd+F → "to_user_id" in connections context   → 0 results
 //   3. Shift+Cmd+K (clean build folder), then Cmd+R
-//   4. Tap Network tab — no PGRST200 in console
+//   4. Tap Event tab — no PGRST200 in console
 //   5. Console shows the ✅ debug lines below
 
 import Foundation
@@ -17,7 +17,32 @@ final class ConnectionService {
 
     private init() {}
 
-    // MARK: - createConnection
+    // MARK: - Types
+
+    enum ConnectResult {
+        case created
+        case alreadyExists
+    }
+
+    private struct CreatePayload: Encodable {
+        let requesterProfileId: UUID
+        let addresseeProfileId: UUID
+        let eventId: String?
+        let status: String
+
+        enum CodingKeys: String, CodingKey {
+            case requesterProfileId = "requester_profile_id"
+            case addresseeProfileId = "addressee_profile_id"
+            case eventId = "event_id"
+            case status
+        }
+    }
+
+    private struct ConnectionIdRow: Decodable {
+        let id: UUID
+    }
+
+    // MARK: - Public API
 
     /// Inserts an accepted connection from the current user to `profileId`.
     /// Columns written: requester_profile_id, addressee_profile_id, event_id, status.
@@ -26,11 +51,11 @@ final class ConnectionService {
         guard let currentUser = AuthService.shared.currentUser else {
             throw ConnectionError.notAuthenticated
         }
+
         guard let toId = UUID(uuidString: profileId) else {
             throw ConnectionError.invalidQRCode
         }
 
-        // Resolve event_id if user is currently in an event
         let eventId: String? = await MainActor.run {
             EventJoinService.shared.currentEventID
         }
@@ -41,33 +66,21 @@ final class ConnectionService {
         print("[Connection]   event_id             = \(eventId ?? "nil")")
         print("[Connection]   status               = accepted")
 
-        struct Payload: Encodable {
-            let requesterProfileId: UUID
-            let addresseeProfileId: UUID
-            let eventId: String?
-            let status: String
-            enum CodingKeys: String, CodingKey {
-                case requesterProfileId = "requester_profile_id"
-                case addresseeProfileId = "addressee_profile_id"
-                case eventId            = "event_id"
-                case status
-            }
-        }
-
         do {
             try await supabase
                 .from("connections")
-                .insert(Payload(
-                    requesterProfileId: currentUser.id,
-                    addresseeProfileId: toId,
-                    eventId: eventId,
-                    status: "accepted"
-                ))
+                .insert(
+                    CreatePayload(
+                        requesterProfileId: currentUser.id,
+                        addresseeProfileId: toId,
+                        eventId: eventId,
+                        status: "accepted"
+                    )
+                )
                 .execute()
 
             print("[Connection] ✅ Connection inserted successfully")
-            
-            // Generate feed item for the new connection
+
             Task {
                 await FeedService.shared.generateConnectionFeedItems()
             }
@@ -78,34 +91,25 @@ final class ConnectionService {
         }
     }
 
-    // MARK: - createConnectionIfNeeded
-
-    enum ConnectResult {
-        case created
-        case alreadyExists
-    }
-
     /// Creates a connection if one doesn't already exist. Returns the outcome.
     func createConnectionIfNeeded(to profileId: String) async throws -> ConnectResult {
         guard let currentUser = AuthService.shared.currentUser else {
             throw ConnectionError.notAuthenticated
         }
+
         guard let toId = UUID(uuidString: profileId) else {
             throw ConnectionError.invalidQRCode
         }
 
         let myId = currentUser.id.uuidString
         let targetId = toId.uuidString
-
-        // Check both directions using the real column names
-        let orFilter = "and(requester_profile_id.eq.\(myId),addressee_profile_id.eq.\(targetId)),and(requester_profile_id.eq.\(targetId),addressee_profile_id.eq.\(myId))"
+        let orFilter = bidirectionalFilter(myId: myId, targetId: targetId)
 
         print("[Connection] Checking existing connection:")
         print("[Connection]   myId     = \(myId)")
         print("[Connection]   targetId = \(targetId)")
 
-        struct Row: Decodable { let id: UUID }
-        let existing: [Row] = try await supabase
+        let existing: [ConnectionIdRow] = try await supabase
             .from("connections")
             .select("id")
             .or(orFilter)
@@ -113,16 +117,14 @@ final class ConnectionService {
             .execute()
             .value
 
-        if !existing.isEmpty {
-            print("[Connection] ℹ️ Connection already exists (id: \(existing[0].id))")
+        if let first = existing.first {
+            print("[Connection] ℹ️ Connection already exists (id: \(first.id))")
             return .alreadyExists
         }
 
         try await createConnection(to: profileId)
         return .created
     }
-
-    // MARK: - fetchConnections
 
     /// Fetches every accepted connection where the current user is on either side,
     /// with both profiles embedded via explicit FK constraint names.
@@ -157,6 +159,38 @@ final class ConnectionService {
             .eq("status", value: "accepted")
             .execute()
             .value
+    }
+
+    /// Checks whether the current user has an accepted connection with the given profile.
+    /// Checks both directions of the relationship.
+    func isConnected(with profileId: UUID) async -> Bool {
+        guard let currentUser = AuthService.shared.currentUser else {
+            print("[Connection] ⚠️ isConnected check failed: no authenticated user")
+            return false
+        }
+
+        let myId = currentUser.id.uuidString
+        let targetId = profileId.uuidString
+        let orFilter = bidirectionalFilter(myId: myId, targetId: targetId)
+
+        let rows: [ConnectionIdRow]? = try? await supabase
+            .from("connections")
+            .select("id")
+            .or(orFilter)
+            .eq("status", value: "accepted")
+            .limit(1)
+            .execute()
+            .value
+
+        let isConnected = !(rows?.isEmpty ?? true)
+        print("[Connection] isConnected(\(targetId)) → \(isConnected)")
+        return isConnected
+    }
+
+    // MARK: - Helpers
+
+    private func bidirectionalFilter(myId: String, targetId: String) -> String {
+        "and(requester_profile_id.eq.\(myId),addressee_profile_id.eq.\(targetId)),and(requester_profile_id.eq.\(targetId),addressee_profile_id.eq.\(myId))"
     }
 }
 

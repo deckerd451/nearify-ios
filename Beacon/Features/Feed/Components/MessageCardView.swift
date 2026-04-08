@@ -3,23 +3,23 @@ import SwiftUI
 /// Feed card for a new message notification.
 struct MessageCardView: View {
     let item: FeedItem
-    var onReply: (() -> Void)?
-    
+    let onReply: () -> Void
+
     private var name: String {
         item.metadata?.actorName ?? "Someone"
     }
-    
+
     private var preview: String {
         item.metadata?.messagePreview ?? ""
     }
-    
+
     private var timeText: String {
         guard let date = item.createdAt else { return "" }
         return date.feedRelativeString
     }
-    
+
     var body: some View {
-        FeedCardContainer {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Circle()
                     .fill(Color.blue.opacity(0.2))
@@ -29,23 +29,23 @@ struct MessageCardView: View {
                             .font(.system(size: 14))
                             .foregroundColor(.blue)
                     )
-                
+
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("New message from \(name)")
+                    Text("Message with \(name)")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
-                    
+
                     if !timeText.isEmpty {
                         Text(timeText)
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
                 }
-                
+
                 Spacer()
             }
-            
+
             if !preview.isEmpty {
                 Text(preview)
                     .font(.caption)
@@ -53,14 +53,13 @@ struct MessageCardView: View {
                     .lineLimit(2)
                     .padding(.top, 8)
             }
-            
+
             HStack(spacing: 12) {
-                feedActionButton("Reply", icon: "arrowshape.turn.up.left", color: .blue) {
-                    onReply?()
-                }
+                FeedActionButton(title: "Reply", icon: "arrowshape.turn.up.left", color: .blue, action: onReply)
             }
             .padding(.top, 12)
         }
+        .feedCard()
     }
 }
 
@@ -73,7 +72,7 @@ extension Date {
         if interval < 3600 { return "\(Int(interval / 60))m ago" }
         if interval < 86400 { return "\(Int(interval / 3600))h ago" }
         if interval < 604800 { return "\(Int(interval / 86400))d ago" }
-        
+
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none

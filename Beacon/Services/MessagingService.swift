@@ -111,6 +111,15 @@ final class MessagingService: ObservableObject {
             throw MessagingError.notAuthenticated
         }
         
+        // Verify connection exists before allowing conversation
+        let connected = await ConnectionService.shared.isConnected(with: targetProfileId)
+        guard connected else {
+            #if DEBUG
+            print("[Messaging] ⛔ Cannot create conversation — not connected with \(targetProfileId)")
+            #endif
+            throw MessagingError.notConnected
+        }
+        
         // Check for existing conversation
         let existing: [Conversation] = try await supabase
             .from("conversations")

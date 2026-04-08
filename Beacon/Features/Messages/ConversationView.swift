@@ -178,6 +178,12 @@ struct ConversationView: View {
         Task {
             do {
                 try await messaging.sendMessage(conversationId: convo.id, content: text)
+                
+                // Generate message feed item and refresh feed
+                print("[Messaging] 📨 Message sent, triggering feed refresh")
+                await FeedService.shared.generateMessageFeedItems()
+                FeedService.shared.refresh()
+                print("[Feed] 🔄 Message feed refresh triggered after send")
             } catch {
                 messageText = text // Restore on failure
                 print("[Conversation] ❌ Send failed: \(error)")

@@ -1,22 +1,21 @@
 import SwiftUI
 
 /// Feed card for a follow-up suggestion.
-/// System-generated from shared interests + proximity + repeat encounters.
 struct SuggestionCardView: View {
     let item: FeedItem
-    var onConnect: (() -> Void)?
-    var onMessage: (() -> Void)?
-    
+    let onConnect: () -> Void
+    let onMessage: () -> Void
+
     private var name: String {
         item.metadata?.actorName ?? "Someone"
     }
-    
+
     private var reason: String {
         item.metadata?.suggestionReason ?? "You may want to connect"
     }
-    
+
     var body: some View {
-        FeedCardContainer {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
                 Circle()
                     .fill(Color.purple.opacity(0.2))
@@ -26,35 +25,32 @@ struct SuggestionCardView: View {
                             .font(.system(size: 14))
                             .foregroundColor(.purple)
                     )
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Follow-up opportunity")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)
-                    
+
                     Text(name)
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
-                
+
                 Spacer()
             }
-            
+
             Text(reason)
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.6))
                 .padding(.top, 8)
-            
+
             HStack(spacing: 12) {
-                feedActionButton("Connect", icon: "person.badge.plus", color: .purple) {
-                    onConnect?()
-                }
-                feedActionButton("Message", icon: "bubble.left", color: .blue) {
-                    onMessage?()
-                }
+                FeedActionButton(title: "Connect", icon: "person.badge.plus", color: .purple, action: onConnect)
+                FeedActionButton(title: "Message", icon: "bubble.left", color: .blue, action: onMessage)
             }
             .padding(.top, 12)
         }
+        .feedCard()
     }
 }

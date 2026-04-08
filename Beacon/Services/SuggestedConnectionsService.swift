@@ -1,230 +1,296 @@
 import Foundation
 import Supabase
 
+/// Generates suggested connections from co-attendance at events.
+/// Uses `profiles` as the canonical identity table and `connections`
+/// for existing relationship exclusion.
 final class SuggestedConnectionsService {
     static let shared = SuggestedConnectionsService()
 
     private let supabase = AppEnvironment.shared.supabaseClient
 
+    /// Locally ignored profile IDs (session-only, not persisted)
+    private var ignoredProfileIds: Set<UUID> = []
+
     private init() {}
 
-    // MARK: - Generate Suggestions (client-side, no RPC)
+    // MARK: - Nested Types
 
-    /// Generates suggestions by finding other attendees at the same event(s)
-    /// the current user attended. Excludes existing connections.
-    /// Returns the count of new suggestions found.
-    func generateSuggestions(
-        groupId: UUID?,
-        minOverlapSeconds: Int = 120,
-        lookbackMinutes: Int = 240
-    ) async throws -> Int {
-        guard let currentProfileId = try? await resolveCurrentUserCommunityId() else {
-            throw NSError(domain: "SuggestedConnections", code: 401,
-                          userInfo: [NSLocalizedDescriptionKey: "Could not resolve current user profile"])
-        }
+    /// Internal scoring model for ranking candidates.
+    private struct CandidateScore {
+        let profileId: UUID
+        var sharedEventCount: Int = 0
+        var lastSeenAt: Date = .distantPast
+        // TODO: Add encounter-based scoring when EncounterService data is available
+        // var overlapSeconds: Int = 0
+        // var encounterConfidence: Double = 0.0
 
-        print("[Suggestions] 🔍 Generating suggestions for profile: \(currentProfileId)")
-
-        // 1. Find events the current user has attended
-        let myAttendance: [AttendanceRow] = try await supabase
-            .from("event_attendees")
-            .select("event_id, profile_id, last_seen_at")
-            .eq("profile_id", value: currentProfileId.uuidString)
-            .eq("status", value: "joined")
-            .execute()
-            .value
-
-        let eventIds = Array(Set(myAttendance.map(\.eventId)))
-        print("[Suggestions]    Events attended: \(eventIds.count)")
-
-        guard !eventIds.isEmpty else {
-            print("[Suggestions]    No events found — no suggestions possible")
-            return 0
-        }
-
-        // 2. Find all other attendees at those events
-        let eventFilters = eventIds.map { "event_id.eq.\($0.uuidString)" }.joined(separator: ",")
-
-        let coAttendees: [AttendanceRow] = try await supabase
-            .from("event_attendees")
-            .select("event_id, profile_id, last_seen_at")
-            .or(eventFilters)
-            .eq("status", value: "joined")
-            .neq("profile_id", value: currentProfileId.uuidString)
-            .execute()
-            .value
-
-        // Deduplicate by profile_id, keeping the most recent last_seen_at
-        var bestByProfile: [UUID: AttendanceRow] = [:]
-        for row in coAttendees {
-            if let existing = bestByProfile[row.profileId] {
-                if row.lastSeenAt > existing.lastSeenAt {
-                    bestByProfile[row.profileId] = row
-                }
-            } else {
-                bestByProfile[row.profileId] = row
-            }
-        }
-
-        print("[Suggestions]    Co-attendees found: \(bestByProfile.count)")
-
-        guard !bestByProfile.isEmpty else {
-            print("[Suggestions]    No co-attendees — no suggestions possible")
-            return 0
-        }
-
-        // 3. Exclude existing connections
-        let existingConnectionIds = try await fetchExistingConnectionProfileIds(for: currentProfileId)
-        print("[Suggestions]    Existing connections: \(existingConnectionIds.count)")
-
-        let candidateIds = bestByProfile.keys.filter { !existingConnectionIds.contains($0) }
-        print("[Suggestions]    Candidates after filtering: \(candidateIds.count)")
-
-        guard !candidateIds.isEmpty else {
-            print("[Suggestions]    All co-attendees are already connected")
-            return 0
-        }
-
-        // 4. Build event overlap counts per candidate (how many shared events)
-        var sharedEventCount: [UUID: Int] = [:]
-        let myEventSet = Set(eventIds)
-        for row in coAttendees {
-            guard candidateIds.contains(row.profileId), myEventSet.contains(row.eventId) else { continue }
-            sharedEventCount[row.profileId, default: 0] += 1
-        }
-
-        // Store suggestions in memory for fetchSuggestions to return
-        _generatedSuggestions = candidateIds.map { profileId in
-            GeneratedSuggestion(
-                profileId: profileId,
-                sharedEvents: sharedEventCount[profileId] ?? 1,
-                lastSeenAt: bestByProfile[profileId]?.lastSeenAt ?? Date()
-            )
-        }
-        .sorted { $0.sharedEvents > $1.sharedEvents }
-
-        print("[Suggestions] ✅ Generated \(_generatedSuggestions.count) suggestions")
-        return _generatedSuggestions.count
-    }
-
-    // MARK: - In-memory suggestion store
-
-    private var _generatedSuggestions: [GeneratedSuggestion] = []
-
-    // MARK: - Fetch Suggestions
-
-    /// Returns suggestions with profile names resolved.
-    func fetchSuggestions(for profileId: UUID) async throws -> [SuggestedConnection] {
-        guard !_generatedSuggestions.isEmpty else {
-            print("[Suggestions] ℹ️ No generated suggestions to display")
-            return []
-        }
-
-        let profileIds = _generatedSuggestions.map(\.profileId)
-        let names = await fetchUserProfiles(for: profileIds)
-
-        return _generatedSuggestions.map { suggestion in
-            let name = names[suggestion.profileId] ?? "User \(suggestion.profileId.uuidString.prefix(8))"
-            return SuggestedConnection(
-                id: suggestion.profileId,
-                otherUserId: suggestion.profileId,
-                displayName: name,
-                sharedEvents: suggestion.sharedEvents,
-                lastSeenAt: suggestion.lastSeenAt
-            )
+        var score: Double {
+            // Simple scoring: shared events weighted heavily, recency as tiebreaker
+            let eventScore = Double(sharedEventCount) * 10.0
+            let recencyScore = max(0, 1.0 - (Date().timeIntervalSince(lastSeenAt) / 86400.0))
+            return eventScore + recencyScore
         }
     }
 
-    // MARK: - Actions
+    /// Row shape for co-attendee queries against event_attendees.
+    private struct CoAttendeeRow: Decodable {
+        let profileId: UUID
+        let eventId: UUID
+        let lastSeenAt: Date?
 
-    /// Accept a suggestion — creates a connection
-    func acceptSuggestion(profileId: UUID) async throws {
-        try await ConnectionService.shared.createConnection(to: profileId.uuidString)
-        _generatedSuggestions.removeAll { $0.profileId == profileId }
-        print("[Suggestions] ✅ Accepted suggestion → connection created for \(profileId)")
-    }
-
-    /// Ignore a suggestion — just remove from local list
-    func ignoreSuggestion(profileId: UUID) {
-        _generatedSuggestions.removeAll { $0.profileId == profileId }
-        print("[Suggestions] ✅ Ignored suggestion for \(profileId)")
-    }
-
-    // MARK: - Helpers
-
-    private func fetchExistingConnectionProfileIds(for profileId: UUID) async throws -> Set<UUID> {
-        let connections = try await ConnectionService.shared.fetchConnections()
-        var ids = Set<UUID>()
-        for conn in connections {
-            if conn.requesterProfileId == profileId {
-                ids.insert(conn.addresseeProfileId)
-            } else {
-                ids.insert(conn.requesterProfileId)
-            }
-        }
-        return ids
-    }
-
-    private func fetchUserProfiles(for userIds: [UUID]) async -> [UUID: String] {
-        guard !userIds.isEmpty else { return [:] }
-
-        do {
-            let cappedIds = Array(userIds.prefix(50))
-            let filters = cappedIds.map { "id.eq.\($0.uuidString)" }.joined(separator: ",")
-
-            let response: [CommunityProfile] = try await supabase
-                .from("profiles")
-                .select("id, name")
-                .or(filters)
-                .execute()
-                .value
-
-            return Dictionary(uniqueKeysWithValues: response.map { ($0.id, $0.name) })
-        } catch {
-            print("[Suggestions] ⚠️ Failed to fetch profiles: \(error)")
-            return [:]
+        enum CodingKeys: String, CodingKey {
+            case profileId  = "profile_id"
+            case eventId    = "event_id"
+            case lastSeenAt = "last_seen_at"
         }
     }
 
-    /// Resolve current user's profiles.id from auth session
-    func resolveCurrentUserCommunityId() async throws -> UUID {
+    /// Minimal profile row for display name resolution.
+    private struct ProfileNameRow: Decodable {
+        let id: UUID
+        let name: String?
+    }
+
+    // MARK: - Public API
+
+    /// Resolves the current authenticated user's profile ID from `profiles`.
+    /// Called by SuggestedConnectionsView on appear.
+    func resolveCurrentUserProfileId() async throws -> UUID {
         let session = try await supabase.auth.session
         let authUserId = session.user.id
 
-        let response: [CommunityProfile] = try await supabase
+        struct Row: Decodable { let id: UUID }
+
+        let rows: [Row] = try await supabase
             .from("profiles")
-            .select("id, name")
+            .select("id")
             .eq("user_id", value: authUserId.uuidString)
             .limit(1)
             .execute()
             .value
 
-        guard let profile = response.first else {
+        guard let row = rows.first else {
             throw NSError(domain: "SuggestedConnections", code: 404,
-                          userInfo: [NSLocalizedDescriptionKey: "Could not resolve profiles.id for current user"])
+                          userInfo: [NSLocalizedDescriptionKey: "No profile found for current user"])
         }
 
-        print("[Suggestions] ✅ Resolved profiles.id: \(profile.id)")
-        return profile.id
+        return row.id
     }
-}
 
-// MARK: - Internal Models
-
-private struct AttendanceRow: Codable {
-    let eventId: UUID
-    let profileId: UUID
-    let lastSeenAt: Date
-
-    enum CodingKeys: String, CodingKey {
-        case eventId = "event_id"
-        case profileId = "profile_id"
-        case lastSeenAt = "last_seen_at"
+    // Keep the old name as an alias so SuggestedConnectionsView compiles
+    // without changes. Forwards to the correctly-named method.
+    func resolveCurrentUserCommunityId() async throws -> UUID {
+        try await resolveCurrentUserProfileId()
     }
-}
 
-private struct GeneratedSuggestion {
-    let profileId: UUID
-    let sharedEvents: Int
-    let lastSeenAt: Date
+    /// Generates suggestion candidates from co-attendance data.
+    /// Returns the number of new candidates found.
+    func generateSuggestions(
+        groupId: UUID?,
+        minOverlapSeconds: Int = 120,
+        lookbackMinutes: Int = 240
+    ) async throws -> Int {
+        let currentProfileId = try await resolveCurrentUserProfileId()
+
+        #if DEBUG
+        print("[Suggestions] 🔍 Generating suggestions for profile: \(currentProfileId)")
+        #endif
+
+        // 1. Get existing connections to exclude
+        let existingConnectionIds = try await fetchExistingConnectionProfileIds(for: currentProfileId)
+
+        #if DEBUG
+        print("[Suggestions]    Existing connections to exclude: \(existingConnectionIds.count)")
+        #endif
+
+        // 2. Find co-attendees from event_attendees
+        let cutoff = Date().addingTimeInterval(-Double(lookbackMinutes) * 60)
+        let cutoffISO = ISO8601DateFormatter().string(from: cutoff)
+
+        // Fetch events the current user attended
+        struct EventRow: Decodable { let eventId: UUID; enum CodingKeys: String, CodingKey { case eventId = "event_id" } }
+
+        let myEvents: [EventRow] = try await supabase
+            .from("event_attendees")
+            .select("event_id")
+            .eq("profile_id", value: currentProfileId.uuidString)
+            .gte("last_seen_at", value: cutoffISO)
+            .execute()
+            .value
+
+        let myEventIds = Set(myEvents.map { $0.eventId })
+
+        guard !myEventIds.isEmpty else {
+            #if DEBUG
+            print("[Suggestions]    No recent events found")
+            #endif
+            return 0
+        }
+
+        // Fetch other attendees at those events
+        let eventIdStrings = myEventIds.map { $0.uuidString }
+
+        let coAttendees: [CoAttendeeRow] = try await supabase
+            .from("event_attendees")
+            .select("profile_id,event_id,last_seen_at")
+            .in("event_id", values: eventIdStrings)
+            .neq("profile_id", value: currentProfileId.uuidString)
+            .execute()
+            .value
+
+        // 3. Score candidates
+        var scores: [UUID: CandidateScore] = [:]
+
+        for row in coAttendees {
+            let pid = row.profileId
+
+            // Skip already connected, self, or ignored
+            guard !existingConnectionIds.contains(pid),
+                  !ignoredProfileIds.contains(pid),
+                  pid != currentProfileId else { continue }
+
+            var candidate = scores[pid] ?? CandidateScore(profileId: pid)
+            candidate.sharedEventCount += 1
+            if let seen = row.lastSeenAt, seen > candidate.lastSeenAt {
+                candidate.lastSeenAt = seen
+            }
+            scores[pid] = candidate
+        }
+
+        // TODO: Enrich scores with encounter data when available
+        // let encounters = try await EncounterService.shared.fetchEncounters(for: currentProfileId)
+        // for encounter in encounters { ... boost score ... }
+
+        #if DEBUG
+        print("[Suggestions]    Candidates found: \(scores.count)")
+        #endif
+
+        return scores.count
+    }
+
+    /// Fetches ranked suggestions for display.
+    func fetchSuggestions(for profileId: UUID) async throws -> [SuggestedConnection] {
+        let existingConnectionIds = try await fetchExistingConnectionProfileIds(for: profileId)
+
+        // Re-run the co-attendee query to build scored results
+        let cutoff = Date().addingTimeInterval(-240 * 60) // 4 hour lookback
+        let cutoffISO = ISO8601DateFormatter().string(from: cutoff)
+
+        struct EventRow: Decodable { let eventId: UUID; enum CodingKeys: String, CodingKey { case eventId = "event_id" } }
+
+        let myEvents: [EventRow] = try await supabase
+            .from("event_attendees")
+            .select("event_id")
+            .eq("profile_id", value: profileId.uuidString)
+            .gte("last_seen_at", value: cutoffISO)
+            .execute()
+            .value
+
+        let myEventIds = Set(myEvents.map { $0.eventId })
+        guard !myEventIds.isEmpty else { return [] }
+
+        let eventIdStrings = myEventIds.map { $0.uuidString }
+
+        let coAttendees: [CoAttendeeRow] = try await supabase
+            .from("event_attendees")
+            .select("profile_id,event_id,last_seen_at")
+            .in("event_id", values: eventIdStrings)
+            .neq("profile_id", value: profileId.uuidString)
+            .execute()
+            .value
+
+        // Score
+        var scores: [UUID: CandidateScore] = [:]
+        for row in coAttendees {
+            let pid = row.profileId
+            guard !existingConnectionIds.contains(pid),
+                  !ignoredProfileIds.contains(pid),
+                  pid != profileId else { continue }
+
+            var candidate = scores[pid] ?? CandidateScore(profileId: pid)
+            candidate.sharedEventCount += 1
+            if let seen = row.lastSeenAt, seen > candidate.lastSeenAt {
+                candidate.lastSeenAt = seen
+            }
+            scores[pid] = candidate
+        }
+
+        // Resolve display names
+        let candidateIds = Array(scores.keys)
+        guard !candidateIds.isEmpty else { return [] }
+
+        let profiles: [ProfileNameRow] = try await supabase
+            .from("profiles")
+            .select("id,name")
+            .in("id", values: candidateIds.map { $0.uuidString })
+            .execute()
+            .value
+
+        let nameMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0.name ?? "Unknown") })
+
+        // Build sorted results
+        let ranked = scores.values
+            .sorted { $0.score > $1.score }
+            .prefix(20)
+
+        return ranked.map { candidate in
+            SuggestedConnection(
+                id: candidate.profileId,
+                otherUserId: candidate.profileId,
+                displayName: nameMap[candidate.profileId] ?? "Unknown",
+                sharedEvents: candidate.sharedEventCount,
+                lastSeenAt: candidate.lastSeenAt
+            )
+        }
+    }
+
+    /// Creates a connection to the suggested profile.
+    func acceptSuggestion(profileId: UUID) async throws {
+        try await ConnectionService.shared.createConnection(to: profileId.uuidString)
+    }
+
+    /// Locally ignores a suggestion for this session.
+    func ignoreSuggestion(profileId: UUID) {
+        ignoredProfileIds.insert(profileId)
+    }
+
+    // MARK: - Private Helpers
+
+    /// Fetches all profile IDs the user is already connected with (any status that
+    /// should exclude them from suggestions). Checks both directions of the connection.
+    private func fetchExistingConnectionProfileIds(for profileId: UUID) async throws -> Set<UUID> {
+        let myId = profileId.uuidString
+
+        struct ConnectionRow: Decodable {
+            let requesterProfileId: UUID
+            let addresseeProfileId: UUID
+
+            enum CodingKeys: String, CodingKey {
+                case requesterProfileId = "requester_profile_id"
+                case addresseeProfileId = "addressee_profile_id"
+            }
+        }
+
+        // Fetch connections where user is on either side.
+        // Include both 'accepted' and 'pending' to avoid re-suggesting.
+        let rows: [ConnectionRow] = try await supabase
+            .from("connections")
+            .select("requester_profile_id,addressee_profile_id")
+            .or("requester_profile_id.eq.\(myId),addressee_profile_id.eq.\(myId)")
+            .in("status", values: ["accepted", "pending"])
+            .execute()
+            .value
+
+        var ids = Set<UUID>()
+        for row in rows {
+            if row.requesterProfileId == profileId {
+                ids.insert(row.addresseeProfileId)
+            } else {
+                ids.insert(row.requesterProfileId)
+            }
+        }
+
+        return ids
+    }
 }

@@ -111,6 +111,13 @@ final class EncounterService: ObservableObject {
                 print("[Encounter] ❌ Failed to flush encounter: \(error)")
             }
         }
+        
+        // After flushing encounters, regenerate encounter feed items
+        // so the feed reflects new encounters without requiring manual refresh
+        if !toFlush.isEmpty {
+            await FeedService.shared.generateEncounterFeedItems()
+            FeedService.shared.refresh()
+        }
     }
 }
 
