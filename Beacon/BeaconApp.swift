@@ -24,6 +24,7 @@ struct BeaconApp: App {
         _ = FeedService.shared
         _ = EncounterService.shared
         _ = MessagingService.shared
+        _ = NotificationService.shared
     }
 
     var body: some Scene {

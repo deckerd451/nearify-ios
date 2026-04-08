@@ -124,6 +124,16 @@ final class EncounterService: ObservableObject {
                 #if DEBUG
                 print("[Encounter] ✅ Flushed encounter: \(tracker.profileId) (\(tracker.totalSeconds)s)")
                 #endif
+
+                // Notify for significant encounters
+                let isConn = AttendeeStateResolver.shared.connectedIds.contains(tracker.profileId)
+                let name = attendees.attendees.first(where: { $0.id == tracker.profileId })?.name
+                NotificationService.shared.onEncounterDetected(
+                    profileId: tracker.profileId,
+                    profileName: name,
+                    overlapSeconds: tracker.totalSeconds,
+                    isConnected: isConn
+                )
             } catch {
                 print("[Encounter] ❌ Failed to flush encounter: \(error)")
             }

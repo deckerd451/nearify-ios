@@ -86,6 +86,10 @@ final class EventIntelligenceService: ObservableObject {
             lastAttendeeSignature = currentSignature
             isLoading = false
             isRefreshing = false
+
+            // Evaluate for notifications
+            NotificationService.shared.evaluateEventIntelligence(results)
+
             #if DEBUG
             print("[EventIntel] Refresh complete — \(results.count) ranked profiles")
             #endif

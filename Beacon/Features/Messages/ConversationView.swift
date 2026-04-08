@@ -98,7 +98,11 @@ struct ConversationView: View {
                 }
             }
             .task {
+                NotificationService.shared.activeConversationProfileId = targetProfileId
                 await loadConversation()
+            }
+            .onDisappear {
+                NotificationService.shared.activeConversationProfileId = nil
             }
         }
     }

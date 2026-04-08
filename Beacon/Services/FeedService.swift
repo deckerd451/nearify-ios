@@ -107,6 +107,9 @@ final class FeedService: ObservableObject {
             feedItems = items
             lastRefresh = Date()
 
+            // Evaluate feed items for notifications
+            NotificationService.shared.evaluateFeedItems(items)
+
             #if DEBUG
             print("[Feed] ✅ Loaded \(items.count) feed items")
             #endif
@@ -218,9 +221,10 @@ final class FeedService: ObservableObject {
                     createdAt: sourceTimestamp
                 )
 
-                try? await supabase
+                _ = try? await supabase
                     .from("feed_items")
-                    .upsert(payload, onConflict: "viewer_profile_id,type,actor_profile_id,event_id")
+                    .upsert(payload, onConflict:
+                        "viewer_profile_id,type,actor_profile_id,event_id")
                     .execute()
             }
 

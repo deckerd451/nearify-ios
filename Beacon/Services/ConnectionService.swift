@@ -81,7 +81,10 @@ final class ConnectionService {
 
             print("[Connection] ✅ Connection inserted successfully")
 
+            // Resolve name for notification
             Task {
+                let name = try? await ProfileService.shared.fetchProfileById(toId)
+                NotificationService.shared.onConnectionCreated(profileId: toId, profileName: name?.name)
                 FeedService.shared.requestRefresh(reason: "connection-created")
             }
         } catch {
