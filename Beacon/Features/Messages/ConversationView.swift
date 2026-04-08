@@ -3,27 +3,33 @@ import SwiftUI
 /// Lightweight messaging view between connected users.
 /// Text only. No attachments. No reactions.
 /// Header shows: "You met at {Event Name}"
+///
+/// Supports two modes:
+/// 1. Preloaded: conversation + name passed in (from FeedView's pre-resolution)
+/// 2. Lazy: only targetProfileId passed, resolves on appear (from FeedProfileDetailView)
 struct ConversationView: View {
     let targetProfileId: UUID
-    
+    var preloadedConversation: Conversation?
+    var preloadedName: String?
+
     @ObservedObject private var messaging = MessagingService.shared
     @Environment(\.dismiss) private var dismiss
-    
+
     @State private var conversation: Conversation?
     @State private var messageText = ""
     @State private var isLoading = true
     @State private var targetName = "..."
     @State private var errorMessage: String?
-    
+
     private var myId: UUID? {
         AuthService.shared.currentUser?.id
     }
-    
+
     var body: some View {
         NavigationView {
             ZStack {
                 Color.black.ignoresSafeArea()
-                
+
                 VStack(spacing: 0) {
                     // Event context header
                     if let eventName = conversation?.eventName {
@@ -39,10 +45,23 @@ struct ConversationView: View {
                         .frame(maxWidth: .infinity)
                         .background(Color.white.opacity(0.04))
                     }
-                    
+
                     if isLoading {
                         Spacer()
                         ProgressView().tint(.white)
+                        Spacer()
+                    } else if let error = errorMessage {
+                        Spacer()
+                        VStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.title2)
+                                .foregroundColor(.orange)
+                            Text(error)
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                        }
                         Spacer()
                     } else {
                         // Messages
@@ -64,7 +83,7 @@ struct ConversationView: View {
                                 }
                             }
                         }
-                        
+
                         // Input
                         messageInput
                     }
@@ -83,15 +102,15 @@ struct ConversationView: View {
             }
         }
     }
-    
+
     // MARK: - Message Bubble
-    
+
     private func messageBubble(_ message: Message) -> some View {
         let isMine = message.isMine(myId: myId ?? UUID())
-        
+
         return HStack {
             if isMine { Spacer(minLength: 60) }
-            
+
             VStack(alignment: isMine ? .trailing : .leading, spacing: 2) {
                 Text(message.content)
                     .font(.subheadline)
@@ -102,20 +121,20 @@ struct ConversationView: View {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(isMine ? Color.blue : Color.white.opacity(0.12))
                     )
-                
+
                 if let date = message.createdAt {
                     Text(date.feedRelativeString)
                         .font(.system(size: 10))
                         .foregroundColor(.gray)
                 }
             }
-            
+
             if !isMine { Spacer(minLength: 60) }
         }
     }
-    
+
     // MARK: - Input
-    
+
     private var messageInput: some View {
         HStack(spacing: 8) {
             TextField("Message", text: $messageText)
@@ -127,7 +146,7 @@ struct ConversationView: View {
                     RoundedRectangle(cornerRadius: 20)
                         .fill(Color.white.opacity(0.1))
                 )
-            
+
             Button(action: sendMessage) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
@@ -140,22 +159,37 @@ struct ConversationView: View {
         .padding(.vertical, 8)
         .background(Color.black)
     }
-    
+
     // MARK: - Actions
-    
+
     private func loadConversation() async {
+        // If preloaded data was provided, use it immediately — no blank screen
+        if let preloaded = preloadedConversation {
+            print("[Conversation] ⚡ Using preloaded conversation: \(preloaded.id)")
+            conversation = preloaded
+            targetName = preloadedName ?? "..."
+            isLoading = false
+
+            // Messages may already be loaded by the caller, but refresh to be safe
+            await messaging.fetchMessages(conversationId: preloaded.id)
+            print("[Conversation] ✅ Messages refreshed for preloaded conversation")
+            return
+        }
+
+        // Lazy path: resolve everything from scratch
+        print("[Conversation] 🔍 Lazy loading conversation for \(targetProfileId)")
         isLoading = true
-        defer { isLoading = false }
-        
+
         // Load target profile name
         if let profile = try? await ProfileService.shared.fetchProfileById(targetProfileId) {
             targetName = profile.name
+            print("[Conversation] 👤 Profile resolved: \(profile.name)")
         }
-        
+
         // Get or create conversation
-        let eventId = EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) }
-        let eventName = EventJoinService.shared.currentEventName
-        
+        let eventId = await MainActor.run { EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) } }
+        let eventName = await MainActor.run { EventJoinService.shared.currentEventName }
+
         do {
             let convo = try await messaging.getOrCreateConversation(
                 with: targetProfileId,
@@ -164,28 +198,30 @@ struct ConversationView: View {
             )
             conversation = convo
             await messaging.fetchMessages(conversationId: convo.id)
+            isLoading = false
+            print("[Conversation] ✅ Lazy load complete: \(convo.id)")
         } catch {
+            isLoading = false
             errorMessage = error.localizedDescription
             print("[Conversation] ❌ Failed to load: \(error)")
         }
     }
-    
+
     private func sendMessage() {
         guard let convo = conversation else { return }
         let text = messageText
         messageText = ""
-        
+
         Task {
             do {
                 try await messaging.sendMessage(conversationId: convo.id, content: text)
-                
-                // Generate message feed item and refresh feed
+
                 print("[Messaging] 📨 Message sent, triggering feed refresh")
                 await FeedService.shared.generateMessageFeedItems()
                 FeedService.shared.refresh()
                 print("[Feed] 🔄 Message feed refresh triggered after send")
             } catch {
-                messageText = text // Restore on failure
+                messageText = text
                 print("[Conversation] ❌ Send failed: \(error)")
             }
         }

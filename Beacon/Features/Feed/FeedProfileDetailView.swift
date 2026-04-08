@@ -11,7 +11,8 @@ struct FeedProfileDetailView: View {
     @State private var isLoading = true
     @State private var isConnected = false
     @State private var isConnecting = false
-    @State private var showConversation = false
+    @State private var activeConversation: ConversationDestination?
+    @State private var isOpeningConversation = false
     @State private var errorMessage: String?
     @State private var showNotConnectedAlert = false
 
@@ -41,8 +42,12 @@ struct FeedProfileDetailView: View {
         } message: {
             Text("Connect with this person first to start a conversation.")
         }
-        .sheet(isPresented: $showConversation) {
-            ConversationView(targetProfileId: profileId)
+        .sheet(item: $activeConversation) { destination in
+            ConversationView(
+                targetProfileId: destination.targetProfileId,
+                preloadedConversation: destination.conversation,
+                preloadedName: destination.targetName
+            )
         }
     }
 
@@ -84,7 +89,11 @@ struct FeedProfileDetailView: View {
                     // Message button
                     Button(action: handleMessageTap) {
                         HStack {
-                            Image(systemName: "bubble.left.fill")
+                            if isOpeningConversation {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "bubble.left.fill")
+                            }
                             Text(isConnected ? "Message" : "Connect to message")
                                 .fontWeight(.semibold)
                         }
@@ -94,6 +103,7 @@ struct FeedProfileDetailView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                     }
+                    .disabled(isOpeningConversation)
                     .buttonStyle(.plain)
 
                     // Connect button (if not connected)
@@ -174,8 +184,39 @@ struct FeedProfileDetailView: View {
         print("[FeedProfile] 💬 Message tapped for: \(profileId), connected: \(isConnected)")
         #endif
 
+        guard !isOpeningConversation else { return }
+
         if isConnected {
-            showConversation = true
+            isOpeningConversation = true
+            Task {
+                let eventId = await MainActor.run { EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) } }
+                let eventName = await MainActor.run { EventJoinService.shared.currentEventName }
+
+                do {
+                    let convo = try await MessagingService.shared.getOrCreateConversation(
+                        with: profileId,
+                        eventId: eventId,
+                        eventName: eventName
+                    )
+                    await MessagingService.shared.fetchMessages(conversationId: convo.id)
+
+                    await MainActor.run {
+                        activeConversation = ConversationDestination(
+                            id: convo.id,
+                            targetProfileId: profileId,
+                            targetName: profile?.name ?? "...",
+                            conversation: convo
+                        )
+                        isOpeningConversation = false
+                        print("[FeedProfile] ✅ Presenting conversation \(convo.id)")
+                    }
+                } catch {
+                    await MainActor.run {
+                        isOpeningConversation = false
+                        print("[FeedProfile] ❌ Conversation open failed: \(error)")
+                    }
+                }
+            }
         } else {
             showNotConnectedAlert = true
         }

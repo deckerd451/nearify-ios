@@ -7,6 +7,17 @@ enum FeedRoute: Hashable {
     case profileDetail(profileId: UUID)
 }
 
+// MARK: - Conversation Destination
+
+/// Single source of truth for conversation presentation.
+/// Only created after async resolution completes — never blank.
+struct ConversationDestination: Identifiable {
+    let id: UUID  // conversation ID
+    let targetProfileId: UUID
+    let targetName: String
+    let conversation: Conversation
+}
+
 /// Social Memory Feed — the primary experience.
 struct FeedView: View {
     @Binding var selectedTab: AppTab
@@ -14,9 +25,9 @@ struct FeedView: View {
     @ObservedObject private var eventJoin = EventJoinService.shared
 
     @State private var selectedFilter: FeedItemType? = nil
-    @State private var conversationTargetId: UUID?
-    @State private var showConversation = false
+    @State private var activeConversation: ConversationDestination?
     @State private var showNotConnectedAlert = false
+    @State private var isOpeningConversation = false
     @State private var isConnecting = false
     @State private var navigationPath = NavigationPath()
 
@@ -36,6 +47,19 @@ struct FeedView: View {
                 } else {
                     feedContent
                 }
+
+                // Loading overlay while resolving conversation
+                if isOpeningConversation {
+                    Color.black.opacity(0.5).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(1.2)
+                        Text("Opening conversation…")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                }
             }
             .navigationTitle("Your Feed")
             .navigationBarTitleDisplayMode(.large)
@@ -51,10 +75,12 @@ struct FeedView: View {
             .onAppear {
                 Task { await refreshFeed() }
             }
-            .sheet(isPresented: $showConversation) {
-                if let targetId = conversationTargetId {
-                    ConversationView(targetProfileId: targetId)
-                }
+            .sheet(item: $activeConversation) { destination in
+                ConversationView(
+                    targetProfileId: destination.targetProfileId,
+                    preloadedConversation: destination.conversation,
+                    preloadedName: destination.targetName
+                )
             }
             .alert("Can't message yet", isPresented: $showNotConnectedAlert) {
                 Button("OK", role: .cancel) {}
@@ -216,7 +242,6 @@ struct FeedView: View {
 
         print("[FeedAction] 👤 View Profile tapped for profile \(id) (source: \(source))")
         navigationPath.append(FeedRoute.profileDetail(profileId: id))
-        print("[FeedAction] 📍 Navigation path appended, count: \(navigationPath.count)")
     }
 
     private func handleMessage(profileId: UUID?, source: String) {
@@ -225,21 +250,73 @@ struct FeedView: View {
             return
         }
 
+        // Prevent double-taps while resolving
+        guard !isOpeningConversation else {
+            print("[FeedAction] ⏳ Already opening conversation, ignoring tap")
+            return
+        }
+
         print("[FeedAction] 💬 Message tapped for profile \(id) (source: \(source))")
-        print("[FeedAction] 🔍 Checking connection eligibility...")
+
+        isOpeningConversation = true
 
         Task {
+            print("[FeedAction] 🔍 Resolving conversation start for \(id)...")
+
+            // Step 1: Check connection
             let connected = await ConnectionService.shared.isConnected(with: id)
             print("[FeedAction] 🔗 isConnected result for \(id): \(connected)")
 
-            await MainActor.run {
-                if connected {
-                    print("[FeedAction] ✅ Opening conversation with \(id)")
-                    conversationTargetId = id
-                    showConversation = true
-                } else {
-                    print("[FeedAction] ⛔ Not connected with \(id), showing alert")
+            guard connected else {
+                await MainActor.run {
+                    isOpeningConversation = false
                     showNotConnectedAlert = true
+                    print("[FeedAction] ⛔ Not connected with \(id), showing alert")
+                }
+                return
+            }
+
+            // Step 2: Resolve profile name
+            var targetName = "..."
+            if let profile = try? await ProfileService.shared.fetchProfileById(id) {
+                targetName = profile.name
+            }
+            print("[FeedAction] 👤 Profile resolved: \(targetName)")
+
+            // Step 3: Get or create conversation
+            let eventId = await MainActor.run { EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) } }
+            let eventName = await MainActor.run { EventJoinService.shared.currentEventName }
+
+            do {
+                let convo = try await MessagingService.shared.getOrCreateConversation(
+                    with: id,
+                    eventId: eventId,
+                    eventName: eventName
+                )
+                print("[FeedAction] 💬 Conversation resolved: \(convo.id)")
+
+                // Step 4: Pre-load messages
+                await MessagingService.shared.fetchMessages(conversationId: convo.id)
+                print("[FeedAction] 📨 Initial messages loaded")
+
+                // Step 5: NOW present — everything is ready
+                await MainActor.run {
+                    activeConversation = ConversationDestination(
+                        id: convo.id,
+                        targetProfileId: id,
+                        targetName: targetName,
+                        conversation: convo
+                    )
+                    isOpeningConversation = false
+                    print("[FeedAction] ✅ Presenting conversation with \(targetName) (\(id))")
+                }
+            } catch {
+                await MainActor.run {
+                    isOpeningConversation = false
+                    if case MessagingError.notConnected = error {
+                        showNotConnectedAlert = true
+                    }
+                    print("[FeedAction] ❌ Conversation open failed: \(error)")
                 }
             }
         }
@@ -272,7 +349,6 @@ struct FeedView: View {
 
     private func handleDismiss(item: FeedItem) {
         print("[FeedAction] 🗑️ Dismiss tapped for feed item \(item.id)")
-        // TODO: Delete feed item from DB and remove from local list
     }
 
     private func refreshFeed() async {
