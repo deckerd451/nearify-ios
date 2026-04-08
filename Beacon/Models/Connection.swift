@@ -3,7 +3,7 @@ import Foundation
 // MARK: - CommunityProfile
 
 /// Lightweight profile row decoded from PostgREST FK embeds on the `community` table.
-/// Used by SuggestedConnectionsService and other community-table queries.
+/// Used by community-table queries.
 struct CommunityProfile: Codable {
     let id: UUID
     let name: String

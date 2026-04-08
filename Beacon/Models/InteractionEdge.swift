@@ -29,7 +29,7 @@ struct InteractionEdge: Codable, Identifiable {
     }
 }
 
-// MARK: - SuggestedConnection
+// MARK: - SuggestedConnection (legacy, kept for compatibility)
 
 /// UI model for a suggested connection based on shared event attendance
 struct SuggestedConnection: Identifiable {

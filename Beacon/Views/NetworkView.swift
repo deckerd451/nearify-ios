@@ -6,13 +6,13 @@ struct NetworkView: View {
     @ObservedObject private var scanner = BLEScannerService.shared
     @ObservedObject private var stateResolver = AttendeeStateResolver.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
+    @ObservedObject private var intelligence = EventIntelligenceService.shared
 
     @State private var showMockAttendees = false
     @State private var showSettings = false
     @State private var showPresenceTestResult = false
     @State private var selectedAttendee: EventAttendee?
     @State private var viewMode: ViewMode = .visualization
-    @State private var showSuggestions = false
 
     enum ViewMode {
         case visualization
@@ -30,7 +30,7 @@ struct NetworkView: View {
                     activeEventView
                 }
             }
-            .navigationTitle("Network")
+            .navigationTitle("Event")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -58,19 +58,17 @@ struct NetworkView: View {
                 FindAttendeeView(attendee: attendee)
             }
             .onAppear {
-                // Defer refresh work to the next runloop frame so it doesn't
-                // collide with the tab-switch render cycle. This prevents
-                // NavigationRequestObserver multi-update warnings.
                 Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    try? await Task.sleep(nanoseconds: 100_000_000)
                     stateResolver.refreshConnections()
                     attendees.refresh()
+                    intelligence.refresh()
                 }
             }
         }
     }
 
-    // MARK: - States
+    // MARK: - Inactive State
 
     private var inactiveState: some View {
         ScrollView {
@@ -90,55 +88,24 @@ struct NetworkView: View {
                         .foregroundColor(.gray)
                 }
                 .padding(.top, 32)
-
-                // Suggested Connections section
-                NavigationLink(destination: SuggestedConnectionsView()) {
-                    HStack {
-                        Image(systemName: "sparkles")
-                            .foregroundColor(.blue)
-                        Text("People You May Know")
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .padding()
-                    .background(Color.white.opacity(0.06))
-                    .cornerRadius(12)
-                }
-                .padding(.horizontal)
             }
         }
     }
+
+    // MARK: - Active Event View
 
     private var activeEventView: some View {
         ScrollView {
             VStack(spacing: 0) {
                 eventHeader
 
-                // Suggested Connections link
-                NavigationLink(destination: SuggestedConnectionsView()) {
-                    HStack {
-                        Image(systemName: "sparkles")
-                            .foregroundColor(.blue)
-                        Text("People You May Know")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.horizontal)
-                    .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.04))
-                }
+                // 1. Top People Right Now — intelligence layer
+                topPeopleSection
 
+                // 2. Proximity Signals — raw nearby data
                 nearbyDevicesSection
 
+                // 3. Attendee Graph — spatial visualization
                 if displayAttendees.isEmpty {
                     emptyState
                 } else {
@@ -188,6 +155,107 @@ struct NetworkView: View {
         .background(Color.black.opacity(0.3))
     }
 
+    // MARK: - Top People Right Now
+
+    private var topPeopleSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "sparkles")
+                    .foregroundColor(.yellow)
+                Text("Top People Right Now")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                Spacer()
+                if intelligence.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .tint(.gray)
+                }
+            }
+
+            if intelligence.topPeople.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "figure.walk")
+                        .foregroundColor(.gray)
+                    Text("Move around and meet people to unlock suggestions")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                .padding(.vertical, 4)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(intelligence.topPeople) { person in
+                        topPersonRow(person)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(Color.white.opacity(0.03))
+        .cornerRadius(16)
+        .padding(.horizontal)
+        .padding(.top, 12)
+    }
+
+    private func topPersonRow(_ person: RankedProfile) -> some View {
+        HStack(spacing: 10) {
+            // Avatar
+            Circle()
+                .fill(person.isConnected ? Color.green.opacity(0.2) : Color.blue.opacity(0.2))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Text(String(person.name.prefix(2)).uppercased())
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(person.isConnected ? .green : .blue)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(person.name)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white)
+
+                    if person.isConnected {
+                        Image(systemName: "link")
+                            .font(.system(size: 9))
+                            .foregroundColor(.green)
+                    }
+                    if person.hasMessaged {
+                        Image(systemName: "bubble.left.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.blue)
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    if person.encounterStrength > 0 {
+                        let mins = person.encounterStrength / 60
+                        Text(mins > 0 ? "\(mins)m nearby" : "\(person.encounterStrength)s nearby")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                    Text("Score: \(Int(person.score))")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+            }
+
+            Spacer()
+
+            // Tap to open profile
+            NavigationLink(destination: FeedProfileDetailView(profileId: person.profileId)) {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.04))
+        .cornerRadius(10)
+    }
+
     // MARK: - Nearby Devices
 
     private var nearbyDevicesSection: some View {
@@ -196,9 +264,7 @@ struct NetworkView: View {
                 Text("Proximity Signals")
                     .font(.headline)
                     .foregroundColor(.white)
-
                 Spacer()
-
                 Text("\(nearbyDevices.count)")
                     .font(.caption)
                     .foregroundColor(.gray)
@@ -225,7 +291,7 @@ struct NetworkView: View {
 
     private func nearbyDeviceRow(_ device: DiscoveredBLEDevice) -> some View {
         let resolvedName = resolvedAttendeeName(for: device)
-        
+
         return HStack(spacing: 10) {
             Circle()
                 .fill(deviceColor(for: device))
@@ -273,22 +339,18 @@ struct NetworkView: View {
     private var emptyState: some View {
         VStack(spacing: 20) {
             Spacer(minLength: 32)
-
             Image(systemName: "person.crop.circle.badge.questionmark")
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
-
             Text("You're the first one here")
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.white)
-
             Text("\(attendees.attendeeCount) attendees in this event.\nOthers will appear as they join.")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-
             Spacer(minLength: 32)
         }
         .frame(maxWidth: .infinity)
@@ -302,14 +364,9 @@ struct NetworkView: View {
             let presentations = displayAttendees.map { stateResolver.resolve(for: $0) }
 
             ZStack {
-                // Edges
                 ForEach(Array(presentations.enumerated()), id: \.element.attendee.id) { index, pres in
                     let radius = radiusForAttendee(pres.attendee, in: geo.size)
-                    let position = radialPosition(
-                        index: index, total: presentations.count,
-                        center: center, radius: radius
-                    )
-
+                    let position = radialPosition(index: index, total: presentations.count, center: center, radius: radius)
                     Path { path in
                         path.move(to: center)
                         path.addLine(to: position)
@@ -317,90 +374,45 @@ struct NetworkView: View {
                     .stroke(pres.edgeColor, lineWidth: pres.edgeWidth)
                 }
 
-                // Center "You" node
                 Circle()
                     .fill(Color.blue)
                     .frame(width: 50, height: 50)
-                    .overlay(
-                        Text("You")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                    )
+                    .overlay(Text("You").font(.caption).fontWeight(.bold).foregroundColor(.white))
                     .position(center)
 
-                // Attendee nodes
                 ForEach(Array(presentations.enumerated()), id: \.element.attendee.id) { index, pres in
                     let radius = radiusForAttendee(pres.attendee, in: geo.size)
-                    let position = radialPosition(
-                        index: index, total: presentations.count,
-                        center: center, radius: radius
-                    )
+                    let position = radialPosition(index: index, total: presentations.count, center: center, radius: radius)
                     let size = nodeSize(for: pres.attendee)
-
                     graphNode(pres: pres, size: size)
                         .position(position)
-                        .onTapGesture {
-                            selectedAttendee = pres.attendee
-                        }
+                        .onTapGesture { selectedAttendee = pres.attendee }
                 }
             }
         }
         .padding(.top, 20)
-        .animation(
-            .easeInOut(duration: 0.35),
-            value: displayAttendees.map { proximityScore(for: $0) }
-        )
+        .animation(.easeInOut(duration: 0.35), value: displayAttendees.map { proximityScore(for: $0) })
     }
 
     private func graphNode(pres: AttendeePresentation, size: CGFloat) -> some View {
         VStack(spacing: 3) {
             ZStack {
-                // Outer ring for connected/verified
                 if pres.hasRing {
-                    Circle()
-                        .stroke(pres.ringColor, lineWidth: 2)
-                        .frame(width: size + 6, height: size + 6)
+                    Circle().stroke(pres.ringColor, lineWidth: 2).frame(width: size + 6, height: size + 6)
                 }
-
-                // Main node
-                Circle()
-                    .fill(pres.nodeColor)
-                    .frame(width: size, height: size)
-                    .overlay(
-                        Text(pres.attendee.initials)
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                    )
+                Circle().fill(pres.nodeColor).frame(width: size, height: size)
+                    .overlay(Text(pres.attendee.initials).font(.caption).fontWeight(.bold).foregroundColor(.white))
                     .opacity(pres.nodeOpacity)
-
-                // Small badge for connected
                 if pres.relationship == .connected {
-                    Image(systemName: "link")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundColor(.black)
-                        .padding(3)
-                        .background(Circle().fill(pres.ringColor))
+                    Image(systemName: "link").font(.system(size: 8, weight: .bold)).foregroundColor(.black)
+                        .padding(3).background(Circle().fill(pres.ringColor))
                         .offset(x: size / 2 - 2, y: -(size / 2 - 2))
                 }
             }
-
-            // Compact label: name only, optional short subtitle
-            Text(pres.attendee.name)
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundColor(.white.opacity(pres.nodeOpacity))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 80)
-
-            Text(pres.attendee.graphSubtitleText)
-                .font(.system(size: 9))
-                .foregroundColor(.white.opacity(0.6 * pres.nodeOpacity))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: 80)
+            Text(pres.attendee.name).font(.caption2).fontWeight(.semibold)
+                .foregroundColor(.white.opacity(pres.nodeOpacity)).lineLimit(1).frame(maxWidth: 80)
+            Text(pres.attendee.graphSubtitleText).font(.system(size: 9))
+                .foregroundColor(.white.opacity(0.6 * pres.nodeOpacity)).lineLimit(1).frame(maxWidth: 80)
         }
     }
 
@@ -409,9 +421,7 @@ struct NetworkView: View {
     private var attendeeListView: some View {
         LazyVStack(spacing: 12) {
             ForEach(displayAttendees) { attendee in
-                Button(action: {
-                    selectedAttendee = attendee
-                }) {
+                Button(action: { selectedAttendee = attendee }) {
                     AttendeeCardView(attendee: attendee)
                 }
                 .buttonStyle(.plain)
@@ -427,81 +437,38 @@ struct NetworkView: View {
             Form {
                 Section(header: Text("Event Info")) {
                     HStack {
-                        Text("Event")
-                        Spacer()
-                        Text(eventJoin.currentEventName ?? presence.currentEvent ?? "None")
-                            .foregroundColor(.secondary)
+                        Text("Event"); Spacer()
+                        Text(eventJoin.currentEventName ?? presence.currentEvent ?? "None").foregroundColor(.secondary)
                     }
-
                     HStack {
-                        Text("Nearby Attendees")
-                        Spacer()
-                        Text("\(attendees.attendeeCount)")
-                            .foregroundColor(.secondary)
+                        Text("Nearby Attendees"); Spacer()
+                        Text("\(attendees.attendeeCount)").foregroundColor(.secondary)
                     }
-
                     HStack {
-                        Text("Proximity Signals")
-                        Spacer()
-                        Text("\(nearbyDevices.count)")
-                            .foregroundColor(.secondary)
+                        Text("Proximity Signals"); Spacer()
+                        Text("\(nearbyDevices.count)").foregroundColor(.secondary)
                     }
                 }
-
                 Section(header: Text("Diagnostics")) {
                     Toggle("Show Mock Attendees", isOn: $showMockAttendees)
-
-                    if showMockAttendees {
-                        Text("Mock attendees are for UI testing only and do not affect backend logic.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
                     Button(action: {
                         Task {
                             await EventPresenceService.shared.debugWritePresenceNow()
-
-                            await MainActor.run {
-                                showPresenceTestResult = true
-                            }
+                            await MainActor.run { showPresenceTestResult = true }
                         }
                     }) {
-                        HStack {
-                            Image(systemName: "arrow.up.doc.fill")
-                            Text("Test Presence Write")
-                            Spacer()
-                        }
+                        HStack { Image(systemName: "arrow.up.doc.fill"); Text("Test Presence Write"); Spacer() }
                     }
-                    .padding(.vertical, 4)
                     .alert("Presence Test Result", isPresented: $showPresenceTestResult) {
-                        Button("OK", role: .cancel) { }
-                    } message: {
-                        Text(presence.debugStatus)
-                    }
-
-                    if presence.debugStatus != "Idle" {
-                        Text(presence.debugStatus)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if showMockAttendees {
-                        HStack {
-                            Text("Mock Attendees")
-                            Spacer()
-                            Text("\(mockAttendees.count)")
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                        Button("OK", role: .cancel) {}
+                    } message: { Text(presence.debugStatus) }
                 }
             }
-            .navigationTitle("Network Settings")
+            .navigationTitle("Event Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        showSettings = false
-                    }
+                    Button("Done") { showSettings = false }
                 }
             }
         }
@@ -514,12 +481,8 @@ struct NetworkView: View {
     }
 
     private func proximityScore(for attendee: EventAttendee) -> Double {
-        guard let device = stateResolver.peerDevice(for: attendee) else {
-            return 0.5
-        }
-
+        guard let device = stateResolver.peerDevice(for: attendee) else { return 0.5 }
         let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
-
         switch rssi {
         case -45...0: return 1.0
         case -55..<(-45): return 0.8
@@ -530,28 +493,19 @@ struct NetworkView: View {
     }
 
     private func radiusForAttendee(_ attendee: EventAttendee, in size: CGSize) -> CGFloat {
-        let minRadius = min(size.width, size.height) * 0.18
-        let maxRadius = min(size.width, size.height) * 0.36
-        let score = proximityScore(for: attendee)
-        return maxRadius - (maxRadius - minRadius) * CGFloat(score)
+        let minR = min(size.width, size.height) * 0.18
+        let maxR = min(size.width, size.height) * 0.36
+        return maxR - (maxR - minR) * CGFloat(proximityScore(for: attendee))
     }
 
     private func nodeSize(for attendee: EventAttendee) -> CGFloat {
-        let score = proximityScore(for: attendee)
-        let minSize: CGFloat = 38
-        let maxSize: CGFloat = 52
-        return minSize + (maxSize - minSize) * CGFloat(score)
+        38 + (52 - 38) * CGFloat(proximityScore(for: attendee))
     }
 
-    private func radialPosition(
-        index: Int, total: Int, center: CGPoint, radius: CGFloat
-    ) -> CGPoint {
+    private func radialPosition(index: Int, total: Int, center: CGPoint, radius: CGFloat) -> CGPoint {
         guard total > 0 else { return center }
         let angle = (Double(index) / Double(total)) * 2.0 * .pi
-        return CGPoint(
-            x: center.x + CGFloat(cos(angle)) * radius,
-            y: center.y + CGFloat(sin(angle)) * radius
-        )
+        return CGPoint(x: center.x + CGFloat(cos(angle)) * radius, y: center.y + CGFloat(sin(angle)) * radius)
     }
 
     private var nearbyDevices: [DiscoveredBLEDevice] {
@@ -567,14 +521,9 @@ struct NetworkView: View {
         return .gray
     }
 
-    /// Resolves a BLE device to an attendee name using community ID prefix matching.
     private func resolvedAttendeeName(for device: DiscoveredBLEDevice) -> String? {
-        guard let prefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else {
-            return nil
-        }
-        return displayAttendees.first {
-            String($0.id.uuidString.prefix(8)).lowercased() == prefix
-        }?.name
+        guard let prefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else { return nil }
+        return displayAttendees.first { String($0.id.uuidString.prefix(8)).lowercased() == prefix }?.name
     }
 
     private var mockAttendees: [EventAttendee] {
@@ -582,12 +531,9 @@ struct NetworkView: View {
             EventAttendee(id: UUID(), name: "Alice Johnson", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.8, lastSeen: Date().addingTimeInterval(-10)),
             EventAttendee(id: UUID(), name: "Bob Smith", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.6, lastSeen: Date().addingTimeInterval(-45)),
             EventAttendee(id: UUID(), name: "Carol Davis", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.4, lastSeen: Date().addingTimeInterval(-120)),
-            EventAttendee(id: UUID(), name: "David Wilson", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.9, lastSeen: Date().addingTimeInterval(-5)),
         ]
     }
 }
-
-// MARK: - View Extension
 
 private extension View {
     func flexibleFrame(minWidth: CGFloat, maxWidth: CGFloat) -> some View {
