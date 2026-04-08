@@ -82,7 +82,7 @@ final class ConnectionService {
             print("[Connection] ✅ Connection inserted successfully")
 
             Task {
-                await FeedService.shared.generateConnectionFeedItems()
+                FeedService.shared.requestRefresh(reason: "connection-created")
             }
         } catch {
             print("[Connection] ❌ Connection insert failed: \(error)")

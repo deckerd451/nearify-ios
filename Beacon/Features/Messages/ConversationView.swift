@@ -216,10 +216,11 @@ struct ConversationView: View {
             do {
                 try await messaging.sendMessage(conversationId: convo.id, content: text)
 
-                print("[Messaging] 📨 Message sent, triggering feed refresh")
-                await FeedService.shared.generateMessageFeedItems()
-                FeedService.shared.refresh()
-                print("[Feed] 🔄 Message feed refresh triggered after send")
+                // Serialized feed refresh after send completes
+                print("[Messaging] ✅ Message send complete")
+                print("[Messaging] 📨 Requesting feed refresh after send")
+                FeedService.shared.requestRefresh(reason: "message-sent")
+                print("[Messaging] ✅ Post-send feed refresh scheduled")
             } catch {
                 messageText = text
                 print("[Conversation] ❌ Send failed: \(error)")

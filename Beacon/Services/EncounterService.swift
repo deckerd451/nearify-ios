@@ -17,6 +17,7 @@ final class EncounterService: ObservableObject {
     private let attendees = EventAttendeesService.shared
     
     private var flushTask: Task<Void, Never>?
+    private var isFlushLoopRunning = false
     private let flushInterval: TimeInterval = 30.0
     private let minimumOverlapSeconds = 30 // Don't record < 30s encounters
     
@@ -66,18 +67,34 @@ final class EncounterService: ObservableObject {
     
     /// Starts periodic flushing of accumulated encounters to Supabase.
     func startPeriodicFlush() {
+        guard !isFlushLoopRunning else {
+            #if DEBUG
+            print("[Guard] Encounter flush loop already running — skipping")
+            #endif
+            return
+        }
+
+        isFlushLoopRunning = true
         flushTask?.cancel()
         flushTask = Task { [weak self] in
+            #if DEBUG
+            print("[Guard] Encounter flush loop started")
+            #endif
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(30 * 1_000_000_000))
                 await self?.flushEncounters()
             }
+            await MainActor.run { self?.isFlushLoopRunning = false }
+            #if DEBUG
+            print("[Guard] Encounter flush loop stopped")
+            #endif
         }
     }
     
     func stopPeriodicFlush() {
         flushTask?.cancel()
         flushTask = nil
+        isFlushLoopRunning = false
     }
     
     /// Writes accumulated encounters to the `encounters` table.
@@ -112,11 +129,9 @@ final class EncounterService: ObservableObject {
             }
         }
         
-        // After flushing encounters, regenerate encounter feed items
-        // so the feed reflects new encounters without requiring manual refresh
+        // After flushing encounters, request a coalesced feed refresh
         if !toFlush.isEmpty {
-            await FeedService.shared.generateEncounterFeedItems()
-            FeedService.shared.refresh()
+            FeedService.shared.requestRefresh(reason: "encounter-flush")
         }
     }
 }

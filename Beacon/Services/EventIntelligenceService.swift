@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Supabase
 
 /// Real-time event intelligence engine.
@@ -13,6 +14,8 @@ final class EventIntelligenceService: ObservableObject {
     @Published private(set) var isLoading = false
 
     private let supabase = AppEnvironment.shared.supabaseClient
+    private var isRefreshing = false
+    private var lastAttendeeSignature = ""
 
     private init() {}
 
@@ -50,6 +53,28 @@ final class EventIntelligenceService: ObservableObject {
             return
         }
 
+        // Guard against overlapping refreshes
+        guard !isRefreshing else {
+            #if DEBUG
+            print("[EventIntel] Refresh already running — skipping")
+            #endif
+            return
+        }
+
+        // Material-change check: skip if attendee list hasn't changed
+        let currentSignature = EventAttendeesService.shared.attendees.map { $0.id.uuidString }.sorted().joined()
+        if currentSignature == lastAttendeeSignature && !topPeople.isEmpty {
+            #if DEBUG
+            print("[EventIntel] Refresh skipped (no material change)")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[EventIntel] Refresh requested")
+        #endif
+
+        isRefreshing = true
         isLoading = true
         Task {
             let results = await getTopRelevantPeople(
@@ -58,7 +83,12 @@ final class EventIntelligenceService: ObservableObject {
                 limit: 5
             )
             topPeople = results
+            lastAttendeeSignature = currentSignature
             isLoading = false
+            isRefreshing = false
+            #if DEBUG
+            print("[EventIntel] Refresh complete — \(results.count) ranked profiles")
+            #endif
         }
     }
 

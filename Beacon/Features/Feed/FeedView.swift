@@ -70,10 +70,13 @@ struct FeedView: View {
                 }
             }
             .refreshable {
-                await refreshFeed()
+                await feedService.generateConnectionFeedItems()
+                await feedService.generateEncounterFeedItems()
+                await feedService.generateMessageFeedItems()
+                feedService.refresh()
             }
             .onAppear {
-                Task { await refreshFeed() }
+                feedService.requestRefresh(reason: "feed-appear")
             }
             .sheet(item: $activeConversation) { destination in
                 ConversationView(
@@ -339,7 +342,7 @@ struct FeedView: View {
             do {
                 let result = try await ConnectionService.shared.createConnectionIfNeeded(to: id.uuidString)
                 print("[FeedAction] ✅ Connect result for \(id): \(result)")
-                await refreshFeed()
+                feedService.requestRefresh(reason: "connection-created")
             } catch {
                 print("[FeedAction] ❌ Connect failed for \(id): \(error)")
             }
@@ -349,15 +352,5 @@ struct FeedView: View {
 
     private func handleDismiss(item: FeedItem) {
         print("[FeedAction] 🗑️ Dismiss tapped for feed item \(item.id)")
-    }
-
-    private func refreshFeed() async {
-        await feedService.generateConnectionFeedItems()
-        await feedService.generateEncounterFeedItems()
-        await feedService.generateMessageFeedItems()
-        feedService.refresh()
-        #if DEBUG
-        print("[Feed] 🔄 Feed refresh complete (connections + encounters + messages)")
-        #endif
     }
 }

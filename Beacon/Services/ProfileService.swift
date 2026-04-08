@@ -110,6 +110,43 @@ final class ProfileService {
         }
     }
 
+    // MARK: - Batch Fetch Profiles by IDs
+
+    /// Loads multiple profiles in a single query using id IN (...).
+    /// Returns a dictionary keyed by profile ID for O(1) lookup.
+    func fetchProfilesByIds(_ profileIds: [UUID]) async -> [UUID: User] {
+        guard !profileIds.isEmpty else { return [:] }
+
+        let uniqueIds = Array(Set(profileIds))
+
+        #if DEBUG
+        print("[Profile] 📥 Batch querying \(uniqueIds.count) profiles")
+        #endif
+
+        do {
+            let profiles: [NearifyProfile] = try await supabase
+                .from("profiles")
+                .select("id,user_id,name,email,avatar_url,bio,skills,interests")
+                .in("id", values: uniqueIds.map { $0.uuidString })
+                .execute()
+                .value
+
+            var result: [UUID: User] = [:]
+            for profile in profiles {
+                result[profile.id] = mapToUser(profile)
+            }
+
+            #if DEBUG
+            print("[Profile] ✅ Batch loaded \(result.count) profiles")
+            #endif
+
+            return result
+        } catch {
+            print("[Profile] ❌ Batch fetch failed: \(error)")
+            return [:]
+        }
+    }
+
     // MARK: - Ensure Profile (RPC)
 
     private func ensureProfile(authUser: Supabase.User) async throws -> User {
