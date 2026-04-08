@@ -7,15 +7,6 @@ enum FeedItemType: String, Codable, CaseIterable {
     case encounter
     case suggestion
     case message
-    
-    var priorityScore: Double {
-        switch self {
-        case .message:    return 100
-        case .connection: return 90
-        case .suggestion: return 70
-        case .encounter:  return 50
-        }
-    }
 }
 
 // MARK: - FeedItem

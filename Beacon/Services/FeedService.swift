@@ -69,6 +69,8 @@ final class FeedService: ObservableObject {
             for conn in connections {
                 let other = conn.otherUser(for: myId)
                 
+                let score = FeedPriorityScorer.scoreConnection(connectionCreatedAt: conn.createdAt)
+                
                 let metadata = FeedItemMetadata(
                     eventName: nil,
                     sharedInterests: nil,
@@ -82,9 +84,9 @@ final class FeedService: ObservableObject {
                     actorProfileId: other.id,
                     targetProfileId: nil,
                     eventId: conn.eventId,
-                    priorityScore: FeedItemType.connection.priorityScore,
+                    priorityScore: score,
                     metadata: metadata,
-                    createdAt: nil
+                    createdAt: conn.createdAt
                 )
                 
                 // Upsert — skip if already exists for this connection+event
@@ -162,6 +164,11 @@ final class FeedService: ObservableObject {
                 // Use the encounter's source timestamp, not feed generation time
                 let sourceTimestamp = encounter.lastSeenAt ?? encounter.firstSeenAt
                 
+                let score = FeedPriorityScorer.scoreEncounter(
+                    sourceTimestamp: sourceTimestamp,
+                    overlapSeconds: encounter.overlapSeconds
+                )
+                
                 #if DEBUG
                 print("[Feed] 📝 Encounter timestamp used: \(sourceTimestamp?.description ?? "nil") for profile \(otherId)")
                 #endif
@@ -177,7 +184,7 @@ final class FeedService: ObservableObject {
                     actorProfileId: otherId,
                     targetProfileId: nil,
                     eventId: encounter.eventId,
-                    priorityScore: FeedItemType.encounter.priorityScore,
+                    priorityScore: score,
                     metadata: metadata,
                     createdAt: sourceTimestamp
                 )
@@ -257,6 +264,8 @@ final class FeedService: ObservableObject {
                     actorName: actorName
                 )
                 
+                let score = FeedPriorityScorer.scoreMessage(sourceTimestamp: latestMessage.createdAt)
+                
                 // Delete existing message feed item for this actor (NULL event_id dedup)
                 try await supabase
                     .from("feed_items")
@@ -273,7 +282,7 @@ final class FeedService: ObservableObject {
                     actorProfileId: otherId,
                     targetProfileId: nil,
                     eventId: nil,
-                    priorityScore: FeedItemType.message.priorityScore,
+                    priorityScore: score,
                     metadata: metadata,
                     createdAt: latestMessage.createdAt
                 )
@@ -328,6 +337,8 @@ final class FeedService: ObservableObject {
             actorName: actorDisplayName
         )
         
+        let score = FeedPriorityScorer.scoreMessage(sourceTimestamp: message.createdAt)
+        
         // For messages, we first delete any existing message feed item from this actor
         // then insert fresh. This avoids the NULL event_id unique constraint issue
         // (PostgreSQL treats NULL != NULL in UNIQUE constraints).
@@ -348,7 +359,7 @@ final class FeedService: ObservableObject {
                 actorProfileId: actorId,
                 targetProfileId: nil,
                 eventId: nil,
-                priorityScore: FeedItemType.message.priorityScore,
+                priorityScore: score,
                 metadata: metadata,
                 createdAt: message.createdAt
             )
