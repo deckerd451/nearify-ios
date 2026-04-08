@@ -5,8 +5,12 @@ enum AppTab: Int {
     case home = 0
     case myQR = 1
     case scan = 2
-    case eventMode = 3
-    case network = 4
+    case event = 3
+    case profile = 4
+    
+    // Legacy aliases for backward compatibility
+    static let eventMode = AppTab.event
+    static let network = AppTab.event
 }
 
 struct MainTabView: View {
@@ -18,7 +22,7 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView(selectedTab: $selectedTab)
+            FeedView(selectedTab: $selectedTab)
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
@@ -36,17 +40,17 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.scan)
 
-            EventModeView()
-                .tabItem {
-                    Label("Diagnostics", systemImage: "waveform")
-                }
-                .tag(AppTab.eventMode)
-
             NetworkView()
                 .tabItem {
-                    Label("Network", systemImage: "circle.hexagongrid")
+                    Label("Event", systemImage: "person.3")
                 }
-                .tag(AppTab.network)
+                .tag(AppTab.event)
+
+            ProfileTabView(currentUser: currentUser)
+                .tabItem {
+                    Label("Profile", systemImage: "person.circle")
+                }
+                .tag(AppTab.profile)
         }
         .onAppear {
             #if DEBUG
@@ -92,7 +96,7 @@ struct MainTabView: View {
         print("[DeepLink] 🚨 Replaying pending event from \(source): \(eventId)")
         #endif
 
-        selectedTab = .network
+        selectedTab = .event
 
         Task {
             await EventJoinService.shared.joinEvent(eventID: eventId)

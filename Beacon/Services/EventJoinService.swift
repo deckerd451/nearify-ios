@@ -53,6 +53,9 @@ final class EventJoinService: ObservableObject {
 
             startHeartbeat(profileId: profile.id, eventId: event.id)
 
+            // Start encounter tracking for the Social Memory Feed
+            EncounterService.shared.startPeriodicFlush()
+
             // Preload event context for intelligence pipeline (fire-and-forget)
             Task(priority: .utility) {
                 await EventContextService.shared.fetchContext(eventId: event.id)
@@ -91,6 +94,12 @@ final class EventJoinService: ObservableObject {
 
                 do {
                     try await self.touchAttendance(eventId: eventId, profileId: profileId)
+                    
+                    // Update encounter tracking from BLE data
+                    await MainActor.run {
+                        EncounterService.shared.updateFromBLE()
+                    }
+                    
                     #if DEBUG
                     print("[EventJoin] ✅ Heartbeat tick")
                     #endif
@@ -124,6 +133,10 @@ final class EventJoinService: ObservableObject {
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
+
+        // Flush remaining encounters before leaving
+        Task { await EncounterService.shared.flushEncounters() }
+        EncounterService.shared.stopPeriodicFlush()
 
         currentEventID = nil
         currentEventName = nil

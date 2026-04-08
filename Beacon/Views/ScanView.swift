@@ -406,9 +406,9 @@ struct ScanView: View {
 
             await MainActor.run {
                 #if DEBUG
-                print("[ScanUI] 🧭 Frame 1: selectedTab → .network")
+                print("[ScanUI] 🧭 Frame 1: selectedTab → .event")
                 #endif
-                selectedTab = .network
+                selectedTab = .event
             }
 
             try? await Task.sleep(nanoseconds: 50_000_000)

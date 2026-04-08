@@ -21,6 +21,9 @@ struct BeaconApp: App {
         _ = BeaconConfidenceService.shared  // Diagnostic-only anchor monitor; must init before EventPresenceService
         _ = EventPresenceService.shared
         _ = EventAttendeesService.shared
+        _ = FeedService.shared
+        _ = EncounterService.shared
+        _ = MessagingService.shared
     }
 
     var body: some Scene {
@@ -95,7 +98,7 @@ struct BeaconApp: App {
                     print("[DeepLink] 📱 Switching to Network tab (UI signal)")
                     #endif
                     // Switch tab immediately — visible proof the deep link landed.
-                    selectedTab = .network
+                    selectedTab = .event
                     Task {
                         #if DEBUG
                         print("[DeepLink] 🎫 Routing to EventJoinService")

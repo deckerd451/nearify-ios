@@ -1,0 +1,60 @@
+import SwiftUI
+
+/// Feed card for a follow-up suggestion.
+/// System-generated from shared interests + proximity + repeat encounters.
+struct SuggestionCardView: View {
+    let item: FeedItem
+    var onConnect: (() -> Void)?
+    var onMessage: (() -> Void)?
+    
+    private var name: String {
+        item.metadata?.actorName ?? "Someone"
+    }
+    
+    private var reason: String {
+        item.metadata?.suggestionReason ?? "You may want to connect"
+    }
+    
+    var body: some View {
+        FeedCardContainer {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(Color.purple.opacity(0.2))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14))
+                            .foregroundColor(.purple)
+                    )
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Follow-up opportunity")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                    
+                    Text(name)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                }
+                
+                Spacer()
+            }
+            
+            Text(reason)
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.6))
+                .padding(.top, 8)
+            
+            HStack(spacing: 12) {
+                feedActionButton("Connect", icon: "person.badge.plus", color: .purple) {
+                    onConnect?()
+                }
+                feedActionButton("Message", icon: "bubble.left", color: .blue) {
+                    onMessage?()
+                }
+            }
+            .padding(.top, 12)
+        }
+    }
+}

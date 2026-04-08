@@ -66,6 +66,11 @@ final class ConnectionService {
                 .execute()
 
             print("[Connection] ✅ Connection inserted successfully")
+            
+            // Generate feed item for the new connection
+            Task {
+                await FeedService.shared.generateConnectionFeedItems()
+            }
         } catch {
             print("[Connection] ❌ Connection insert failed: \(error)")
             print("[Connection]   full error: \(String(describing: error))")
