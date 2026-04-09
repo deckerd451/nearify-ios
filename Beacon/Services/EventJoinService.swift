@@ -7,15 +7,28 @@ final class EventJoinService: ObservableObject {
 
     static let shared = EventJoinService()
 
+    // MARK: - Published State
+
     @Published private(set) var currentEventID: String?
     @Published private(set) var currentEventName: String?
     @Published private(set) var isEventJoined: Bool = false
     @Published private(set) var joinError: String?
 
+    /// Canonical membership state — the single source of truth for the UI.
+    @Published private(set) var membershipState: EventMembershipState = .notInEvent
+
     private let supabase = AppEnvironment.shared.supabaseClient
     private let presence = EventPresenceService.shared
-    private var heartbeatTask: Task<Void, Never>?
-    private let heartbeatInterval: TimeInterval = 25.0
+
+    /// Timestamp when the app entered background. Used for timeout calculation.
+    private(set) var backgroundEnteredAt: Date?
+
+    /// Grace window: how long the user stays INACTIVE before timing out.
+    /// At a real event, users routinely lock their device for 15–30+ minutes
+    /// (during talks, meals, conversations). The timeout must be long enough
+    /// that ordinary device sleep never causes an involuntary exit.
+    /// 15 minutes is the minimum realistic value; 30 minutes is safer.
+    let inactivityTimeout: TimeInterval = 900.0  // 15 minutes
 
     private init() {}
 
@@ -35,13 +48,18 @@ final class EventJoinService: ObservableObject {
             let profile = try await ensureProfile()
 
             _ = try await joinEventRPC(eventID: eventUUID)
-            
+
             let event = try await fetchEvent(eventID: eventUUID)
 
             currentEventID = event.id.uuidString
             currentEventName = event.name
             isEventJoined = true
+            membershipState = .inEvent(eventName: event.name)
+            joinError = nil
+            backgroundEnteredAt = nil
 
+            // EventPresenceService is the SINGLE heartbeat owner.
+            // It writes status="joined" + last_seen_at on every tick.
             presence.activateFromQRJoin(
                 eventName: event.name,
                 contextId: event.id,
@@ -50,8 +68,6 @@ final class EventJoinService: ObservableObject {
 
             BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profile.id)
             BLEScannerService.shared.startScanning()
-
-            startHeartbeat(profileId: profile.id, eventId: event.id)
 
             // Start encounter tracking for the Social Memory Feed
             EncounterService.shared.startPeriodicFlush()
@@ -71,65 +87,17 @@ final class EventJoinService: ObservableObject {
         }
     }
 
-    // MARK: - Heartbeat (NEW)
+    // MARK: - Leave Event (explicit user action)
 
-    private func startHeartbeat(profileId: UUID, eventId: UUID) {
-        heartbeatTask?.cancel()
+    func leaveEvent() async {
+        let eventName = currentEventName ?? "event"
 
-        heartbeatTask = Task { [weak self] in
-            guard let self else { return }
+        #if DEBUG
+        print("[EventJoin] 👋 User leaving event: \(eventName)")
+        #endif
 
-            print("[EventJoin] ▶️ Starting event_attendees heartbeat (eventId=\(eventId), profileId=\(profileId))")
-
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(self.heartbeatInterval * 1_000_000_000))
-                guard !Task.isCancelled else { break }
-
-                // Check auth before writing — stop if session is gone
-                let hasAuth = await MainActor.run { AuthService.shared.isAuthenticated }
-                guard hasAuth else {
-                    print("[EventJoin] 🛑 Auth lost — stopping heartbeat")
-                    break
-                }
-
-                do {
-                    try await self.touchAttendance(eventId: eventId, profileId: profileId)
-                    
-                    // Update encounter tracking from BLE data
-                    await MainActor.run {
-                        EncounterService.shared.updateFromBLE()
-                    }
-                    
-                    #if DEBUG
-                    print("[EventJoin] ✅ Heartbeat tick")
-                    #endif
-                } catch {
-                    print("[EventJoin] ⚠️ Heartbeat failed: \(error.localizedDescription)")
-                }
-            }
-
-            print("[EventJoin] ⏹️ Heartbeat loop exited")
-        }
-    }
-
-    private func touchAttendance(eventId: UUID, profileId: UUID) async throws {
-        let nowISO = ISO8601DateFormatter().string(from: Date())
-
-        try await supabase
-            .from("event_attendees")
-            .update([
-                "last_seen_at": AnyJSON.string(nowISO)
-            ])
-            .eq("event_id", value: eventId.uuidString)
-            .eq("profile_id", value: profileId.uuidString)
-            .execute()
-    }
-
-    // MARK: - Leave Event
-
-    func leaveEvent() {
-        heartbeatTask?.cancel()
-        heartbeatTask = nil
+        // Write status="left" to DB before clearing local state
+        await presence.leaveCurrentEvent()
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
@@ -138,22 +106,109 @@ final class EventJoinService: ObservableObject {
         Task { await EncounterService.shared.flushEncounters() }
         EncounterService.shared.stopPeriodicFlush()
 
+        membershipState = .left(eventName: eventName)
         currentEventID = nil
         currentEventName = nil
         isEventJoined = false
+        backgroundEnteredAt = nil
 
-        presence.reset()
         EventContextService.shared.clearCache()
 
-        print("[EventJoin] 👋 Left event, heartbeat stopped")
+        print("[EventJoin] ✅ Left event: \(eventName), status=left written to DB")
     }
 
+    // MARK: - Timeout (system-driven exit)
+
+    func timeoutEvent() async {
+        let eventName = currentEventName ?? "event"
+
+        #if DEBUG
+        print("[EventJoin] ⏰ Timing out from event: \(eventName)")
+        #endif
+
+        // Write status="left" to DB (timed-out users are treated as left server-side)
+        await presence.leaveCurrentEvent()
+
+        BLEAdvertiserService.shared.stopEventAdvertising()
+        BLEScannerService.shared.stopScanning()
+
+        Task { await EncounterService.shared.flushEncounters() }
+        EncounterService.shared.stopPeriodicFlush()
+
+        membershipState = .timedOut(eventName: eventName)
+        currentEventID = nil
+        currentEventName = nil
+        isEventJoined = false
+        backgroundEnteredAt = nil
+
+        EventContextService.shared.clearCache()
+
+        print("[EventJoin] ✅ Timed out from event: \(eventName)")
+    }
+
+    // MARK: - App Lifecycle
+
+    /// Called when the app enters background.
+    func handleAppBackground() {
+        guard isEventJoined, let name = currentEventName else { return }
+
+        backgroundEnteredAt = Date()
+        membershipState = .inactive(eventName: name)
+
+        // Heartbeat continues running (iOS gives ~30s of background time).
+        // If the app is suspended, the heartbeat pauses naturally.
+        // On return, handleAppForeground() checks the elapsed time.
+
+        #if DEBUG
+        print("[EventJoin] 🌙 App backgrounded — state → INACTIVE")
+        #endif
+    }
+
+    /// Called when the app returns to foreground.
+    func handleAppForeground() async {
+        guard let bgDate = backgroundEnteredAt else { return }
+
+        let elapsed = Date().timeIntervalSince(bgDate)
+        backgroundEnteredAt = nil
+
+        #if DEBUG
+        print("[EventJoin] ☀️ App foregrounded — was background for \(Int(elapsed))s (timeout=\(Int(inactivityTimeout))s)")
+        #endif
+
+        if elapsed > inactivityTimeout {
+            // Genuinely long absence → timeout
+            await timeoutEvent()
+        } else if isEventJoined, let name = currentEventName {
+            // Within grace window → restore active membership immediately.
+            // This covers ordinary device sleep, brief app switches, etc.
+            membershipState = .inEvent(eventName: name)
+
+            // Write presence immediately so other attendees see us return.
+            // Also restarts the heartbeat if iOS suspended it.
+            await presence.debugWritePresenceNow()
+
+            // Restart BLE in case iOS tore down the session during suspension.
+            if let profileId = presence.currentCommunityId {
+                BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
+            }
+            BLEScannerService.shared.startScanning()
+
+            #if DEBUG
+            print("[EventJoin] ✅ Returned within grace window (\(Int(elapsed))s) — state → IN_EVENT")
+            #endif
+        }
+    }
+
+    /// Called when the user dismisses the LEFT or TIMED_OUT state.
+    func acknowledgeExit() {
+        membershipState = .notInEvent
+    }
+
+    // MARK: - Auth Loss
+
     /// Called by AuthService when auth becomes invalid.
-    /// Stops heartbeat and clears event state to prevent RLS failures.
     func stopDueToAuthLoss() {
         print("[EventJoin] 🛑 Stopping due to auth loss")
-        heartbeatTask?.cancel()
-        heartbeatTask = nil
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
@@ -162,6 +217,8 @@ final class EventJoinService: ObservableObject {
         currentEventName = nil
         isEventJoined = false
         joinError = nil
+        backgroundEnteredAt = nil
+        membershipState = .notInEvent
 
         EventContextService.shared.clearCache()
 

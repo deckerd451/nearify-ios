@@ -73,6 +73,17 @@ struct EventModeView: View {
 
     private var eventStatusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Canonical membership state banner
+            HStack(spacing: 8) {
+                Image(systemName: state.membership.iconName)
+                    .foregroundColor(state.membership.displayColor)
+                    .font(.system(size: 12))
+                Text(state.membership.displayLabel)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(state.membership.displayColor)
+            }
+
             switch state.status {
             case .idle:
                 EmptyView()
@@ -204,6 +215,7 @@ struct EventModeView: View {
                 diagRow("Resolved Nearby", "\(state.nearbyResolvedCount)")
                 diagRow("Active Attendees", "\(state.activeAttendeeCount)")
                 diagRow("Event Joined", eventJoin.isEventJoined ? "Yes" : "No")
+                diagRow("Membership", state.membership.displayLabel)
                 if let name = eventJoin.currentEventName {
                     diagRow("Event Name", name)
                 }

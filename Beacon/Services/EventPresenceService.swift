@@ -33,6 +33,10 @@ struct NearifyProfileRow: Decodable {
 }
 
 // MARK: - Event Presence Service
+//
+// SINGLE HEARTBEAT OWNER for the entire app.
+// Writes status="joined" + last_seen_at every 25 seconds.
+// No other service should run a competing heartbeat loop.
 
 @MainActor
 final class EventPresenceService: ObservableObject {
@@ -46,7 +50,7 @@ final class EventPresenceService: ObservableObject {
 
     // Exposed for other services/views
     var currentContextId: UUID? { _currentEventId }
-    var currentCommunityId: UUID? { _currentProfileId } // kept for compatibility; now means profile id
+    var currentCommunityId: UUID? { _currentProfileId }
 
     private let supabase = AppEnvironment.shared.supabaseClient
 
@@ -71,14 +75,13 @@ final class EventPresenceService: ObservableObject {
     }
 
     /// Called by AuthService when auth state becomes invalid.
-    /// Stops heartbeat immediately to prevent RLS failures.
     func stopDueToAuthLoss() {
         print("[Presence] 🛑 Stopping due to auth loss — cancelling heartbeat")
         stopHeartbeat(clearContext: true)
     }
 
     /// Called by EventJoinService when a user joins an event.
-    /// This activates presence state and starts the heartbeat loop.
+    /// This is the ONLY place the heartbeat starts.
     func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
         #if DEBUG
         print("[Presence] 🎫 Activating from QR join — \(eventName)")
@@ -94,6 +97,8 @@ final class EventPresenceService: ObservableObject {
         startHeartbeat()
     }
 
+    /// Writes status="left" to DB and stops heartbeat.
+    /// Called by EventJoinService.leaveEvent() and timeoutEvent().
     func leaveCurrentEvent() async {
         guard let eventId = _currentEventId, let profileId = _currentProfileId else {
             debugStatus = "No active event to leave"
@@ -118,7 +123,7 @@ final class EventPresenceService: ObservableObject {
         await touchAttendance(eventId: eventId, profileId: profileId)
     }
 
-    // MARK: - Heartbeat
+    // MARK: - Heartbeat (SINGLE OWNER)
 
     private func startHeartbeat() {
         guard heartbeatTask == nil else { return }
@@ -130,15 +135,15 @@ final class EventPresenceService: ObservableObject {
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
 
-            print("[Presence] ▶️ Starting event_attendees heartbeat (eventId=\(eventId), profileId=\(profileId))")
+            print("[Presence] ▶️ Starting heartbeat (eventId=\(eventId), profileId=\(profileId))")
 
+            // Immediate first write
             await self.touchAttendance(eventId: eventId, profileId: profileId)
 
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(self.heartbeatInterval * 1_000_000_000))
                 guard !Task.isCancelled else { break }
 
-                // Check auth before writing — stop if session is gone
                 let hasAuth = await MainActor.run { AuthService.shared.isAuthenticated }
                 guard hasAuth else {
                     print("[Presence] 🛑 Auth lost — stopping heartbeat")
@@ -152,6 +157,11 @@ final class EventPresenceService: ObservableObject {
                 }
 
                 await self.touchAttendance(eventId: eventId, profileId: profileId)
+
+                // Update encounter tracking from BLE data on each tick
+                await MainActor.run {
+                    EncounterService.shared.updateFromBLE()
+                }
             }
 
             print("[Presence] ⏹️ Heartbeat loop exited")
@@ -177,7 +187,6 @@ final class EventPresenceService: ObservableObject {
 
     // MARK: - Presence via event_attendees
 
-    /// Upserts attendance presence by setting status='joined' and refreshing last_seen_at.
     private func touchAttendance(eventId: UUID, profileId: UUID) async {
         await MainActor.run {
             isWritingPresence = true
@@ -252,22 +261,16 @@ final class EventPresenceService: ObservableObject {
                 #if DEBUG
                 print("[Presence] ⚠️ Attendance write cancelled")
                 #endif
-                await MainActor.run {
-                    debugStatus = "Write cancelled"
-                }
+                await MainActor.run { debugStatus = "Write cancelled" }
             } else {
                 #if DEBUG
                 print("[Presence] ❌ Attendance heartbeat failed: \(error.localizedDescription)")
                 #endif
-                await MainActor.run {
-                    debugStatus = "FAILED write: \(error.localizedDescription)"
-                }
+                await MainActor.run { debugStatus = "FAILED write: \(error.localizedDescription)" }
             }
         }
 
-        await MainActor.run {
-            isWritingPresence = false
-        }
+        await MainActor.run { isWritingPresence = false }
     }
 
     private func setAttendanceStatus(eventId: UUID, profileId: UUID, status: String) async {
@@ -301,19 +304,14 @@ final class EventPresenceService: ObservableObject {
             #if DEBUG
             print("[Presence] ❌ Failed to set attendance status: \(error.localizedDescription)")
             #endif
-            await MainActor.run {
-                debugStatus = "FAILED status update: \(error.localizedDescription)"
-            }
+            await MainActor.run { debugStatus = "FAILED status update: \(error.localizedDescription)" }
         }
 
-        await MainActor.run {
-            isWritingPresence = false
-        }
+        await MainActor.run { isWritingPresence = false }
     }
 
     // MARK: - Helpers
 
-    /// Use this if you ever need to recover the current profile id from auth.
     func resolveProfileId() async -> UUID? {
         do {
             let session = try await supabase.auth.session

@@ -61,8 +61,13 @@ final class EventIntelligenceService: ObservableObject {
             return
         }
 
-        // Material-change check: skip if attendee list hasn't changed
-        let currentSignature = EventAttendeesService.shared.attendees.map { $0.id.uuidString }.sorted().joined()
+        // Material-change check: include encounter tracker state so new
+        // proximity data triggers re-evaluation even if attendee list is stable.
+        let attendeeSig = EventAttendeesService.shared.attendees.map { $0.id.uuidString }.sorted().joined()
+        let trackerSig = EncounterService.shared.activeEncounters.values
+            .map { "\($0.profileId.uuidString):\($0.totalSeconds)" }
+            .sorted().joined()
+        let currentSignature = attendeeSig + "|" + trackerSig
         if currentSignature == lastAttendeeSignature && !topPeople.isEmpty {
             #if DEBUG
             print("[EventIntel] Refresh skipped (no material change)")
@@ -117,7 +122,7 @@ final class EventIntelligenceService: ObservableObject {
         // 2. Get connected profile IDs
         let connectedIds = AttendeeStateResolver.shared.connectedIds
 
-        // 3. Get encounters for this event
+        // 3. Get encounters for this event (DB + in-memory tracker)
         var encounterMap: [UUID: Encounter] = [:]
         do {
             let encounters: [Encounter] = try await supabase
@@ -130,7 +135,6 @@ final class EventIntelligenceService: ObservableObject {
 
             for enc in encounters {
                 let otherId = enc.otherProfile(for: myId)
-                // Keep strongest encounter per person
                 if let existing = encounterMap[otherId] {
                     if (enc.overlapSeconds ?? 0) > (existing.overlapSeconds ?? 0) {
                         encounterMap[otherId] = enc
@@ -141,6 +145,38 @@ final class EventIntelligenceService: ObservableObject {
             }
         } catch {
             print("[EventIntel] ⚠️ Failed to load encounters: \(error)")
+        }
+
+        // Supplement with in-memory tracker data (more current than DB).
+        // The tracker accumulates overlap in real-time; the DB only updates
+        // every 30s flush. Use whichever has more overlap seconds.
+        for (profileId, tracker) in EncounterService.shared.activeEncounters {
+            if let existing = encounterMap[profileId] {
+                if tracker.totalSeconds > (existing.overlapSeconds ?? 0) {
+                    encounterMap[profileId] = Encounter(
+                        id: existing.id,
+                        eventId: existing.eventId,
+                        profileA: existing.profileA,
+                        profileB: existing.profileB,
+                        firstSeenAt: tracker.firstSeen,
+                        lastSeenAt: tracker.lastSeen,
+                        overlapSeconds: tracker.totalSeconds,
+                        confidence: min(1.0, Double(tracker.totalSeconds) / 300.0)
+                    )
+                }
+            } else {
+                // Not in DB yet (below flush threshold or not flushed yet)
+                encounterMap[profileId] = Encounter(
+                    id: UUID(),
+                    eventId: eventId,
+                    profileA: myId,
+                    profileB: profileId,
+                    firstSeenAt: tracker.firstSeen,
+                    lastSeenAt: tracker.lastSeen,
+                    overlapSeconds: tracker.totalSeconds,
+                    confidence: min(1.0, Double(tracker.totalSeconds) / 300.0)
+                )
+            }
         }
 
         // 4. Get recent messages (conversations with activity)
@@ -261,16 +297,34 @@ final class EventIntelligenceService: ObservableObject {
         }
 
         // Run Decision Engine on all candidates
+        DecisionEngine.shared.resetSession()
         let candidates = ranked.map { profile -> DecisionCandidate in
             let enc = encounterMap[profile.profileId]
             let msgTime = lastMessageTime[profile.profileId]
             let signal = signals.first(where: { $0.profileId == profile.profileId })
 
+            // candidateIsActive: use 5-min window (matches activeWindow in EventAttendeesService)
+            // v1 used isActiveNow (60s) which was too strict — most attendees appeared inactive
+            // between heartbeat ticks.
+            let attendee = attendees.first(where: { $0.id == profile.profileId })
+            let candidateActive: Bool
+            if let a = attendee {
+                candidateActive = Date().timeIntervalSince(a.lastSeen) < 300
+            } else {
+                candidateActive = false
+            }
+
+            // encounterCount: use the in-memory tracker count if available (more accurate
+            // than the DB which has a unique constraint per pair per event = always 0 or 1).
+            let trackerCount = EncounterService.shared.activeEncounters[profile.profileId] != nil ? 1 : 0
+            let dbCount = signal?.encounterCount ?? (enc != nil ? 1 : 0)
+            let effectiveEncounterCount = max(dbCount, trackerCount)
+
             return DecisionCandidate(
                 profileId: profile.profileId,
                 name: profile.name,
                 totalEncounterSeconds: enc?.overlapSeconds ?? 0,
-                encounterCount: signal?.encounterCount ?? (enc != nil ? 1 : 0),
+                encounterCount: effectiveEncounterCount,
                 isConnected: profile.isConnected,
                 hasRecentMessage: profile.hasMessaged && (msgTime.map { Date().timeIntervalSince($0) < 600 } ?? false),
                 lastMessageAge: msgTime.map { Date().timeIntervalSince($0) },
@@ -279,7 +333,7 @@ final class EventIntelligenceService: ObservableObject {
                 viewerInterests: signal?.viewerInterests ?? [],
                 theirInterests: signal?.theirInterests ?? [],
                 viewerIsActive: true,
-                candidateIsActive: attendees.first(where: { $0.id == profile.profileId })?.isActiveNow ?? false
+                candidateIsActive: candidateActive
             )
         }
 

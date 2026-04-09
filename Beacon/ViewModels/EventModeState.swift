@@ -1,5 +1,75 @@
 import Foundation
 import Combine
+import SwiftUI
+
+// MARK: - Canonical Event Membership State
+
+/// The five canonical states for event membership.
+/// Every user can answer: "Am I in the event?" by looking at this.
+enum EventMembershipState: Equatable {
+    /// User has not joined any event.
+    case notInEvent
+    /// User has joined and heartbeat is active.
+    case inEvent(eventName: String)
+    /// User is temporarily backgrounded but still within the grace window.
+    case inactive(eventName: String)
+    /// User explicitly tapped "Leave Event".
+    case left(eventName: String)
+    /// User exceeded inactivity threshold and was automatically removed.
+    case timedOut(eventName: String)
+}
+
+extension EventMembershipState {
+
+    var isParticipating: Bool {
+        switch self {
+        case .inEvent, .inactive: return true
+        case .notInEvent, .left, .timedOut: return false
+        }
+    }
+
+    var eventName: String? {
+        switch self {
+        case .notInEvent: return nil
+        case .inEvent(let n), .inactive(let n), .left(let n), .timedOut(let n): return n
+        }
+    }
+
+    /// User-facing label shown in the event header.
+    var displayLabel: String {
+        switch self {
+        case .notInEvent:       return "No Active Event"
+        case .inEvent:          return "Active now"
+        case .inactive:         return "Paused — tap to resume"
+        case .left:             return "You left this event"
+        case .timedOut:         return "Timed out due to inactivity"
+        }
+    }
+
+    /// SF Symbol for the state indicator dot.
+    var iconName: String {
+        switch self {
+        case .notInEvent:   return "circle"
+        case .inEvent:      return "circle.fill"
+        case .inactive:     return "moon.fill"
+        case .left:         return "arrow.right.circle.fill"
+        case .timedOut:     return "clock.badge.xmark"
+        }
+    }
+
+    /// Color for the state indicator.
+    var displayColor: Color {
+        switch self {
+        case .notInEvent:   return .gray
+        case .inEvent:      return .green
+        case .inactive:     return .orange
+        case .left:         return .red
+        case .timedOut:     return .red
+        }
+    }
+}
+
+// MARK: - Event Mode State (View Model)
 
 /// Unified view model for Event Mode screen.
 /// Single source of truth for user-facing event status — replaces
@@ -19,10 +89,25 @@ final class EventModeState: ObservableObject {
 
     // MARK: - Published State
 
-    @Published private(set) var status: EventStatus = .idle
+    @Published private(set) var membership: EventMembershipState = .notInEvent
     @Published private(set) var nearbyResolvedCount: Int = 0
     @Published private(set) var activeAttendeeCount: Int = 0
     @Published private(set) var blePeerCount: Int = 0
+
+    /// Legacy compatibility — views that check `status` still compile.
+    var status: EventStatus {
+        switch membership {
+        case .notInEvent, .left, .timedOut:
+            return BLEService.shared.isScanning ? .scanningForEvent : .idle
+        case .inEvent(let name):
+            if nearbyResolvedCount > 0 || blePeerCount > 0 {
+                return .joinedWithNearby(eventName: name, nearbyCount: max(nearbyResolvedCount, blePeerCount))
+            }
+            return .joinedLooking(eventName: name)
+        case .inactive(let name):
+            return .joinedLooking(eventName: name)
+        }
+    }
 
     // MARK: - Dependencies
 
@@ -34,16 +119,12 @@ final class EventModeState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var refreshTimer: Timer?
 
-    // MARK: - Status Enum
+    // MARK: - Status Enum (legacy compatibility)
 
     enum EventStatus: Equatable {
-        /// Event mode is off
         case idle
-        /// Event mode on, not joined via QR
         case scanningForEvent
-        /// Joined via QR, looking for nearby attendees
         case joinedLooking(eventName: String)
-        /// Joined via QR, attendees detected nearby
         case joinedWithNearby(eventName: String, nearbyCount: Int)
     }
 
@@ -60,25 +141,21 @@ final class EventModeState: ObservableObject {
     // MARK: - Observation
 
     private func startObserving() {
-        // React to join state changes
         eventJoin.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.recalculate() }
             .store(in: &cancellables)
 
-        // React to attendee list changes
         attendees.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.recalculate() }
             .store(in: &cancellables)
 
-        // React to BLE device changes (for peer count)
         scanner.$discoveredDevices
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.recalculate() }
             .store(in: &cancellables)
 
-        // Periodic refresh for recency-based state (every 2s)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in self.recalculate() }
@@ -97,19 +174,8 @@ final class EventModeState: ObservableObject {
         activeAttendeeCount = attendeeCount
         blePeerCount = bcnPeers
 
-        let isScanning = BLEService.shared.isScanning
-
-        if !isScanning {
-            status = .idle
-        } else if eventJoin.isEventJoined, let name = eventJoin.currentEventName {
-            if resolvedCount > 0 || bcnPeers > 0 {
-                status = .joinedWithNearby(eventName: name, nearbyCount: max(resolvedCount, bcnPeers))
-            } else {
-                status = .joinedLooking(eventName: name)
-            }
-        } else {
-            status = .scanningForEvent
-        }
+        // Membership state is driven by EventJoinService — the single authority.
+        membership = eventJoin.membershipState
     }
 
     // MARK: - Summary Text

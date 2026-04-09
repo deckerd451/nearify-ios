@@ -13,12 +13,13 @@ struct BeaconApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authService = AuthService.shared
     @State private var selectedTab: AppTab = .home
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         print("🚨 DEBUG BUILD WITH APPDELEGATE INSTALLED")
         _ = BLEAdvertiserService.shared
         _ = BLEScannerService.shared
-        _ = BeaconConfidenceService.shared  // Diagnostic-only anchor monitor; must init before EventPresenceService
+        _ = BeaconConfidenceService.shared
         _ = EventPresenceService.shared
         _ = EventAttendeesService.shared
         _ = FeedService.shared
@@ -32,7 +33,6 @@ struct BeaconApp: App {
             Group {
                 if authService.isAuthenticated {
                     if let currentUser = authService.currentUser {
-                        // Route based on profile state
                         switch authService.profileState {
                         case .ready:
                             MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
@@ -45,8 +45,6 @@ struct BeaconApp: App {
                             }
                         }
                     } else {
-                        // Authenticated but profile still loading — show loading indicator
-                        // instead of flashing LoginView
                         VStack(spacing: 16) {
                             ProgressView()
                                 .scaleEffect(1.2)
@@ -59,6 +57,9 @@ struct BeaconApp: App {
                     LoginView()
                 }
             }
+            .onChange(of: scenePhase) { oldPhase, newPhase in
+                handleScenePhaseChange(from: oldPhase, to: newPhase)
+            }
             .onOpenURL { url in
                 let urlString = url.absoluteString
                 print("🚨 onOpenURL fired:", urlString)
@@ -66,8 +67,6 @@ struct BeaconApp: App {
                 print("[DeepLink] 🔗 Received URL: \(urlString)")
                 #endif
 
-                // ── Gate 1: OAuth callback ───────────────────────────────────
-                // ONLY beacon://callback reaches AuthService. Nothing else does.
                 if urlString.hasPrefix("beacon://callback") {
                     #if DEBUG
                     print("[DeepLink] 🔐 Routing to OAuth")
@@ -76,13 +75,6 @@ struct BeaconApp: App {
                     return
                 }
 
-                // ── Gate 2: QR-scheme URLs ───────────────────────────────────
-                // beacon://event/<id> and beacon://profile/<id> are handled here.
-                // AuthService is NOT involved below this line.
-                //
-                // DeepLinkManager stores the payload so MainTabView can replay
-                // the join if the authenticated UI wasn't mounted yet when this
-                // closure fired (e.g. cold launch, auth still resolving).
                 DeepLinkManager.shared.handle(url: url)
 
                 guard let payload = QRService.parse(from: urlString) else {
@@ -98,7 +90,6 @@ struct BeaconApp: App {
                     print("[DeepLink] 🎫 Event: '\(eventId)'")
                     print("[DeepLink] 📱 Switching to Network tab (UI signal)")
                     #endif
-                    // Switch tab immediately — visible proof the deep link landed.
                     selectedTab = .event
                     Task {
                         #if DEBUG
@@ -119,12 +110,37 @@ struct BeaconApp: App {
                     #if DEBUG
                     print("[DeepLink] 👤 Profile: \(communityId)")
                     #endif
-                    // TODO: Navigate to profile view for communityId.
-                    // No deep-link profile navigation exists yet — requires a
-                    // sheet/navigation path accessible from BeaconApp.
                     _ = communityId
                 }
             }
+        }
+    }
+
+    // MARK: - Scene Phase Lifecycle
+
+    private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+        switch newPhase {
+        case .background:
+            #if DEBUG
+            print("[Lifecycle] 🌙 App → background")
+            #endif
+            EventJoinService.shared.handleAppBackground()
+
+        case .active:
+            #if DEBUG
+            print("[Lifecycle] ☀️ App → active")
+            #endif
+            Task {
+                await EventJoinService.shared.handleAppForeground()
+            }
+
+        case .inactive:
+            // Transitional state (e.g. notification center pulled down).
+            // No action needed — don't treat as background.
+            break
+
+        @unknown default:
+            break
         }
     }
 }
@@ -188,8 +204,5 @@ struct LoginView: View {
             errorMessage = error.localizedDescription
             isLoading = false
         }
-
-        // isLoading stays true until the OAuth callback completes
-        // or the user exits the browser flow
     }
 }

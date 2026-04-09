@@ -113,11 +113,18 @@ final class BLEService: NSObject, ObservableObject {
         errorMessage = nil
         isScanning = false
 
+        // If the user is in an event, trigger a proper leave so DB gets
+        // status="left" and the canonical state transitions correctly.
         Task { @MainActor in
-            BLEScannerService.shared.stopScanning()
-            BeaconConfidenceService.shared.reset()
-            EventPresenceService.shared.reset()
-            BLEAdvertiserService.shared.stopEventAdvertising()
+            if EventJoinService.shared.isEventJoined {
+                await EventJoinService.shared.leaveEvent()
+            } else {
+                // Not in an event — just clean up BLE services
+                BLEScannerService.shared.stopScanning()
+                BeaconConfidenceService.shared.reset()
+                EventPresenceService.shared.reset()
+                BLEAdvertiserService.shared.stopEventAdvertising()
+            }
         }
 
         #if DEBUG

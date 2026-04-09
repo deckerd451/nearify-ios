@@ -210,11 +210,12 @@ struct NetworkView: View {
         let accentColor: Color = {
             if let tier = decision?.tier {
                 switch tier {
-                case .activeConversation: return .blue
-                case .strongInteraction:  return .green
+                case .activeConversation:   return .blue
+                case .strongInteraction:   return .green
                 case .breakthroughPotential: return .cyan
-                case .repeatedNearMiss:   return .orange
-                case .followUpGap:        return .purple
+                case .repeatedNearMiss:    return .orange
+                case .followUpGap:         return .purple
+                case .fallback:            return .gray
                 }
             }
             switch insight?.needState {
