@@ -144,7 +144,17 @@ final class InteractionInsightService {
             insights.append(insight)
         }
 
-        return insights.sorted { $0.score > $1.score }
+        // Deduplicate: one best insight per profileId
+        let bestPerProfile = Dictionary(grouping: insights, by: { $0.profileId })
+            .compactMap { _, group in
+                group.max(by: { $0.score < $1.score })
+            }
+
+        #if DEBUG
+        print("[Insight] Deduped \(insights.count) → \(bestPerProfile.count) profiles")
+        #endif
+
+        return bestPerProfile.sorted { $0.score > $1.score }
     }
 
     /// Filters insights for real-time display (Event tab).
@@ -248,7 +258,7 @@ final class InteractionInsightService {
 
     private func computeConfidence(_ signal: InteractionSignal) -> Double {
         var factors: Double = 0
-        var maxFactors: Double = 5
+        let maxFactors: Double = 5
 
         if signal.totalEncounterSeconds >= 60 { factors += 1 }
         if signal.isConnected { factors += 1 }
@@ -298,7 +308,7 @@ final class InteractionInsightService {
             let msgTime = lastMessageTimes[attendee.id]
             let hasRecentMsg = msgTime.map { Date().timeIntervalSince($0) < 3600 } ?? false
 
-            var signal = InteractionSignal(
+            let signal = InteractionSignal(
                 profileId: attendee.id,
                 name: attendee.name,
                 totalEncounterSeconds: enc?.overlapSeconds ?? 0,
