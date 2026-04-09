@@ -255,12 +255,57 @@ final class EventIntelligenceService: ObservableObject {
                 isConnected: isConn,
                 hasMessaged: lastMessageTime[pid] != nil,
                 lastInteractionAt: lastInteraction,
-                insight: profileInsight
+                insight: profileInsight,
+                decision: nil // populated below
             ))
         }
 
-        return ranked
-            .sorted { $0.score > $1.score }
+        // Run Decision Engine on all candidates
+        let candidates = ranked.map { profile -> DecisionCandidate in
+            let enc = encounterMap[profile.profileId]
+            let msgTime = lastMessageTime[profile.profileId]
+            let signal = signals.first(where: { $0.profileId == profile.profileId })
+
+            return DecisionCandidate(
+                profileId: profile.profileId,
+                name: profile.name,
+                totalEncounterSeconds: enc?.overlapSeconds ?? 0,
+                encounterCount: signal?.encounterCount ?? (enc != nil ? 1 : 0),
+                isConnected: profile.isConnected,
+                hasRecentMessage: profile.hasMessaged && (msgTime.map { Date().timeIntervalSince($0) < 600 } ?? false),
+                lastMessageAge: msgTime.map { Date().timeIntervalSince($0) },
+                lastSeenAge: profile.lastInteractionAt.map { Date().timeIntervalSince($0) },
+                sharedInterests: signal?.sharedInterests ?? [],
+                viewerInterests: signal?.viewerInterests ?? [],
+                theirInterests: signal?.theirInterests ?? [],
+                viewerIsActive: true,
+                candidateIsActive: attendees.first(where: { $0.id == profile.profileId })?.isActiveNow ?? false
+            )
+        }
+
+        let decisions = DecisionEngine.shared.evaluate(candidates: candidates, totalAttendees: attendees.count)
+        let decisionMap = Dictionary(uniqueKeysWithValues: decisions.map { ($0.profileId, $0) })
+
+        // Attach decisions and re-sort: profiles with decisions first (by tier), then by score
+        let finalRanked = ranked.map { profile -> RankedProfile in
+            RankedProfile(
+                profileId: profile.profileId,
+                name: profile.name,
+                score: profile.score,
+                encounterStrength: profile.encounterStrength,
+                isConnected: profile.isConnected,
+                hasMessaged: profile.hasMessaged,
+                lastInteractionAt: profile.lastInteractionAt,
+                insight: profile.insight,
+                decision: decisionMap[profile.profileId]
+            )
+        }
+
+        // Decision-bearing profiles first (sorted by tier), then remaining by score
+        let withDecision = finalRanked.filter { $0.decision != nil }.sorted { ($0.decision?.tier ?? .followUpGap) < ($1.decision?.tier ?? .followUpGap) }
+        let withoutDecision = finalRanked.filter { $0.decision == nil }.sorted { $0.score > $1.score }
+
+        return (withDecision + withoutDecision)
             .prefix(limit)
             .map { $0 }
     }
@@ -290,4 +335,5 @@ struct RankedProfile: Identifiable {
     let hasMessaged: Bool
     let lastInteractionAt: Date?
     let insight: ProfileInsight?
+    let decision: SurfaceDecision?
 }

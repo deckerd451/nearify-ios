@@ -174,12 +174,17 @@ struct NetworkView: View {
             }
 
             if intelligence.topPeople.isEmpty {
-                HStack(spacing: 8) {
-                    Image(systemName: "figure.walk")
-                        .foregroundColor(.gray)
-                    Text("Move around and meet people to unlock suggestions")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                VStack(spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "figure.walk")
+                            .foregroundColor(.gray)
+                        Text("No strong interactions right now")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    Text("Move around to discover people nearby")
+                        .font(.caption2)
+                        .foregroundColor(.gray.opacity(0.6))
                 }
                 .padding(.vertical, 4)
             } else {
@@ -198,25 +203,37 @@ struct NetworkView: View {
     }
 
     private func topPersonRow(_ person: RankedProfile) -> some View {
-        HStack(spacing: 10) {
-            // Avatar with need-state color
-            let needColor: Color = {
-                switch person.insight?.needState {
-                case .belonging: return .orange
-                case .esteem: return .purple
-                case .selfActualization: return .cyan
-                case .none: return .blue
-                }
-            }()
+        let decision = person.decision
+        let insight = person.insight
 
+        // Color from decision tier or insight need state
+        let accentColor: Color = {
+            if let tier = decision?.tier {
+                switch tier {
+                case .activeConversation: return .blue
+                case .strongInteraction:  return .green
+                case .breakthroughPotential: return .cyan
+                case .repeatedNearMiss:   return .orange
+                case .followUpGap:        return .purple
+                }
+            }
+            switch insight?.needState {
+            case .belonging: return .orange
+            case .esteem: return .purple
+            case .selfActualization: return .cyan
+            case .none: return .blue
+            }
+        }()
+
+        return HStack(spacing: 10) {
             Circle()
-                .fill(person.isConnected ? Color.green.opacity(0.2) : needColor.opacity(0.2))
+                .fill(person.isConnected ? Color.green.opacity(0.2) : accentColor.opacity(0.2))
                 .frame(width: 36, height: 36)
                 .overlay(
                     Text(String(person.name.prefix(2)).uppercased())
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(person.isConnected ? .green : needColor)
+                        .foregroundColor(person.isConnected ? .green : accentColor)
                 )
 
             VStack(alignment: .leading, spacing: 2) {
@@ -238,21 +255,33 @@ struct NetworkView: View {
                     }
                 }
 
-                // Show insight text instead of raw score
-                if let insight = person.insight {
-                    Text(insight.insightText)
+                // Decision reason takes priority, then insight text, then fallback
+                if let reason = decision?.reason {
+                    Text(reason)
                         .font(.caption2)
-                        .foregroundColor(needColor.opacity(0.9))
+                        .foregroundColor(accentColor.opacity(0.9))
                         .lineLimit(2)
-                } else {
-                    HStack(spacing: 6) {
-                        if person.encounterStrength > 0 {
-                            let mins = person.encounterStrength / 60
-                            Text(mins > 0 ? "\(mins)m nearby" : "\(person.encounterStrength)s nearby")
-                                .font(.caption2)
-                                .foregroundColor(.orange)
-                        }
-                    }
+                } else if let insightText = insight?.insightText {
+                    Text(insightText)
+                        .font(.caption2)
+                        .foregroundColor(accentColor.opacity(0.9))
+                        .lineLimit(2)
+                } else if person.encounterStrength > 0 {
+                    let mins = person.encounterStrength / 60
+                    Text(mins > 0 ? "\(mins)m nearby" : "\(person.encounterStrength)s nearby")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
+
+                // Show tier badge if decision exists
+                if let tier = decision?.tier {
+                    Text(tier.label)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(accentColor.opacity(0.8))
+                        .cornerRadius(4)
                 }
             }
 

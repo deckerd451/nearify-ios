@@ -69,10 +69,11 @@ final class NotificationService {
         }
     }
 
-    /// Evaluate event intelligence results. Notify using insight text when available.
+    /// Evaluate event intelligence results. Notify using decision-based insights.
     func evaluateEventIntelligence(_ profiles: [RankedProfile]) {
         for profile in profiles {
-            guard profile.score >= Threshold.intelligenceScore else { continue }
+            // Only notify if the decision engine surfaced this person
+            guard let decision = profile.decision else { continue }
             guard !profile.isConnected else { continue }
 
             let key = "intelligence:\(profile.profileId)"
@@ -85,16 +86,14 @@ final class NotificationService {
 
             markNotified(key: key)
 
-            let body = profile.insight?.insightText ?? "You should meet \(profile.name)"
-
             send(
-                title: "At this event",
-                body: body,
+                title: decision.tier.label,
+                body: decision.reason,
                 identifier: key
             )
 
             #if DEBUG
-            print("[Notify] Intel triggered: \(profile.name) score=\(Int(profile.score)) need=\(profile.insight?.needState.rawValue ?? "none")")
+            print("[Notify] Intel triggered: \(profile.name) tier=\(decision.tier.rawValue) action=\(decision.action.rawValue)")
             #endif
         }
     }
