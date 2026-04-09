@@ -15,6 +15,7 @@ struct FeedProfileDetailView: View {
     @State private var isOpeningConversation = false
     @State private var errorMessage: String?
     @State private var showNotConnectedAlert = false
+    @State private var metAtEventName: String?
 
     var body: some View {
         ZStack {
@@ -67,6 +68,18 @@ struct FeedProfileDetailView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
+
+                // "Met at" context — reinforces that connections persist beyond events
+                if let eventName = metAtEventName {
+                    HStack(spacing: 4) {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                        Text("Met at \(eventName)")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
 
                 if let bio = user.bio, !bio.isEmpty {
                     Text(bio)
@@ -174,8 +187,24 @@ struct FeedProfileDetailView: View {
         profile = try? await ProfileService.shared.fetchProfileById(profileId)
         isConnected = await ConnectionService.shared.isConnected(with: profileId)
 
+        // Resolve "Met at [Event]" context from connection or conversation
+        if let myId = AuthService.shared.currentUser?.id {
+            // Try conversation first (has eventName stored)
+            if let convos: [Conversation] = try? await AppEnvironment.shared.supabaseClient
+                .from("conversations")
+                .select("*")
+                .or("and(participant_a.eq.\(myId.uuidString),participant_b.eq.\(profileId.uuidString)),and(participant_a.eq.\(profileId.uuidString),participant_b.eq.\(myId.uuidString))")
+                .limit(1)
+                .execute()
+                .value,
+               let convo = convos.first,
+               let name = convo.eventName {
+                metAtEventName = name
+            }
+        }
+
         #if DEBUG
-        print("[FeedProfile] ✅ Profile loaded: \(profile?.name ?? "nil"), connected: \(isConnected)")
+        print("[FeedProfile] ✅ Profile loaded: \(profile?.name ?? "nil"), connected: \(isConnected), metAt: \(metAtEventName ?? "nil")")
         #endif
     }
 
@@ -189,8 +218,29 @@ struct FeedProfileDetailView: View {
         if isConnected {
             isOpeningConversation = true
             Task {
-                let eventId = await MainActor.run { EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) } }
-                let eventName = await MainActor.run { EventJoinService.shared.currentEventName }
+                // Prefer the event where we originally met this person (from connection
+                // or encounter), falling back to the current event if we're in one.
+                // This ensures "Met at [Event]" context appears even after the event ends.
+                var eventId: UUID?
+                var eventName: String?
+
+                // Check connection for event context
+                if let connections = try? await ConnectionService.shared.fetchConnections() {
+                    let myId = AuthService.shared.currentUser?.id
+                    if let conn = connections.first(where: {
+                        let other = $0.otherUser(for: myId ?? UUID())
+                        return other.id == profileId
+                    }) {
+                        eventId = conn.eventId
+                        // eventName not stored on connection — will come from conversation
+                    }
+                }
+
+                // Fall back to current event context
+                if eventId == nil {
+                    eventId = await MainActor.run { EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) } }
+                    eventName = await MainActor.run { EventJoinService.shared.currentEventName }
+                }
 
                 do {
                     let convo = try await MessagingService.shared.getOrCreateConversation(
