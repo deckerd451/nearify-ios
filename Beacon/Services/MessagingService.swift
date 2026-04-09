@@ -155,6 +155,24 @@ final class MessagingService: ObservableObject {
         
         return created
     }
+
+    // MARK: - Event Context Lookup
+
+    /// Returns the event name from an existing conversation with the target user, if any.
+    /// Used by profile views to show "Met at [Event Name]" context.
+    func eventName(forConversationWith targetProfileId: UUID) async -> String? {
+        guard let myId = AuthService.shared.currentUser?.id else { return nil }
+
+        let convos: [Conversation]? = try? await supabase
+            .from("conversations")
+            .select("*")
+            .or("and(participant_a.eq.\(myId.uuidString),participant_b.eq.\(targetProfileId.uuidString)),and(participant_a.eq.\(targetProfileId.uuidString),participant_b.eq.\(myId.uuidString))")
+            .limit(1)
+            .execute()
+            .value
+
+        return convos?.first?.eventName
+    }
 }
 
 // MARK: - Errors

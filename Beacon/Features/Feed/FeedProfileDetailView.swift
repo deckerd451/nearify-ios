@@ -187,21 +187,8 @@ struct FeedProfileDetailView: View {
         profile = try? await ProfileService.shared.fetchProfileById(profileId)
         isConnected = await ConnectionService.shared.isConnected(with: profileId)
 
-        // Resolve "Met at [Event]" context from connection or conversation
-        if let myId = AuthService.shared.currentUser?.id {
-            // Try conversation first (has eventName stored)
-            if let convos: [Conversation] = try? await AppEnvironment.shared.supabaseClient
-                .from("conversations")
-                .select("*")
-                .or("and(participant_a.eq.\(myId.uuidString),participant_b.eq.\(profileId.uuidString)),and(participant_a.eq.\(profileId.uuidString),participant_b.eq.\(myId.uuidString))")
-                .limit(1)
-                .execute()
-                .value,
-               let convo = convos.first,
-               let name = convo.eventName {
-                metAtEventName = name
-            }
-        }
+        // Resolve "Met at [Event]" context via MessagingService
+        metAtEventName = await MessagingService.shared.eventName(forConversationWith: profileId)
 
         #if DEBUG
         print("[FeedProfile] ✅ Profile loaded: \(profile?.name ?? "nil"), connected: \(isConnected), metAt: \(metAtEventName ?? "nil")")
