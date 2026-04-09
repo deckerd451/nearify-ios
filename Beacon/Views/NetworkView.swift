@@ -199,15 +199,24 @@ struct NetworkView: View {
 
     private func topPersonRow(_ person: RankedProfile) -> some View {
         HStack(spacing: 10) {
-            // Avatar
+            // Avatar with need-state color
+            let needColor: Color = {
+                switch person.insight?.needState {
+                case .belonging: return .orange
+                case .esteem: return .purple
+                case .selfActualization: return .cyan
+                case .none: return .blue
+                }
+            }()
+
             Circle()
-                .fill(person.isConnected ? Color.green.opacity(0.2) : Color.blue.opacity(0.2))
+                .fill(person.isConnected ? Color.green.opacity(0.2) : needColor.opacity(0.2))
                 .frame(width: 36, height: 36)
                 .overlay(
                     Text(String(person.name.prefix(2)).uppercased())
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(person.isConnected ? .green : .blue)
+                        .foregroundColor(person.isConnected ? .green : needColor)
                 )
 
             VStack(alignment: .leading, spacing: 2) {
@@ -229,22 +238,26 @@ struct NetworkView: View {
                     }
                 }
 
-                HStack(spacing: 6) {
-                    if person.encounterStrength > 0 {
-                        let mins = person.encounterStrength / 60
-                        Text(mins > 0 ? "\(mins)m nearby" : "\(person.encounterStrength)s nearby")
-                            .font(.caption2)
-                            .foregroundColor(.orange)
-                    }
-                    Text("Score: \(Int(person.score))")
+                // Show insight text instead of raw score
+                if let insight = person.insight {
+                    Text(insight.insightText)
                         .font(.caption2)
-                        .foregroundColor(.gray)
+                        .foregroundColor(needColor.opacity(0.9))
+                        .lineLimit(2)
+                } else {
+                    HStack(spacing: 6) {
+                        if person.encounterStrength > 0 {
+                            let mins = person.encounterStrength / 60
+                            Text(mins > 0 ? "\(mins)m nearby" : "\(person.encounterStrength)s nearby")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                        }
+                    }
                 }
             }
 
             Spacer()
 
-            // Tap to open profile
             NavigationLink(destination: FeedProfileDetailView(profileId: person.profileId)) {
                 Image(systemName: "chevron.right")
                     .font(.caption)

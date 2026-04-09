@@ -69,15 +69,10 @@ final class NotificationService {
         }
     }
 
-    /// Evaluate event intelligence results. Notify for high-score unconnected profiles.
+    /// Evaluate event intelligence results. Notify using insight text when available.
     func evaluateEventIntelligence(_ profiles: [RankedProfile]) {
         for profile in profiles {
-            guard profile.score >= Threshold.intelligenceScore else {
-                #if DEBUG
-                print("[Notify] Intel skip (low score): \(profile.name) score=\(Int(profile.score))")
-                #endif
-                continue
-            }
+            guard profile.score >= Threshold.intelligenceScore else { continue }
             guard !profile.isConnected else { continue }
 
             let key = "intelligence:\(profile.profileId)"
@@ -90,14 +85,16 @@ final class NotificationService {
 
             markNotified(key: key)
 
+            let body = profile.insight?.insightText ?? "You should meet \(profile.name)"
+
             send(
-                title: "Strong match nearby",
-                body: "You should meet \(profile.name)",
+                title: "At this event",
+                body: body,
                 identifier: key
             )
 
             #if DEBUG
-            print("[Notify] Intel triggered: \(profile.name) score=\(Int(profile.score))")
+            print("[Notify] Intel triggered: \(profile.name) score=\(Int(profile.score)) need=\(profile.insight?.needState.rawValue ?? "none")")
             #endif
         }
     }

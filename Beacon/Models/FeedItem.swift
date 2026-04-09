@@ -55,6 +55,8 @@ struct FeedItemMetadata: Codable {
     var targetName: String?
     var targetAvatarUrl: String?
     var suggestionReason: String?
+    var insightText: String?
+    var needState: String?
     
     enum CodingKeys: String, CodingKey {
         case eventName        = "event_name"
@@ -67,5 +69,7 @@ struct FeedItemMetadata: Codable {
         case targetName       = "target_name"
         case targetAvatarUrl  = "target_avatar_url"
         case suggestionReason = "suggestion_reason"
+        case insightText      = "insight_text"
+        case needState        = "need_state"
     }
 }

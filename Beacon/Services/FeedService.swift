@@ -195,10 +195,34 @@ final class FeedService: ObservableObject {
             let otherIds = bestEncounters.values.map { $0.otherProfile(for: myId) }
             let profileMap = await ProfileService.shared.fetchProfilesByIds(otherIds)
 
+            // Generate insights for encounter profiles
+            let viewerProfile = AuthService.shared.currentUser
+            let connectedIds = AttendeeStateResolver.shared.connectedIds
+            let encounterSignals: [InteractionSignal] = bestEncounters.values.map { enc in
+                let otherId = enc.otherProfile(for: myId)
+                let profile = profileMap[otherId]
+                let viewerInterests = Set(viewerProfile?.interests ?? [])
+                let theirInterests = Set(profile?.interests ?? [])
+                return InteractionSignal(
+                    profileId: otherId,
+                    name: profile?.name ?? "Unknown",
+                    totalEncounterSeconds: enc.overlapSeconds ?? 0,
+                    encounterCount: 1,
+                    lastSeenAt: enc.lastSeenAt,
+                    isConnected: connectedIds.contains(otherId),
+                    sharedInterests: Array(viewerInterests.intersection(theirInterests)),
+                    viewerInterests: Array(viewerInterests),
+                    theirInterests: Array(theirInterests)
+                )
+            }
+            let insights = InteractionInsightService.shared.generateInsights(from: encounterSignals)
+            let insightMap = Dictionary(uniqueKeysWithValues: insights.map { ($0.profileId, $0) })
+
             for encounter in bestEncounters.values {
                 let otherId = encounter.otherProfile(for: myId)
                 let actorName = profileMap[otherId]?.name
                 let sourceTimestamp = encounter.lastSeenAt ?? encounter.firstSeenAt
+                let insight = insightMap[otherId]
 
                 let score = FeedPriorityScorer.scoreEncounter(
                     sourceTimestamp: sourceTimestamp,
@@ -207,7 +231,9 @@ final class FeedService: ObservableObject {
 
                 let metadata = FeedItemMetadata(
                     overlapSeconds: encounter.overlapSeconds,
-                    actorName: actorName
+                    actorName: actorName,
+                    insightText: insight?.insightText,
+                    needState: insight?.needState.rawValue
                 )
 
                 let payload = FeedItemInsertPayload(

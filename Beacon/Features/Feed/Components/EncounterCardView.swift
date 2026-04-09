@@ -16,6 +16,10 @@ struct EncounterCardView: View {
     }
 
     private var overlapText: String {
+        // Prefer insight text if available
+        if let insight = item.metadata?.insightText, !insight.isEmpty {
+            return insight
+        }
         guard let seconds = item.metadata?.overlapSeconds, seconds > 0 else {
             return "Brief encounter"
         }

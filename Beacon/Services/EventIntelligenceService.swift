@@ -173,7 +173,20 @@ final class EventIntelligenceService: ObservableObject {
             print("[EventIntel] ⚠️ Failed to load messages: \(error)")
         }
 
-        // 5. Score each attendee
+        // 5. Build interaction signals and generate insights
+        let viewerProfile = AuthService.shared.currentUser
+        let signals = InteractionInsightService.shared.buildSignals(
+            attendees: attendees,
+            encounters: encounterMap,
+            connectedIds: connectedIds,
+            lastMessageTimes: lastMessageTime,
+            viewerProfile: viewerProfile,
+            myId: myId
+        )
+        let allInsights = InteractionInsightService.shared.generateInsights(from: signals)
+        let insightMap = Dictionary(uniqueKeysWithValues: allInsights.map { ($0.profileId, $0) })
+
+        // 6. Score each attendee (keep existing scoring + attach insight)
         var ranked: [RankedProfile] = []
 
         for attendee in attendees where attendee.id != myId {
@@ -193,7 +206,7 @@ final class EventIntelligenceService: ObservableObject {
                 if boost > 0 { components.append("encounter=+\(Int(boost)) (\(overlap)s)") }
             }
 
-            // Recency — use encounter last_seen or attendee lastSeen
+            // Recency
             let lastInteraction = encounterMap[pid]?.lastSeenAt
                 ?? lastMessageTime[pid]
                 ?? attendee.lastSeen
@@ -219,10 +232,19 @@ final class EventIntelligenceService: ObservableObject {
                 if msgBoost > 0 { components.append("messaged=+\(Int(msgBoost))") }
             }
 
+            // Shared interests boost from insight layer
+            let profileInsight = insightMap[pid]
+            if let insight = profileInsight, !insight.sharedInterests.isEmpty {
+                let interestBoost = min(Double(insight.sharedInterests.count) * 5.0, 20.0)
+                total += interestBoost
+                components.append("interests=+\(Int(interestBoost)) (\(insight.sharedInterests.count) shared)")
+            }
+
             guard total > 0 else { continue }
 
             #if DEBUG
-            print("[EventIntel] profile=\(attendee.name) score=\(Int(total)) components=[\(components.joined(separator: ", "))]")
+            let needLabel = profileInsight?.needState.rawValue ?? "none"
+            print("[EventIntel] profile=\(attendee.name) score=\(Int(total)) need=\(needLabel) components=[\(components.joined(separator: ", "))]")
             #endif
 
             ranked.append(RankedProfile(
@@ -232,7 +254,8 @@ final class EventIntelligenceService: ObservableObject {
                 encounterStrength: encounterMap[pid]?.overlapSeconds ?? 0,
                 isConnected: isConn,
                 hasMessaged: lastMessageTime[pid] != nil,
-                lastInteractionAt: lastInteraction
+                lastInteractionAt: lastInteraction,
+                insight: profileInsight
             ))
         }
 
@@ -266,4 +289,5 @@ struct RankedProfile: Identifiable {
     let isConnected: Bool
     let hasMessaged: Bool
     let lastInteractionAt: Date?
+    let insight: ProfileInsight?
 }
