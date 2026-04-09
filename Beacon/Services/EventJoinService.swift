@@ -30,6 +30,53 @@ final class EventJoinService: ObservableObject {
     /// 15 minutes is the minimum realistic value; 30 minutes is safer.
     let inactivityTimeout: TimeInterval = 900.0  // 15 minutes
 
+    // MARK: - Reconnect Recovery
+
+    /// How long after leaving/timing out the user can reconnect without QR.
+    let reconnectWindow: TimeInterval = 7200.0  // 2 hours
+
+    /// Whether the reconnect prompt was dismissed this app session.
+    @Published private(set) var reconnectDismissedThisSession = false
+
+    /// Last event context persisted to UserDefaults for reconnect recovery.
+    struct LastEventContext: Codable {
+        let eventId: String
+        let eventName: String
+        let timestamp: Date
+    }
+
+    private let lastEventKey = "nearify.lastEventContext"
+
+    /// Returns the last event context if it exists and is within the recovery window.
+    var reconnectContext: LastEventContext? {
+        guard !reconnectDismissedThisSession,
+              case .notInEvent = membershipState,
+              let data = UserDefaults.standard.data(forKey: lastEventKey),
+              let ctx = try? JSONDecoder().decode(LastEventContext.self, from: data),
+              Date().timeIntervalSince(ctx.timestamp) < reconnectWindow
+        else { return nil }
+        return ctx
+    }
+
+    /// Persists the current event as the last event context.
+    private func saveLastEventContext(eventId: String, eventName: String) {
+        let ctx = LastEventContext(eventId: eventId, eventName: eventName, timestamp: Date())
+        if let data = try? JSONEncoder().encode(ctx) {
+            UserDefaults.standard.set(data, forKey: lastEventKey)
+            #if DEBUG
+            print("[EventJoin] 💾 Saved last event context: \(eventName)")
+            #endif
+        }
+    }
+
+    /// Dismisses the reconnect prompt for the current app session.
+    func dismissReconnect() {
+        reconnectDismissedThisSession = true
+        #if DEBUG
+        print("[EventJoin] 🚫 Reconnect dismissed for this session")
+        #endif
+    }
+
     private init() {}
 
     // MARK: - Join Event
@@ -57,6 +104,10 @@ final class EventJoinService: ObservableObject {
             membershipState = .inEvent(eventName: event.name)
             joinError = nil
             backgroundEnteredAt = nil
+            reconnectDismissedThisSession = false
+
+            // Persist for reconnect recovery
+            saveLastEventContext(eventId: event.id.uuidString, eventName: event.name)
 
             // EventPresenceService is the SINGLE heartbeat owner.
             // It writes status="joined" + last_seen_at on every tick.
@@ -91,10 +142,16 @@ final class EventJoinService: ObservableObject {
 
     func leaveEvent() async {
         let eventName = currentEventName ?? "event"
+        let eventId = currentEventID ?? ""
 
         #if DEBUG
         print("[EventJoin] 👋 User leaving event: \(eventName)")
         #endif
+
+        // Persist for reconnect recovery before clearing state
+        if !eventId.isEmpty {
+            saveLastEventContext(eventId: eventId, eventName: eventName)
+        }
 
         // Write status="left" to DB before clearing local state
         await presence.leaveCurrentEvent()
@@ -121,10 +178,16 @@ final class EventJoinService: ObservableObject {
 
     func timeoutEvent() async {
         let eventName = currentEventName ?? "event"
+        let eventId = currentEventID ?? ""
 
         #if DEBUG
         print("[EventJoin] ⏰ Timing out from event: \(eventName)")
         #endif
+
+        // Persist for reconnect recovery before clearing state
+        if !eventId.isEmpty {
+            saveLastEventContext(eventId: eventId, eventName: eventName)
+        }
 
         // Write status="left" to DB (timed-out users are treated as left server-side)
         await presence.leaveCurrentEvent()
