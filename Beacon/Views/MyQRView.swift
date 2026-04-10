@@ -18,6 +18,7 @@ struct MyQRView: View {
     @ObservedObject private var presence = EventPresenceService.shared
     @ObservedObject private var bleService = BLEService.shared
     @ObservedObject private var authService = AuthService.shared
+    @ObservedObject private var latelyService = DynamicProfileService.shared
 
     var body: some View {
         NavigationView {
@@ -34,6 +35,11 @@ struct MyQRView: View {
                             .background(Color.blue)
                             .foregroundColor(.white)
                             .cornerRadius(12)
+                    }
+
+                    // Lately Section
+                    if !latelyService.latelyLines.isEmpty {
+                        latelySection
                     }
                     
                     Divider()
@@ -94,6 +100,7 @@ struct MyQRView: View {
                 print("[QR]    Full payload: beacon://profile/\(payload)")
                 qrImage = QRService.generateQRCode(for: payload)
                 await loadAuthDetails()
+                latelyService.refresh()
             }
         }
     }
@@ -377,6 +384,27 @@ struct MyQRView: View {
         }
     }
     
+    // MARK: - Lately Section
+
+    private var latelySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Lately")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(latelyService.latelyLines, id: \.self) { line in
+                    Text(line)
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+    }
+
     // MARK: - QR Code Section
     
     private var qrCodeSection: some View {
