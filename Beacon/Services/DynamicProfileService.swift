@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Supabase
 
 /// Generates "Lately" lines for the Profile tab.
@@ -249,7 +250,17 @@ final class DynamicProfileService: ObservableObject {
 
     // MARK: - Phrase Generation
 
-    /// Category 1: Topic / Focus — derived from interests + event themes
+    // ── Vague words to demote in topic/theme selection ──
+    private static let vagueWords: Set<String> = [
+        "technology", "tech", "innovation", "community", "digital",
+        "general", "social", "global", "future", "new", "open",
+        "people", "world", "things", "stuff", "ideas", "space"
+    ]
+
+    /// Category 1: Topic / Focus — prefers concrete nouns from events + interests.
+    /// Two strong themes → "Exploring [t1] and [t2]"
+    /// One strong theme  → "Focused lately on [t1]"
+    /// Otherwise omit.
     private func generateTopicLine(
         user: User?,
         eventSignals: [EventSignal],
@@ -258,13 +269,14 @@ final class DynamicProfileService: ObservableObject {
         let interests = user?.interests ?? []
         let skills = user?.skills ?? []
 
-        // Extract topic words from event names
+        // Extract topic words from event names (weighted)
         let eventTopics = eventSignals.flatMap { signal -> [(String, Double)] in
             let words = extractTopicWords(from: signal.eventName)
             return words.map { ($0, signal.weight) }
         }
 
-        // Combine with user interests (lower weight — these are static)
+        // Build scored topic map — event-derived topics get full weight,
+        // static profile fields get less so behavioral signal dominates.
         var topicScores: [String: Double] = [:]
         for (topic, weight) in eventTopics {
             topicScores[topic, default: 0] += weight
@@ -278,27 +290,33 @@ final class DynamicProfileService: ObservableObject {
             topicScores[normalized, default: 0] += 0.2
         }
 
-        // Pick top 2–3 topics
-        let sorted = topicScores.sorted { $0.value > $1.value }
-        let topTopics = sorted.prefix(3).map { $0.key }
-        let totalScore = sorted.prefix(3).reduce(0.0) { $0 + $1.value }
-
-        guard !topTopics.isEmpty, totalScore >= 0.5 else { return nil }
-
-        let joined: String
-        if topTopics.count == 1 {
-            joined = topTopics[0]
-        } else if topTopics.count == 2 {
-            joined = "\(topTopics[0]) and \(topTopics[1])"
-        } else {
-            joined = "\(topTopics[0]), \(topTopics[1]), and \(topTopics[2])"
+        // Demote vague words — halve their score so concrete nouns win
+        for key in topicScores.keys where Self.vagueWords.contains(key) {
+            topicScores[key] = (topicScores[key] ?? 0) * 0.5
         }
 
-        let line = "Exploring \(joined)"
+        let sorted = topicScores.sorted { $0.value > $1.value }
+        guard let first = sorted.first, first.value >= 0.4 else { return nil }
+
+        // Pick top themes that clear a minimum bar
+        let strong = sorted.filter { $0.value >= first.value * 0.5 }.prefix(3)
+        let topThemes = strong.map { $0.key }
+        let totalScore = strong.reduce(0.0) { $0 + $1.value }
+
+        let line: String
+        if topThemes.count >= 2 {
+            line = "Exploring \(topThemes[0]) and \(topThemes[1])"
+        } else {
+            line = "Focused lately on \(topThemes[0])"
+        }
+
         return (line, min(totalScore / 2.0, 1.0), .topic)
     }
 
-    /// Category 2: People / Network Pattern
+    /// Category 2: People / Network — uses role clusters from encounter context.
+    /// Two role clusters → "Meeting [r1] and [r2]"
+    /// One role cluster  → "Meeting people around [theme]"
+    /// Otherwise omit.
     private func generatePeopleLine(
         connectionSignals: [ConnectionSignal],
         encounterSignals: [EncounterSignal]
@@ -309,13 +327,36 @@ final class DynamicProfileService: ObservableObject {
 
         guard totalPeople >= 2 else { return nil }
 
+        // Try to extract role clusters from the names of people met.
+        // Feed items carry shared_interests in metadata — use those as
+        // a proxy for the "kind of people" the user is meeting.
+        let feedItems = FeedService.shared.feedItems
+        var roleCounts: [String: Double] = [:]
+        for item in feedItems {
+            guard item.feedType == .encounter || item.feedType == .connection else { continue }
+            guard let date = item.createdAt else { continue }
+            let w = Weight.forAge(Date().timeIntervalSince(date))
+            guard w > 0 else { continue }
+
+            if let interests = item.metadata?.sharedInterests {
+                for interest in interests {
+                    let key = interest.lowercased()
+                    guard !Self.vagueWords.contains(key) else { continue }
+                    roleCounts[key, default: 0] += w
+                }
+            }
+        }
+
+        let topRoles = roleCounts.sorted { $0.value > $1.value }.prefix(2).map { $0.key }
+
         let line: String
-        if connectionSignals.count >= 3 {
-            line = "Meeting new people and building connections"
-        } else if encounterSignals.count >= 3 {
-            line = "Crossing paths with interesting people"
-        } else if connectionSignals.count >= 1 && encounterSignals.count >= 1 {
-            line = "Meeting and connecting with others"
+        if topRoles.count >= 2 {
+            line = "Meeting people into \(topRoles[0]) and \(topRoles[1])"
+        } else if let role = topRoles.first {
+            line = "Meeting people around \(role)"
+        } else if connectionSignals.count >= 3 {
+            // Fallback: no role data, but enough volume to say something
+            line = "Building new connections"
         } else {
             return nil
         }
@@ -323,7 +364,11 @@ final class DynamicProfileService: ObservableObject {
         return (line, min(weightedScore / 3.0, 1.0), .people)
     }
 
-    /// Category 3: Activity / Momentum
+    /// Category 3: Activity / Momentum — prefers named events over generic labels.
+    /// Repeated named event → "Active at [event] events"
+    /// Message + encounter follow-through → "Following up after recent events"
+    /// Repeated attendance → "Showing up at [event]"
+    /// Otherwise omit.
     private func generateActivityLine(
         eventSignals: [EventSignal],
         messageSignals: [MessageSignal],
@@ -333,9 +378,8 @@ final class DynamicProfileService: ObservableObject {
         let messageCount = messageSignals.count
         let encounterCount = encounterSignals.count
 
-        // Event-focused
+        // Prefer named event specificity
         if eventCount >= 2 {
-            // Find most common event name for specificity
             let topEvent = eventSignals
                 .sorted { $0.weight > $1.weight }
                 .first?.eventName
@@ -346,23 +390,30 @@ final class DynamicProfileService: ObservableObject {
             }
         }
 
-        // Follow-up behavior
+        // Follow-up behavior (messages after encounters)
         if messageCount >= 2 && encounterCount >= 1 {
             let score = messageSignals.reduce(0.0) { $0 + $1.weight } / 2.0
-            return ("Following up after events", min(score, 1.0), .activity)
+            return ("Following up after recent events", min(score, 1.0), .activity)
         }
 
-        // General activity
-        if eventCount >= 1 && (messageCount >= 1 || encounterCount >= 1) {
-            let totalWeight = eventSignals.reduce(0.0) { $0 + $1.weight }
-                + messageSignals.reduce(0.0) { $0 + $1.weight }
-            let score = totalWeight / 3.0
-            return ("Active in the community lately", min(score, 1.0), .activity)
-        }
-
-        // Single event
+        // Single named event with supporting activity
         if eventCount == 1, let event = eventSignals.first {
-            return ("Active at \(event.eventName)", event.weight * 0.6, .activity)
+            if messageCount >= 1 || encounterCount >= 1 {
+                let totalWeight = event.weight + messageSignals.reduce(0.0) { $0 + $1.weight }
+                return ("Showing up at \(event.eventName)", min(totalWeight / 2.0, 1.0), .activity)
+            }
+            // Single event, no other activity — still worth showing if recent
+            if event.weight >= 0.7 {
+                return ("Active at \(event.eventName)", event.weight * 0.6, .activity)
+            }
+        }
+
+        // Multiple events but no top event resolved (shouldn't happen, but guard)
+        if eventCount >= 1 && (messageCount >= 1 || encounterCount >= 1) {
+            let topEvent = eventSignals.sorted { $0.weight > $1.weight }.first?.eventName
+            if let event = topEvent {
+                return ("Showing up at \(event)", 0.4, .activity)
+            }
         }
 
         return nil
@@ -371,13 +422,16 @@ final class DynamicProfileService: ObservableObject {
     // MARK: - Helpers
 
     /// Extracts meaningful topic words from event names.
-    /// Strips common filler words and returns lowercased tokens.
+    /// Strips stop words and returns lowercased tokens.
+    /// Vague words are not stripped here — they're demoted in scoring instead,
+    /// so they can still appear as a last resort.
     private func extractTopicWords(from eventName: String) -> [String] {
         let stopWords: Set<String> = [
             "the", "a", "an", "at", "in", "on", "for", "and", "or", "of",
             "to", "with", "by", "event", "events", "meetup", "conference",
             "workshop", "session", "talk", "day", "night", "week", "2024",
-            "2025", "2026", "vol", "edition", "part"
+            "2025", "2026", "vol", "edition", "part", "series", "group",
+            "club", "org", "inc", "llc", "presents", "hosted"
         ]
 
         return eventName
