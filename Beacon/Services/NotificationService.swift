@@ -2,8 +2,10 @@ import Foundation
 import UserNotifications
 
 /// Intelligent local notification system for Nearify.
-/// Reactive, lightweight, deterministic. No backend tables, no push infra.
-/// Notifications feel like: "this matters right now."
+/// Aligned with the time-aware priority model used by the Home surface.
+/// Only high-urgency CONTINUE or truly IMMEDIATE/LIVE items trigger notifications.
+/// INSIGHTS generally do NOT trigger push notifications.
+/// NEXT MOVES only notify when timing is truly important.
 @MainActor
 final class NotificationService {
 
@@ -19,11 +21,13 @@ final class NotificationService {
         static let missedOpportunity: TimeInterval = 1200 // 20 min
     }
 
-    // MARK: - Thresholds
+    // MARK: - Thresholds (aligned with temporal model)
 
     private enum Threshold {
         static let encounterOverlapSeconds: Int = 120   // 2 min minimum to notify
         static let intelligenceScore: Double = 50       // minimum ranked score to notify
+        // Temporal: only IMMEDIATE or LIVE items are notification-eligible
+        static let maxNotificationAge: TimeInterval = 900  // 15 min — beyond this, no push
     }
 
     // MARK: - State
@@ -50,13 +54,17 @@ final class NotificationService {
 
     // MARK: - Public API
 
-    /// Evaluate feed items after a refresh. Checks for new messages from others.
+    /// Evaluate feed items after a refresh. Only notifies for IMMEDIATE/LIVE messages.
     func evaluateFeedItems(_ items: [FeedItem]) {
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
         for item in items where item.feedType == .message {
             guard let actorId = item.actorProfileId, actorId != myId else { continue }
-            guard let ts = item.createdAt, Date().timeIntervalSince(ts) < 600 else { continue }
+            guard let ts = item.createdAt else { continue }
+            let age = Date().timeIntervalSince(ts)
+
+            // Temporal gate: only notify for recent messages (IMMEDIATE/LIVE window)
+            guard age < Threshold.maxNotificationAge else { continue }
 
             let name = item.metadata?.actorName ?? "Someone"
             let preview = item.metadata?.messagePreview
@@ -69,12 +77,33 @@ final class NotificationService {
         }
     }
 
-    /// Evaluate event intelligence results. Notify using decision-based insights.
+    /// Evaluate event intelligence results. Only notify for high-urgency decisions.
+    /// INSIGHTS are suppressed from push notifications.
+    /// Only CONTINUE-eligible items (Tier 1-2) trigger notifications.
     func evaluateEventIntelligence(_ profiles: [RankedProfile]) {
         for profile in profiles {
-            // Only notify if the decision engine surfaced this person
             guard let decision = profile.decision else { continue }
             guard !profile.isConnected else { continue }
+
+            // Only notify for high-urgency tiers (active conversation, strong interaction)
+            // This aligns with CONTINUE section eligibility
+            guard decision.tier == .activeConversation || decision.tier == .strongInteraction else {
+                #if DEBUG
+                print("[Notify] Intel skip (tier too low for push): \(profile.name) tier=\(decision.tier.rawValue)")
+                #endif
+                continue
+            }
+
+            // Temporal gate: only notify if interaction is recent
+            if let lastAt = profile.lastInteractionAt {
+                let age = Date().timeIntervalSince(lastAt)
+                guard age < Threshold.maxNotificationAge else {
+                    #if DEBUG
+                    print("[Notify] Intel skip (stale): \(profile.name) age=\(Int(age))s")
+                    #endif
+                    continue
+                }
+            }
 
             let key = "intelligence:\(profile.profileId)"
             guard !isCoolingDown(key: key, cooldown: Cooldown.intelligence) else {
@@ -86,14 +115,25 @@ final class NotificationService {
 
             markNotified(key: key)
 
+            // Use action-oriented language matching the Home surface
+            let body: String
+            switch decision.tier {
+            case .activeConversation:
+                body = "\(profile.name) — keep the conversation going"
+            case .strongInteraction:
+                body = "\(profile.name) is nearby — go say hi"
+            default:
+                body = decision.reason
+            }
+
             send(
-                title: decision.tier.label,
-                body: decision.reason,
+                title: decision.tier == .activeConversation ? "Continue" : "Nearby",
+                body: body,
                 identifier: key
             )
 
             #if DEBUG
-            print("[Notify] Intel triggered: \(profile.name) tier=\(decision.tier.rawValue) action=\(decision.action.rawValue)")
+            print("[Notify] Intel triggered: \(profile.name) tier=\(decision.tier.rawValue)")
             #endif
         }
     }
@@ -118,11 +158,13 @@ final class NotificationService {
 
         markNotified(key: key)
 
+        // Action-oriented language: "Reply to Doug"
+        let firstName = fromName.components(separatedBy: " ").first ?? fromName
         let body: String
         if let preview = preview, !preview.isEmpty {
-            body = "\(fromName) replied — keep the conversation going"
+            body = "Reply to \(firstName) — \(String(preview.prefix(60)))"
         } else {
-            body = "\(fromName) sent you a message"
+            body = "Reply to \(firstName)"
         }
 
         send(
@@ -137,6 +179,7 @@ final class NotificationService {
     }
 
     /// Called after an encounter is flushed to DB.
+    /// Only notifies for IMMEDIATE/LIVE temporal states with sufficient overlap.
     func onEncounterDetected(profileId: UUID, profileName: String?, overlapSeconds: Int, isConnected: Bool) {
         guard overlapSeconds >= Threshold.encounterOverlapSeconds else {
             #if DEBUG
@@ -162,15 +205,16 @@ final class NotificationService {
 
         markNotified(key: key)
 
-        let name = profileName ?? "someone"
+        // Action-oriented: "Find Doug — you've been nearby"
+        let firstName = (profileName ?? "someone").components(separatedBy: " ").first ?? "someone"
         send(
-            title: "Nearby encounter",
-            body: "You've been near \(name) — connect now",
+            title: "Someone nearby",
+            body: "Find \(firstName) — you've been nearby",
             identifier: key
         )
 
         #if DEBUG
-        print("[Notify] Encounter triggered: \(name) (\(overlapSeconds)s)")
+        print("[Notify] Encounter triggered: \(firstName) (\(overlapSeconds)s)")
         #endif
     }
 
@@ -181,15 +225,15 @@ final class NotificationService {
 
         markNotified(key: key)
 
-        let name = profileName ?? "someone"
+        let firstName = (profileName ?? "someone").components(separatedBy: " ").first ?? "someone"
         send(
             title: "New connection",
-            body: "You connected with \(name)",
+            body: "You connected with \(firstName)",
             identifier: key
         )
 
         #if DEBUG
-        print("[Notify] Connection triggered: \(name)")
+        print("[Notify] Connection triggered: \(firstName)")
         #endif
     }
 

@@ -46,7 +46,7 @@ struct EncounterCardView: View {
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("You encountered \(name)")
+                    Text("\(name) was nearby")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)

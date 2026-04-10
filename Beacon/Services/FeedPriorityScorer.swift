@@ -1,10 +1,8 @@
 import Foundation
 
 /// Centralized, deterministic priority scoring for feed items.
-/// Computes a single score from item type + source data.
-/// All tuning knobs are named constants at the top.
-///
-/// Score = baseScore + recencyBoost + typeSpecificBoost
+/// Uses temporal priority model: Priority = time_decay × signal_strength.
+/// Strong interactions decay slower; weak interactions decay faster.
 ///
 /// Higher score = higher in feed.
 enum FeedPriorityScorer {
@@ -37,45 +35,75 @@ enum FeedPriorityScorer {
 
     // MARK: - Public API
 
-    /// Score a message feed item.
+    /// Score a message feed item using temporal priority.
     /// - Parameter sourceTimestamp: the latest message's created_at
     static func scoreMessage(sourceTimestamp: Date?) -> Double {
         let recency = recencyBoost(for: sourceTimestamp)
-        let total = messageBase + recency
+        let baseTotal = messageBase + recency
+
+        // Temporal priority: messages have high signal strength
+        let age = sourceTimestamp.map { Date().timeIntervalSince($0) }
+        let temporalBoost = TemporalResolver.temporalPriority(
+            lastSeenAge: age,
+            signalStrength: 0.9
+        ) * 50  // Scale to match base scoring range
+
+        let total = baseTotal + temporalBoost
 
         #if DEBUG
-        let actorLabel = "message"
-        print("[FeedScore] type=\(actorLabel) base=\(messageBase) recency=\(recency) total=\(total)")
+        print("[FeedScore] type=message base=\(messageBase) recency=\(recency) temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
         #endif
 
         return total
     }
 
-    /// Score a connection feed item.
+    /// Score a connection feed item using temporal priority.
     /// - Parameter connectionCreatedAt: the connection's created_at timestamp
     static func scoreConnection(connectionCreatedAt: Date?) -> Double {
         let recency = recencyBoost(for: connectionCreatedAt)
         let freshness = connectionFreshnessBoost(createdAt: connectionCreatedAt)
-        let total = connectionBase + recency + freshness
+        let baseTotal = connectionBase + recency + freshness
+
+        let age = connectionCreatedAt.map { Date().timeIntervalSince($0) }
+        let temporalBoost = TemporalResolver.temporalPriority(
+            lastSeenAge: age,
+            signalStrength: 0.6
+        ) * 40
+
+        let total = baseTotal + temporalBoost
 
         #if DEBUG
-        print("[FeedScore] type=connection base=\(connectionBase) recency=\(recency) freshness=\(freshness) total=\(total)")
+        print("[FeedScore] type=connection base=\(connectionBase) recency=\(recency) freshness=\(freshness) temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
         #endif
 
         return total
     }
 
-    /// Score an encounter feed item.
-    /// - Parameters:
-    ///   - sourceTimestamp: encounter's last_seen_at or first_seen_at
-    ///   - overlapSeconds: BLE proximity overlap duration
+    /// Score an encounter feed item using temporal priority.
+    /// Strong encounters decay slower than weak ones.
     static func scoreEncounter(sourceTimestamp: Date?, overlapSeconds: Int?) -> Double {
         let recency = recencyBoost(for: sourceTimestamp)
-        let strength = encounterStrengthBoost(overlapSeconds: overlapSeconds ?? 0)
-        let total = encounterBase + recency + strength
+        let overlap = overlapSeconds ?? 0
+        let strength = encounterStrengthBoost(overlapSeconds: overlap)
+        let baseTotal = encounterBase + recency + strength
+
+        // Signal strength adapts to encounter duration
+        let signalStrength: Double
+        if overlap >= 900      { signalStrength = 1.0 }
+        else if overlap >= 300 { signalStrength = 0.7 }
+        else if overlap >= 60  { signalStrength = 0.4 }
+        else                   { signalStrength = 0.15 }
+
+        let age = sourceTimestamp.map { Date().timeIntervalSince($0) }
+        let temporalBoost = TemporalResolver.temporalPriority(
+            lastSeenAge: age,
+            signalStrength: signalStrength
+        ) * 50
+
+        let total = baseTotal + temporalBoost
 
         #if DEBUG
-        print("[FeedScore] type=encounter base=\(encounterBase) recency=\(recency) overlapBoost=\(strength) overlap=\(overlapSeconds ?? 0)s total=\(total)")
+        print("[FeedScore] type=encounter base=\(encounterBase) recency=\(recency) overlapBoost=\(strength) overlap=\(overlap)s temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
         #endif
 
         return total
@@ -85,10 +113,18 @@ enum FeedPriorityScorer {
     /// - Parameter sourceTimestamp: when the suggestion was generated
     static func scoreSuggestion(sourceTimestamp: Date?) -> Double {
         let recency = recencyBoost(for: sourceTimestamp)
-        let total = suggestionBase + recency
+        let baseTotal = suggestionBase + recency
+
+        let age = sourceTimestamp.map { Date().timeIntervalSince($0) }
+        let temporalBoost = TemporalResolver.temporalPriority(
+            lastSeenAge: age,
+            signalStrength: 0.5
+        ) * 30
+
+        let total = baseTotal + temporalBoost
 
         #if DEBUG
-        print("[FeedScore] type=suggestion base=\(suggestionBase) recency=\(recency) total=\(total)")
+        print("[FeedScore] type=suggestion base=\(suggestionBase) recency=\(recency) temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
         #endif
 
         return total

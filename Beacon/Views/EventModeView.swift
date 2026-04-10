@@ -176,9 +176,16 @@ struct EventModeView: View {
 
             let resolved = resolver.resolvedPeerDevices(attendees: attendees.attendees)
             if resolved.isEmpty {
-                Text("No nearby attendees detected yet")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                // Time-aware guidance instead of passive empty state
+                if attendees.attendees.isEmpty {
+                    Text("Move to discover people")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Someone is nearby — go say hi")
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+                }
             } else {
                 ForEach(resolved.prefix(5), id: \.device.id) { match in
                     HStack(spacing: 10) {
