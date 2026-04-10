@@ -99,6 +99,9 @@ final class HomeSurfaceService: ObservableObject {
 
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
+        // Ensure dynamic profile signals are fresh for "why" explanations
+        DynamicProfileService.shared.refresh()
+
         let feedItems = FeedService.shared.feedItems
         let activeEncounters = EncounterService.shared.activeEncounters
         let connectedIds = AttendeeStateResolver.shared.connectedIds
@@ -175,10 +178,21 @@ final class HomeSurfaceService: ObservableObject {
                 let subtitle: String?
                 if temporal == .immediate {
                     headline = "\(name) is nearby — go say hi"
-                    subtitle = contextLine(eventName: eventName, minutes: minutes)
+                    subtitle = whyExplanation(
+                        targetName: name,
+                        targetInterests: attendee?.interests,
+                        eventName: eventName,
+                        minutes: minutes
+                    )
                 } else {
                     headline = "Find \(name)"
-                    subtitle = contextLine(eventName: eventName, minutes: minutes, verb: "You crossed paths")
+                    subtitle = whyExplanation(
+                        targetName: name,
+                        targetInterests: attendee?.interests,
+                        eventName: eventName,
+                        minutes: minutes,
+                        isEncounter: true
+                    )
                 }
 
                 continuePool.append(HomeSurfaceItem(
@@ -217,7 +231,13 @@ final class HomeSurfaceService: ObservableObject {
                 section: .continue, profileId: actorId, name: name,
                 avatarUrl: avatarMap[actorId],
                 headline: isConnected ? "\(name) is nearby — go say hi" : "Find \(name)",
-                subtitle: contextLine(eventName: item.metadata?.eventName, minutes: minutes, verb: "You crossed paths"),
+                subtitle: whyExplanation(
+                    targetName: name,
+                    targetInterests: nil,
+                    eventName: item.metadata?.eventName,
+                    minutes: minutes,
+                    isEncounter: true
+                ),
                 actionType: .findAttendee,
                 actionLabel: isConnected ? "Go say hi" : "Find",
                 temporalState: temporal, priority: priority,
@@ -295,7 +315,12 @@ final class HomeSurfaceService: ObservableObject {
                 section: .nextMoves, profileId: actorId, name: name,
                 avatarUrl: avatarMap[actorId],
                 headline: "Follow up with \(name)",
-                subtitle: item.metadata?.eventName.map { "Met at \($0)" },
+                subtitle: whyExplanation(
+                    targetName: name,
+                    targetInterests: nil,
+                    eventName: item.metadata?.eventName,
+                    isFollowUp: true
+                ),
                 actionType: .followUp, actionLabel: "Message",
                 temporalState: temporal, priority: priority
             ))
@@ -326,12 +351,90 @@ final class HomeSurfaceService: ObservableObject {
         #endif
     }
 
-    // MARK: - Context Line Generator
+    // MARK: - "Why" Explanation Generator
 
-    /// Generates human, socially meaningful single-line context.
+    /// Generates context-aware "why this person / why now" explanations
+    /// using DynamicProfileService signals. Priority order:
+    /// 1. Shared theme overlap
+    /// 2. Shared event context
+    /// 3. Follow-up / momentum
+    /// 4. Clean fallback
+    private func whyExplanation(
+        targetName: String,
+        targetInterests: [String]?,
+        eventName: String?,
+        minutes: Int = 0,
+        isFollowUp: Bool = false,
+        isEncounter: Bool = false
+    ) -> String? {
+        let signals = DynamicProfileService.shared.currentSignals
+        let myThemes = Set(signals.topThemes.map { $0.lowercased() })
+        let theirInterests = Set((targetInterests ?? []).map { $0.lowercased().trimmingCharacters(in: .whitespaces) })
+
+        // 1. Shared theme: user's recent themes overlap with target's interests
+        let themeOverlap = myThemes.intersection(theirInterests)
+        if let shared = themeOverlap.first {
+            return "You both keep showing up around \(shared)"
+        }
+
+        // Also check shared interests from encounter metadata
+        let interestOverlap = signals.recentSharedInterests.intersection(theirInterests)
+        if let shared = interestOverlap.first {
+            return "You both keep showing up around \(shared)"
+        }
+
+        // 2. Shared event context
+        if let event = eventName, !event.isEmpty {
+            if let recentEvent = signals.recentEventName,
+               event.lowercased() == recentEvent.lowercased() {
+                return "You've both been active at \(event)"
+            }
+            // Different event but still event-grounded
+            if minutes >= 5 {
+                return "You spent a few minutes together at \(event)"
+            }
+            if isEncounter {
+                return "You crossed paths earlier at \(event)"
+            }
+            return "Also here at \(event)"
+        }
+
+        // 3. Follow-up / momentum
+        if isFollowUp || signals.hasFollowUpMomentum {
+            if let event = signals.recentEventName {
+                return "Looks like a strong follow-up from \(event)"
+            }
+            return "Looks like a strong follow-up from earlier"
+        }
+
+        // 4. Clean fallback (no vague "you were near them")
+        if minutes >= 5 {
+            return "You spent a few minutes together"
+        }
+        if isEncounter {
+            return "You crossed paths earlier"
+        }
+
+        // No explanation is better than a bad one
+        return nil
+    }
+
+    /// Legacy context line for cases where we don't have target interests.
+    /// Falls back to the new whyExplanation when possible.
     private func contextLine(eventName: String?, minutes: Int = 0, verb: String? = nil) -> String? {
-        var parts: [String] = []
+        // Try the new signal-aware explanation first
+        if let why = whyExplanation(
+            targetName: "",
+            targetInterests: nil,
+            eventName: eventName,
+            minutes: minutes,
+            isEncounter: verb != nil
+        ) {
+            return why
+        }
 
+        // Minimal fallback
+        var parts: [String] = []
         if let v = verb {
             if minutes >= 5 {
                 parts.append("You spent a few minutes together")
@@ -341,7 +444,6 @@ final class HomeSurfaceService: ObservableObject {
                 parts.append(v + " earlier")
             }
         }
-
         if let event = eventName, !event.isEmpty {
             if parts.isEmpty {
                 parts.append("Also here at \(event)")
@@ -349,7 +451,6 @@ final class HomeSurfaceService: ObservableObject {
                 parts.append(event)
             }
         }
-
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

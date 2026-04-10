@@ -2,6 +2,33 @@ import Foundation
 import Combine
 import Supabase
 
+// MARK: - Dynamic Profile Signals (for Home consumption)
+
+/// Lightweight signal output that Home can use for "why" explanations.
+/// Derived from existing data, not stored anywhere.
+struct DynamicProfileSignals {
+    /// User's top recent themes (e.g., ["health AI", "design"])
+    let topThemes: [String]
+    /// Most recent/active event name, if any
+    let recentEventName: String?
+    /// Whether user has recent follow-up behavior (messages after encounters)
+    let hasFollowUpMomentum: Bool
+    /// Raw recent shared interests from encounters (for overlap matching)
+    let recentSharedInterests: Set<String>
+
+    init(
+        topThemes: [String] = [],
+        recentEventName: String? = nil,
+        hasFollowUpMomentum: Bool = false,
+        recentSharedInterests: Set<String> = []
+    ) {
+        self.topThemes = topThemes
+        self.recentEventName = recentEventName
+        self.hasFollowUpMomentum = hasFollowUpMomentum
+        self.recentSharedInterests = recentSharedInterests
+    }
+}
+
 /// Generates "Lately" lines for the Profile tab.
 /// Lightweight, client-side, derived from existing data sources.
 /// Returns 0–3 short phrases reflecting recent activity patterns.
@@ -14,6 +41,9 @@ final class DynamicProfileService: ObservableObject {
 
     @Published private(set) var latelyLines: [String] = []
     @Published private(set) var isLoading = false
+
+    /// Lightweight signals for Home to consume. Derived, not stored.
+    @Published private(set) var currentSignals = DynamicProfileSignals()
 
     private let supabase = AppEnvironment.shared.supabaseClient
     private var lastGenerated: Date?
@@ -49,11 +79,13 @@ final class DynamicProfileService: ObservableObject {
         Task {
             let lines = await generateLines()
             latelyLines = lines
+            currentSignals = await buildSignals()
             lastGenerated = Date()
             isLoading = false
 
             #if DEBUG
             print("[Lately] Generated \(lines.count) lines: \(lines)")
+            print("[Lately] Signals: themes=\(currentSignals.topThemes) event=\(currentSignals.recentEventName ?? "none") momentum=\(currentSignals.hasFollowUpMomentum) sharedInterests=\(currentSignals.recentSharedInterests.count)")
             #endif
         }
     }
@@ -514,6 +546,83 @@ final class DynamicProfileService: ObservableObject {
 
         // No event at all → omit entirely (don't fill with generic)
         return nil
+    }
+
+    // MARK: - Signal Builder (for Home)
+
+    /// Builds lightweight signals from the same data sources used for Lately lines.
+    /// Called alongside generateLines() so signals are always fresh.
+    private func buildSignals() async -> DynamicProfileSignals {
+        guard let myId = AuthService.shared.currentUser?.id else { return DynamicProfileSignals() }
+        let user = AuthService.shared.currentUser
+        let interests = user?.interests ?? []
+        let skills = user?.skills ?? []
+
+        let feedItems = FeedService.shared.feedItems
+        let now = Date()
+
+        // Top themes: same logic as topic line but just extract the ranked list
+        var topicScores: [String: Double] = [:]
+        for item in feedItems {
+            guard let eventName = item.metadata?.eventName, !eventName.isEmpty else { continue }
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            let w = Weight.forAge(now.timeIntervalSince(date))
+            for theme in extractTopicWords(from: eventName) {
+                topicScores[theme, default: 0] += w
+            }
+        }
+        for interest in interests {
+            let raw = interest.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !Self.vagueWords.contains(raw) else { continue }
+            topicScores[raw, default: 0] += 0.3
+        }
+        for skill in skills {
+            let raw = skill.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !Self.vagueWords.contains(raw) else { continue }
+            topicScores[raw, default: 0] += 0.2
+        }
+        for key in topicScores.keys where Self.vagueWords.contains(key) {
+            topicScores[key] = (topicScores[key] ?? 0) * 0.3
+        }
+        let topThemes = topicScores.sorted { $0.value > $1.value }
+            .prefix(3)
+            .filter { $0.value >= 0.3 }
+            .map { $0.key }
+
+        // Recent event
+        let recentEvent = EventJoinService.shared.currentEventName
+            ?? feedItems
+                .compactMap { item -> (String, Date)? in
+                    guard let name = item.metadata?.eventName, let date = item.createdAt else { return nil }
+                    return (name, date)
+                }
+                .sorted { $0.1 > $1.1 }
+                .first?.0
+
+        // Follow-up momentum: messages + encounters both present recently
+        let hasMessages = feedItems.contains { $0.feedType == .message && ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false) }
+        let hasEncounters = feedItems.contains { $0.feedType == .encounter && ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false) }
+        let hasFollowUp = hasMessages && hasEncounters
+
+        // Recent shared interests from encounters/connections
+        var sharedInterests: Set<String> = []
+        for item in feedItems {
+            guard item.feedType == .encounter || item.feedType == .connection else { continue }
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            if let interests = item.metadata?.sharedInterests {
+                for interest in interests {
+                    let raw = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    if raw.count >= 2 { sharedInterests.insert(raw) }
+                }
+            }
+        }
+
+        return DynamicProfileSignals(
+            topThemes: topThemes,
+            recentEventName: recentEvent,
+            hasFollowUpMomentum: hasFollowUp,
+            recentSharedInterests: sharedInterests
+        )
     }
 
     // MARK: - Token Normalization
