@@ -258,8 +258,10 @@ final class DynamicProfileService: ObservableObject {
     ]
 
     /// Category 1: Topic / Focus — prefers concrete nouns from events + interests.
+    /// Only normalized (mapped) tokens appear in output.
     /// Two strong themes → "Exploring [t1] and [t2]"
     /// One strong theme  → "Focused lately on [t1]"
+    /// Falls back to user interests if no event tokens map.
     /// Otherwise omit.
     private func generateTopicLine(
         user: User?,
@@ -269,24 +271,27 @@ final class DynamicProfileService: ObservableObject {
         let interests = user?.interests ?? []
         let skills = user?.skills ?? []
 
-        // Extract topic words from event names (weighted)
+        // Extract NORMALIZED topic themes from event names (weighted)
         let eventTopics = eventSignals.flatMap { signal -> [(String, Double)] in
-            let words = extractTopicWords(from: signal.eventName)
-            return words.map { ($0, signal.weight) }
+            let themes = extractTopicWords(from: signal.eventName)
+            return themes.map { ($0, signal.weight) }
         }
 
-        // Build scored topic map — event-derived topics get full weight,
-        // static profile fields get less so behavioral signal dominates.
+        // Build scored topic map
         var topicScores: [String: Double] = [:]
-        for (topic, weight) in eventTopics {
-            topicScores[topic, default: 0] += weight
+        for (theme, weight) in eventTopics {
+            topicScores[theme, default: 0] += weight
         }
+
+        // Add normalized user interests/skills at lower weight
         for interest in interests {
-            let normalized = interest.lowercased()
+            let normalized = normalizeInterest(interest)
+            guard !Self.vagueWords.contains(normalized) else { continue }
             topicScores[normalized, default: 0] += 0.3
         }
         for skill in skills {
-            let normalized = skill.lowercased()
+            let normalized = normalizeInterest(skill)
+            guard !Self.vagueWords.contains(normalized) else { continue }
             topicScores[normalized, default: 0] += 0.2
         }
 
@@ -314,7 +319,8 @@ final class DynamicProfileService: ObservableObject {
     }
 
     /// Category 2: People / Network — uses role clusters from encounter context.
-    /// Two role clusters → "Meeting [r1] and [r2]"
+    /// Normalizes shared interests through the theme map.
+    /// Two role clusters → "Meeting people into [r1] and [r2]"
     /// One role cluster  → "Meeting people around [theme]"
     /// Otherwise omit.
     private func generatePeopleLine(
@@ -327,9 +333,7 @@ final class DynamicProfileService: ObservableObject {
 
         guard totalPeople >= 2 else { return nil }
 
-        // Try to extract role clusters from the names of people met.
-        // Feed items carry shared_interests in metadata — use those as
-        // a proxy for the "kind of people" the user is meeting.
+        // Extract role clusters from shared_interests, normalized through theme map
         let feedItems = FeedService.shared.feedItems
         var roleCounts: [String: Double] = [:]
         for item in feedItems {
@@ -340,9 +344,9 @@ final class DynamicProfileService: ObservableObject {
 
             if let interests = item.metadata?.sharedInterests {
                 for interest in interests {
-                    let key = interest.lowercased()
-                    guard !Self.vagueWords.contains(key) else { continue }
-                    roleCounts[key, default: 0] += w
+                    let normalized = normalizeInterest(interest)
+                    guard !Self.vagueWords.contains(normalized) else { continue }
+                    roleCounts[normalized, default: 0] += w
                 }
             }
         }
@@ -355,7 +359,6 @@ final class DynamicProfileService: ObservableObject {
         } else if let role = topRoles.first {
             line = "Meeting people around \(role)"
         } else if connectionSignals.count >= 3 {
-            // Fallback: no role data, but enough volume to say something
             line = "Building new connections"
         } else {
             return nil
@@ -419,24 +422,161 @@ final class DynamicProfileService: ObservableObject {
         return nil
     }
 
+    // MARK: - Token Normalization
+
+    /// Maps raw event-name tokens to human-readable theme labels.
+    /// Only mapped tokens appear in output phrases — unmapped tokens are dropped.
+    private static let tokenThemeMap: [String: String] = [
+        // Tech / engineering
+        "hacker":      "startups",
+        "hackathon":   "startups",
+        "hack":        "startups",
+        "hacks":       "startups",
+        "startup":     "startups",
+        "startups":    "startups",
+        "founder":     "startups",
+        "founders":    "startups",
+        "entrepreneur":"startups",
+        "venture":     "startups",
+        "pitch":       "startups",
+        "demo":        "startups",
+        "launch":      "startups",
+        "accelerator": "startups",
+        "incubator":   "startups",
+
+        // AI / ML
+        "ai":          "AI",
+        "artificial":  "AI",
+        "intelligence":"AI",
+        "machine":     "machine learning",
+        "learning":    "machine learning",
+        "llm":         "AI",
+        "gpt":         "AI",
+        "genai":       "AI",
+        "deep":        "deep learning",
+        "neural":      "AI",
+
+        // Design
+        "design":      "design",
+        "ux":          "design",
+        "ui":          "design",
+        "figma":       "design",
+        "creative":    "design",
+        "product":     "product",
+
+        // Health
+        "health":      "health",
+        "healthcare":  "health",
+        "biotech":     "biotech",
+        "bio":         "biotech",
+        "medical":     "health",
+        "wellness":    "health",
+
+        // Web / dev
+        "web":         "web dev",
+        "frontend":    "web dev",
+        "backend":     "engineering",
+        "fullstack":   "engineering",
+        "devops":      "engineering",
+        "cloud":       "cloud",
+        "aws":         "cloud",
+        "mobile":      "mobile",
+        "ios":         "mobile",
+        "android":     "mobile",
+        "swift":       "mobile",
+        "react":       "web dev",
+        "python":      "engineering",
+        "rust":        "engineering",
+        "golang":      "engineering",
+
+        // Data
+        "data":        "data",
+        "analytics":   "data",
+        "science":     "data science",
+
+        // Crypto / web3
+        "crypto":      "crypto",
+        "blockchain":  "crypto",
+        "web3":        "crypto",
+        "defi":        "crypto",
+        "nft":         "crypto",
+
+        // Community / events
+        "theater":     "tech events",
+        "theatre":     "tech events",
+        "summit":      "tech events",
+        "fest":        "tech events",
+        "expo":        "tech events",
+        "forum":       "tech events",
+
+        // Business
+        "business":    "business",
+        "marketing":   "marketing",
+        "growth":      "growth",
+        "sales":       "business",
+        "finance":     "finance",
+        "fintech":     "fintech",
+
+        // Misc concrete
+        "gaming":      "gaming",
+        "game":        "gaming",
+        "music":       "music",
+        "art":         "art",
+        "education":   "education",
+        "climate":     "climate",
+        "sustainability":"climate",
+        "robotics":    "robotics",
+        "hardware":    "hardware",
+        "security":    "security",
+        "cyber":       "security",
+        "open":        "open source",
+        "source":      "open source",
+        "oss":         "open source",
+    ]
+
     // MARK: - Helpers
 
-    /// Extracts meaningful topic words from event names.
-    /// Strips stop words and returns lowercased tokens.
-    /// Vague words are not stripped here — they're demoted in scoring instead,
-    /// so they can still appear as a last resort.
+    /// Extracts tokens from an event name, normalizes them through the theme map,
+    /// and returns only mapped, human-readable themes. Unmapped tokens are dropped.
     private func extractTopicWords(from eventName: String) -> [String] {
         let stopWords: Set<String> = [
             "the", "a", "an", "at", "in", "on", "for", "and", "or", "of",
             "to", "with", "by", "event", "events", "meetup", "conference",
             "workshop", "session", "talk", "day", "night", "week", "2024",
             "2025", "2026", "vol", "edition", "part", "series", "group",
-            "club", "org", "inc", "llc", "presents", "hosted"
+            "club", "org", "inc", "llc", "presents", "hosted", "show",
+            "tech", "annual", "monthly", "weekly", "virtual", "live"
         ]
 
-        return eventName
+        let rawTokens = eventName
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .map { $0.lowercased() }
-            .filter { $0.count >= 3 && !stopWords.contains($0) }
+            .filter { $0.count >= 2 && !stopWords.contains($0) }
+
+        // Map tokens to themes, deduplicating
+        var seen: Set<String> = []
+        var themes: [String] = []
+        for token in rawTokens {
+            if let theme = Self.tokenThemeMap[token], !seen.contains(theme) {
+                seen.insert(theme)
+                themes.append(theme)
+            }
+        }
+
+        return themes
+    }
+
+    /// Normalizes a user interest/skill string through the theme map.
+    /// Returns the mapped theme if found, otherwise returns the original
+    /// lowercased string (interests are user-authored, so they're already readable).
+    private func normalizeInterest(_ raw: String) -> String {
+        let key = raw.lowercased().trimmingCharacters(in: .whitespaces)
+        // Try direct map
+        if let theme = Self.tokenThemeMap[key] { return theme }
+        // Try first word
+        let firstWord = key.components(separatedBy: " ").first ?? key
+        if let theme = Self.tokenThemeMap[firstWord] { return theme }
+        // User-authored interests are already readable — pass through
+        return key
     }
 }
