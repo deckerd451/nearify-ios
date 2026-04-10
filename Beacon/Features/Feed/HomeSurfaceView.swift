@@ -3,6 +3,7 @@ import SwiftUI
 /// Maslow-aligned intelligence surface.
 /// Renders sections in strict order: CONTINUE → INSIGHTS → NEXT MOVES.
 /// Shows minimal UI when nothing meets timing + signal thresholds.
+/// Reacts immediately when the user takes action.
 struct HomeSurfaceView: View {
     @Binding var selectedTab: AppTab
     @ObservedObject private var surface = HomeSurfaceService.shared
@@ -57,11 +58,11 @@ struct HomeSurfaceView: View {
                 feedService.requestRefresh(reason: "home-appear")
                 surface.requestRefresh(reason: "home-appear")
             }
-            .sheet(item: $activeConversation) { destination in
+            .sheet(item: $activeConversation) { dest in
                 ConversationView(
-                    targetProfileId: destination.targetProfileId,
-                    preloadedConversation: destination.conversation,
-                    preloadedName: destination.targetName
+                    targetProfileId: dest.targetProfileId,
+                    preloadedConversation: dest.conversation,
+                    preloadedName: dest.targetName
                 )
             }
             .alert("Can't message yet", isPresented: $showNotConnectedAlert) {
@@ -79,37 +80,54 @@ struct HomeSurfaceView: View {
 
     private var surfaceContent: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
+                // Event context strip (when live)
+                if let eventName = surface.liveEventName {
+                    eventContextStrip(eventName: eventName, attendeeCount: surface.liveAttendeeCount)
+                }
+
                 // CONTINUE — always first, visually dominant
                 if !surface.continueItems.isEmpty {
-                    sectionView(
-                        section: .continue,
-                        items: surface.continueItems,
-                        accentColor: .orange
-                    )
+                    sectionView(section: .continue, items: surface.continueItems, accentColor: .orange)
                 }
 
                 // INSIGHTS — only if meaningful
                 if !surface.insightItems.isEmpty {
-                    sectionView(
-                        section: .insights,
-                        items: surface.insightItems,
-                        accentColor: .purple
-                    )
+                    sectionView(section: .insights, items: surface.insightItems, accentColor: .purple)
                 }
 
                 // NEXT MOVES — only if meaningful
                 if !surface.nextMoveItems.isEmpty {
-                    sectionView(
-                        section: .nextMoves,
-                        items: surface.nextMoveItems,
-                        accentColor: .blue
-                    )
+                    sectionView(section: .nextMoves, items: surface.nextMoveItems, accentColor: .blue)
                 }
             }
             .padding(.top, 8)
             .padding(.bottom, 24)
         }
+    }
+
+    // MARK: - Event Context Strip
+
+    private func eventContextStrip(eventName: String, attendeeCount: Int) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.green)
+                .frame(width: 6, height: 6)
+            Text(eventName)
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.white.opacity(0.9))
+            if attendeeCount > 0 {
+                Text("·")
+                    .foregroundColor(.gray)
+                Text("\(attendeeCount) here")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Section View
@@ -120,7 +138,6 @@ struct HomeSurfaceView: View {
         accentColor: Color
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Section header
             HStack(spacing: 6) {
                 Image(systemName: section.icon)
                     .font(.caption)
@@ -133,7 +150,6 @@ struct HomeSurfaceView: View {
             }
             .padding(.horizontal)
 
-            // Cards
             ForEach(items) { item in
                 surfaceCard(item, accentColor: accentColor)
                     .padding(.horizontal)
@@ -141,25 +157,36 @@ struct HomeSurfaceView: View {
         }
     }
 
-    // MARK: - Surface Card
+    // MARK: - Surface Card (with avatar)
 
     private func surfaceCard(_ item: HomeSurfaceItem, accentColor: Color) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Headline — action-first, human language
-            Text(item.headline)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
+            HStack(spacing: 10) {
+                // Avatar thumbnail
+                if item.profileId != nil {
+                    SurfaceThumbnailView(
+                        avatarUrl: item.avatarUrl,
+                        name: item.name,
+                        accentColor: accentColor
+                    )
+                }
 
-            // Subtitle context
-            if let subtitle = item.subtitle, !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.headline)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+
+                    if let subtitle = item.subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                }
+
+                Spacer()
             }
 
-            // Action button
             HStack(spacing: 12) {
                 surfaceActionButton(item, accentColor: accentColor)
 
@@ -168,7 +195,7 @@ struct HomeSurfaceView: View {
                         title: "View Profile",
                         icon: "person",
                         color: .white.opacity(0.7),
-                        action: { handleViewProfile(profileId: profileId) }
+                        action: { handleAction(item, override: .viewProfile) }
                     )
                 }
             }
@@ -176,7 +203,6 @@ struct HomeSurfaceView: View {
         }
         .feedCard()
         .overlay(
-            // CONTINUE section gets a subtle urgency indicator
             item.section == .continue ?
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(accentColor.opacity(0.3), lineWidth: 1)
@@ -209,48 +235,36 @@ struct HomeSurfaceView: View {
     private var emptyState: some View {
         VStack(spacing: 20) {
             Spacer()
-
             Image(systemName: "sparkles")
                 .font(.system(size: 44))
                 .foregroundColor(.gray.opacity(0.4))
 
             if eventJoin.isEventJoined {
                 Text("Nothing urgent right now.")
-                    .font(.headline)
-                    .foregroundColor(.white)
+                    .font(.headline).foregroundColor(.white)
                 Text("Check the Event tab to discover people nearby.")
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
+                    .font(.subheadline).foregroundColor(.gray)
                     .multilineTextAlignment(.center)
-
                 Text("Go to Event")
-                    .fontWeight(.semibold)
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
+                    .fontWeight(.semibold).foregroundColor(.black)
+                    .padding(.horizontal, 24).padding(.vertical, 12)
                     .background(Capsule().fill(Color.white))
                     .contentShape(Capsule())
                     .onTapGesture { selectedTab = .event }
             } else {
                 Text("Join an event to start building your network")
-                    .font(.headline)
-                    .foregroundColor(.white)
+                    .font(.headline).foregroundColor(.white)
                     .multilineTextAlignment(.center)
                 Text("Your connections and encounters will appear here")
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
+                    .font(.subheadline).foregroundColor(.gray)
                     .multilineTextAlignment(.center)
-
                 Text("Scan to join event")
-                    .fontWeight(.semibold)
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
+                    .fontWeight(.semibold).foregroundColor(.black)
+                    .padding(.horizontal, 24).padding(.vertical, 12)
                     .background(Capsule().fill(Color.white))
                     .contentShape(Capsule())
                     .onTapGesture { selectedTab = .scan }
             }
-
             Spacer()
         }
         .padding(.horizontal, 32)
@@ -259,23 +273,29 @@ struct HomeSurfaceView: View {
     private var loadingState: some View {
         VStack(spacing: 12) {
             ProgressView().tint(.white)
-            Text("Loading…")
-                .font(.subheadline)
-                .foregroundColor(.gray)
+            Text("Loading…").font(.subheadline).foregroundColor(.gray)
         }
     }
 
-    // MARK: - Action Handlers
+    // MARK: - Action Handlers (Action-Aware)
 
-    private func handleAction(_ item: HomeSurfaceItem) {
-        switch item.actionType {
+    private func handleAction(_ item: HomeSurfaceItem, override: SurfaceActionType? = nil) {
+        let action = override ?? item.actionType
+
+        // Record action in memory FIRST — surface reacts immediately
+        surface.recordAction(item: HomeSurfaceItem(
+            section: item.section, profileId: item.profileId, name: item.name,
+            headline: item.headline, actionType: action,
+            temporalState: item.temporalState, priority: item.priority,
+            eventId: item.eventId
+        ))
+
+        switch action {
         case .findAttendee:
-            // LIVE proximity action → find-attendee sheet, never messaging
             if let profileId = item.profileId {
                 handleFindAttendee(profileId: profileId)
             }
         case .reply, .followUp, .message:
-            // Messaging actions → conversation sheet
             if let profileId = item.profileId {
                 handleMessage(profileId: profileId)
             }
@@ -296,24 +316,17 @@ struct HomeSurfaceView: View {
         navigationPath.append(FeedRoute.profileDetail(profileId: profileId))
     }
 
-    /// Routes to the existing find-attendee flow.
-    /// Resolves the attendee from EventAttendeesService and presents FindAttendeeView.
-    /// If the attendee isn't in the current event's attendee list, falls back to
-    /// switching to the Event tab.
     private func handleFindAttendee(profileId: UUID) {
         let attendees = attendeesService.attendees
-
         if let attendee = attendees.first(where: { $0.id == profileId }) {
-            // Present the same FindAttendeeView used by the Event tab
             findAttendeeTarget = attendee
             #if DEBUG
             print("[Surface] 📍 Find attendee: \(attendee.name) via sheet")
             #endif
         } else {
-            // Attendee not in current list — switch to Event tab as fallback
             selectedTab = .event
             #if DEBUG
-            print("[Surface] 📍 Find attendee fallback: switching to Event tab (profile \(profileId) not in attendee list)")
+            print("[Surface] 📍 Find attendee fallback: switching to Event tab")
             #endif
         }
     }
@@ -345,22 +358,17 @@ struct HomeSurfaceView: View {
                     with: profileId, eventId: eventId, eventName: eventName
                 )
                 await MessagingService.shared.fetchMessages(conversationId: convo.id)
-
                 await MainActor.run {
                     activeConversation = ConversationDestination(
-                        id: convo.id,
-                        targetProfileId: profileId,
-                        targetName: targetName,
-                        conversation: convo
+                        id: convo.id, targetProfileId: profileId,
+                        targetName: targetName, conversation: convo
                     )
                     isOpeningConversation = false
                 }
             } catch {
                 await MainActor.run {
                     isOpeningConversation = false
-                    if case MessagingError.notConnected = error {
-                        showNotConnectedAlert = true
-                    }
+                    if case MessagingError.notConnected = error { showNotConnectedAlert = true }
                 }
             }
         }

@@ -47,6 +47,7 @@ struct HomeSurfaceItem: Identifiable {
     let section: HomeSurfaceSection
     let profileId: UUID?
     let name: String
+    let avatarUrl: String?        // Thumbnail-sized, cached separately from full profile images
     let headline: String          // Action-first copy: "Doug is nearby — go say hi"
     let subtitle: String?         // Optional context: "Met at Hacker Theater"
     let actionType: SurfaceActionType
@@ -62,6 +63,7 @@ struct HomeSurfaceItem: Identifiable {
         section: HomeSurfaceSection,
         profileId: UUID?,
         name: String,
+        avatarUrl: String? = nil,
         headline: String,
         subtitle: String? = nil,
         actionType: SurfaceActionType,
@@ -76,6 +78,7 @@ struct HomeSurfaceItem: Identifiable {
         self.section = section
         self.profileId = profileId
         self.name = name
+        self.avatarUrl = avatarUrl
         self.headline = headline
         self.subtitle = subtitle
         self.actionType = actionType
