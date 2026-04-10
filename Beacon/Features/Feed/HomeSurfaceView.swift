@@ -8,12 +8,14 @@ struct HomeSurfaceView: View {
     @ObservedObject private var surface = HomeSurfaceService.shared
     @ObservedObject private var feedService = FeedService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
+    @ObservedObject private var attendeesService = EventAttendeesService.shared
 
     @State private var activeConversation: ConversationDestination?
     @State private var showNotConnectedAlert = false
     @State private var isOpeningConversation = false
     @State private var isConnecting = false
     @State private var navigationPath = NavigationPath()
+    @State private var findAttendeeTarget: EventAttendee?
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -66,6 +68,9 @@ struct HomeSurfaceView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Connect with this person first to start a conversation.")
+            }
+            .sheet(item: $findAttendeeTarget) { attendee in
+                FindAttendeeView(attendee: attendee)
             }
         }
     }
@@ -182,14 +187,13 @@ struct HomeSurfaceView: View {
     private func surfaceActionButton(_ item: HomeSurfaceItem, accentColor: Color) -> some View {
         let icon: String
         switch item.actionType {
-        case .goSayHi:    icon = "hand.wave"
-        case .find:       icon = "location"
-        case .reply:      icon = "arrowshape.turn.up.left"
-        case .followUp:   icon = "bubble.left"
-        case .message:    icon = "bubble.left"
-        case .connect:    icon = "person.badge.plus"
-        case .jumpBack:   icon = "arrow.right.circle"
-        case .viewProfile: icon = "person"
+        case .findAttendee: icon = item.actionLabel == "Go say hi" ? "hand.wave" : "location"
+        case .reply:        icon = "arrowshape.turn.up.left"
+        case .followUp:     icon = "bubble.left"
+        case .message:      icon = "bubble.left"
+        case .connect:      icon = "person.badge.plus"
+        case .jumpBack:     icon = "arrow.right.circle"
+        case .viewProfile:  icon = "person"
         }
 
         return FeedActionButton(
@@ -265,16 +269,13 @@ struct HomeSurfaceView: View {
 
     private func handleAction(_ item: HomeSurfaceItem) {
         switch item.actionType {
-        case .goSayHi, .find:
+        case .findAttendee:
+            // LIVE proximity action → find-attendee sheet, never messaging
             if let profileId = item.profileId {
-                if item.isFind {
-                    // Navigate to FindAttendeeView via profile detail
-                    navigationPath.append(FeedRoute.profileDetail(profileId: profileId))
-                } else {
-                    handleMessage(profileId: profileId)
-                }
+                handleFindAttendee(profileId: profileId)
             }
         case .reply, .followUp, .message:
+            // Messaging actions → conversation sheet
             if let profileId = item.profileId {
                 handleMessage(profileId: profileId)
             }
@@ -293,6 +294,28 @@ struct HomeSurfaceView: View {
 
     private func handleViewProfile(profileId: UUID) {
         navigationPath.append(FeedRoute.profileDetail(profileId: profileId))
+    }
+
+    /// Routes to the existing find-attendee flow.
+    /// Resolves the attendee from EventAttendeesService and presents FindAttendeeView.
+    /// If the attendee isn't in the current event's attendee list, falls back to
+    /// switching to the Event tab.
+    private func handleFindAttendee(profileId: UUID) {
+        let attendees = attendeesService.attendees
+
+        if let attendee = attendees.first(where: { $0.id == profileId }) {
+            // Present the same FindAttendeeView used by the Event tab
+            findAttendeeTarget = attendee
+            #if DEBUG
+            print("[Surface] 📍 Find attendee: \(attendee.name) via sheet")
+            #endif
+        } else {
+            // Attendee not in current list — switch to Event tab as fallback
+            selectedTab = .event
+            #if DEBUG
+            print("[Surface] 📍 Find attendee fallback: switching to Event tab (profile \(profileId) not in attendee list)")
+            #endif
+        }
     }
 
     private func handleMessage(profileId: UUID) {

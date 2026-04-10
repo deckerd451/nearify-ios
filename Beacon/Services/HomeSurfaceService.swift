@@ -150,20 +150,21 @@ final class HomeSurfaceService: ObservableObject {
                 let isConnected = connectedIds.contains(profileId)
 
                 if temporal == .immediate {
-                    // "Doug is nearby — go say hi" or "Find Descartes"
+                    // "Doug is nearby — go say hi"
+                    // ALWAYS routes to find-attendee for live proximity, regardless of connection
                     continuePool.append(HomeSurfaceItem(
                         section: .continue,
                         profileId: profileId,
                         name: name,
                         headline: "\(name) is nearby — go say hi",
                         subtitle: eventName,
-                        actionType: .goSayHi,
+                        actionType: .findAttendee,
                         actionLabel: isConnected ? "Go say hi" : "Find",
                         temporalState: temporal,
                         priority: priority + 0.3,
                         eventId: eventId,
                         eventName: eventName,
-                        isFind: !isConnected
+                        isFind: true
                     ))
                 } else {
                     // LIVE: "Find Descartes — you were just near them"
@@ -173,7 +174,7 @@ final class HomeSurfaceService: ObservableObject {
                         name: name,
                         headline: "Find \(name) — you were just near them",
                         subtitle: eventName,
-                        actionType: .find,
+                        actionType: .findAttendee,
                         actionLabel: "Find",
                         temporalState: temporal,
                         priority: priority,
@@ -218,13 +219,13 @@ final class HomeSurfaceService: ObservableObject {
                 name: name,
                 headline: isConnected ? "\(name) is nearby — go say hi" : "Find \(name) — you were just near them",
                 subtitle: item.metadata?.eventName,
-                actionType: isConnected ? .goSayHi : .find,
+                actionType: .findAttendee,
                 actionLabel: isConnected ? "Go say hi" : "Find",
                 temporalState: temporal,
                 priority: priority,
                 eventId: item.eventId,
                 eventName: item.metadata?.eventName,
-                isFind: !isConnected
+                isFind: true
             ))
         }
 

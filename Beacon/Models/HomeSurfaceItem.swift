@@ -27,16 +27,16 @@ enum HomeSurfaceSection: Int, CaseIterable {
 
 // MARK: - Surface Action Type
 
-/// Action-first verbs aligned with temporal state.
+/// Explicit action routing types. Each case maps to exactly one navigation flow.
+/// Do NOT infer routing from connection status or other item properties.
 enum SurfaceActionType: String {
-    case goSayHi    = "Go say hi"
-    case find       = "Find"
-    case reply      = "Reply"
-    case followUp   = "Follow up"
-    case message    = "Message"
-    case connect    = "Connect"
-    case jumpBack   = "Jump back in"
-    case viewProfile = "View Profile"
+    case findAttendee = "Find Attendee"  // → find-attendee sheet (live proximity)
+    case message      = "Message"        // → conversation sheet
+    case reply        = "Reply"          // → conversation sheet
+    case followUp     = "Follow up"      // → conversation sheet
+    case connect      = "Connect"        // → create connection
+    case jumpBack     = "Jump back in"   // → switch to Event tab
+    case viewProfile  = "View Profile"   // → profile detail push
 }
 
 // MARK: - Home Surface Item
