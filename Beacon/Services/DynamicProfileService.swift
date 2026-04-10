@@ -99,8 +99,10 @@ final class DynamicProfileService: ObservableObject {
             candidates.append(activityLine)
         }
 
-        // Step 3: Confidence filter — only include if score >= threshold
-        let threshold: Double = 0.3
+        // Step 3: Confidence filter + differentiation pressure
+        // Prefer 1 strong line over 3 weak ones.
+        // Raise threshold: only lines with score >= 0.35 survive.
+        let threshold: Double = 0.35
         let filtered = candidates
             .filter { $0.score >= threshold }
             .sorted { $0.score > $1.score }
@@ -254,15 +256,21 @@ final class DynamicProfileService: ObservableObject {
     private static let vagueWords: Set<String> = [
         "technology", "tech", "innovation", "community", "digital",
         "general", "social", "global", "future", "new", "open",
-        "people", "world", "things", "stuff", "ideas", "space"
+        "people", "world", "things", "stuff", "ideas", "space",
+        "startups", "tech events"  // over-collapsed buckets
     ]
 
-    /// Category 1: Topic / Focus — prefers concrete nouns from events + interests.
-    /// Only normalized (mapped) tokens appear in output.
-    /// Two strong themes → "Exploring [t1] and [t2]"
-    /// One strong theme  → "Focused lately on [t1]"
-    /// Falls back to user interests if no event tokens map.
-    /// Otherwise omit.
+    // ── Template variation: rotate phrasing based on user ID hash ──
+    private var templateVariant: Int {
+        let id = AuthService.shared.currentUser?.id.uuidString ?? ""
+        let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: Date()) ?? 0
+        return (id.hashValue &+ dayOfYear) & 0x7FFFFFFF
+    }
+
+    /// Category 1: Topic / Focus
+    /// Prefers user-specific themes over collapsed buckets.
+    /// Only uses a mapped theme if it has 2+ distinct signal sources.
+    /// Falls back to raw user interests (already human-readable).
     private func generateTopicLine(
         user: User?,
         eventSignals: [EventSignal],
@@ -271,58 +279,77 @@ final class DynamicProfileService: ObservableObject {
         let interests = user?.interests ?? []
         let skills = user?.skills ?? []
 
-        // Extract NORMALIZED topic themes from event names (weighted)
-        let eventTopics = eventSignals.flatMap { signal -> [(String, Double)] in
-            let themes = extractTopicWords(from: signal.eventName)
-            return themes.map { ($0, signal.weight) }
-        }
-
-        // Build scored topic map
+        // Track signal source count per theme for differentiation
+        var themeSources: [String: Set<String>] = [:]  // theme → set of source labels
         var topicScores: [String: Double] = [:]
-        for (theme, weight) in eventTopics {
-            topicScores[theme, default: 0] += weight
+
+        // Event-derived themes
+        for signal in eventSignals {
+            let themes = extractTopicWords(from: signal.eventName)
+            for theme in themes {
+                topicScores[theme, default: 0] += signal.weight
+                themeSources[theme, default: []].insert("event:\(signal.eventName)")
+            }
         }
 
-        // Add normalized user interests/skills at lower weight
+        // User interests — use raw text (already readable), not collapsed themes
         for interest in interests {
-            let normalized = normalizeInterest(interest)
-            guard !Self.vagueWords.contains(normalized) else { continue }
-            topicScores[normalized, default: 0] += 0.3
+            let raw = interest.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !Self.vagueWords.contains(raw) else { continue }
+            topicScores[raw, default: 0] += 0.3
+            themeSources[raw, default: []].insert("interest")
         }
         for skill in skills {
-            let normalized = normalizeInterest(skill)
-            guard !Self.vagueWords.contains(normalized) else { continue }
-            topicScores[normalized, default: 0] += 0.2
+            let raw = skill.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !Self.vagueWords.contains(raw) else { continue }
+            topicScores[raw, default: 0] += 0.2
+            themeSources[raw, default: []].insert("skill")
         }
 
-        // Demote vague words — halve their score so concrete nouns win
+        // Demote vague/over-collapsed themes
         for key in topicScores.keys where Self.vagueWords.contains(key) {
-            topicScores[key] = (topicScores[key] ?? 0) * 0.5
+            topicScores[key] = (topicScores[key] ?? 0) * 0.3
+        }
+
+        // Differentiation: boost themes with 2+ distinct sources
+        for (theme, sources) in themeSources where sources.count >= 2 {
+            topicScores[theme] = (topicScores[theme] ?? 0) * 1.3
         }
 
         let sorted = topicScores.sorted { $0.value > $1.value }
         guard let first = sorted.first, first.value >= 0.4 else { return nil }
 
-        // Pick top themes that clear a minimum bar
-        let strong = sorted.filter { $0.value >= first.value * 0.5 }.prefix(3)
+        let strong = sorted.filter { $0.value >= first.value * 0.5 }.prefix(2)
         let topThemes = strong.map { $0.key }
         let totalScore = strong.reduce(0.0) { $0 + $1.value }
 
+        // Template variation
+        let templates2: [(String, String) -> String] = [
+            { "Spending time around \($0) and \($1)" },
+            { "Lately focused on \($0) and \($1)" },
+            { "Getting deeper into \($0) and \($1)" },
+        ]
+        let templates1: [(String) -> String] = [
+            { "Getting deeper into \($0)" },
+            { "Lately focused on \($0)" },
+            { "Spending time around \($0)" },
+        ]
+
         let line: String
         if topThemes.count >= 2 {
-            line = "Exploring \(topThemes[0]) and \(topThemes[1])"
+            let t = templates2[templateVariant % templates2.count]
+            line = t(topThemes[0], topThemes[1])
         } else {
-            line = "Focused lately on \(topThemes[0])"
+            let t = templates1[templateVariant % templates1.count]
+            line = t(topThemes[0])
         }
 
         return (line, min(totalScore / 2.0, 1.0), .topic)
     }
 
-    /// Category 2: People / Network — uses role clusters from encounter context.
-    /// Normalizes shared interests through the theme map.
-    /// Two role clusters → "Meeting people into [r1] and [r2]"
-    /// One role cluster  → "Meeting people around [theme]"
-    /// Otherwise omit.
+    /// Category 2: People / Network
+    /// Uses raw shared_interests from encounters (user-specific, not collapsed).
+    /// Prefers concrete interest labels over generic role buckets.
     private func generatePeopleLine(
         connectionSignals: [ConnectionSignal],
         encounterSignals: [EncounterSignal]
@@ -333,7 +360,7 @@ final class DynamicProfileService: ObservableObject {
 
         guard totalPeople >= 2 else { return nil }
 
-        // Extract role clusters from shared_interests, normalized through theme map
+        // Collect raw shared interests — keep user-specific labels, don't collapse
         let feedItems = FeedService.shared.feedItems
         var roleCounts: [String: Double] = [:]
         for item in feedItems {
@@ -344,34 +371,41 @@ final class DynamicProfileService: ObservableObject {
 
             if let interests = item.metadata?.sharedInterests {
                 for interest in interests {
-                    let normalized = normalizeInterest(interest)
-                    guard !Self.vagueWords.contains(normalized) else { continue }
-                    roleCounts[normalized, default: 0] += w
+                    let raw = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard !Self.vagueWords.contains(raw), raw.count >= 2 else { continue }
+                    roleCounts[raw, default: 0] += w
                 }
             }
         }
 
         let topRoles = roleCounts.sorted { $0.value > $1.value }.prefix(2).map { $0.key }
 
+        let templates2: [(String, String) -> String] = [
+            { "Connecting with people in \($0) and \($1)" },
+            { "Meeting people into \($0) and \($1)" },
+            { "Spending time with people around \($0) and \($1)" },
+        ]
+        let templates1: [(String) -> String] = [
+            { "Connecting with others around \($0)" },
+            { "Meeting people into \($0)" },
+        ]
+
         let line: String
         if topRoles.count >= 2 {
-            line = "Meeting people into \(topRoles[0]) and \(topRoles[1])"
+            let t = templates2[templateVariant % templates2.count]
+            line = t(topRoles[0], topRoles[1])
         } else if let role = topRoles.first {
-            line = "Meeting people around \(role)"
-        } else if connectionSignals.count >= 3 {
-            line = "Building new connections"
+            let t = templates1[templateVariant % templates1.count]
+            line = t(role)
         } else {
-            return nil
+            return nil  // no role data → omit entirely, don't fill with generic
         }
 
         return (line, min(weightedScore / 3.0, 1.0), .people)
     }
 
-    /// Category 3: Activity / Momentum — prefers named events over generic labels.
-    /// Repeated named event → "Active at [event] events"
-    /// Message + encounter follow-through → "Following up after recent events"
-    /// Repeated attendance → "Showing up at [event]"
-    /// Otherwise omit.
+    /// Category 3: Activity / Momentum
+    /// Always anchors to real event names. Never outputs generic "community" language.
     private func generateActivityLine(
         eventSignals: [EventSignal],
         messageSignals: [MessageSignal],
@@ -381,44 +415,42 @@ final class DynamicProfileService: ObservableObject {
         let messageCount = messageSignals.count
         let encounterCount = encounterSignals.count
 
-        // Prefer named event specificity
-        if eventCount >= 2 {
-            let topEvent = eventSignals
-                .sorted { $0.weight > $1.weight }
-                .first?.eventName
+        // Always prefer the strongest named event
+        let topEvent = eventSignals.sorted { $0.weight > $1.weight }.first
 
-            if let event = topEvent {
-                let score = eventSignals.reduce(0.0) { $0 + $1.weight } / 2.0
-                return ("Active at \(event) events", min(score, 1.0), .activity)
-            }
+        // Multiple events → anchor to the top one
+        if eventCount >= 2, let event = topEvent {
+            let score = eventSignals.reduce(0.0) { $0 + $1.weight } / 2.0
+            let templates: [(String) -> String] = [
+                { "Active at \($0) events" },
+                { "Showing up at \($0)" },
+                { "Spending time at \($0) events" },
+            ]
+            let t = templates[templateVariant % templates.count]
+            return (t(event.eventName), min(score, 1.0), .activity)
         }
 
-        // Follow-up behavior (messages after encounters)
+        // Follow-up behavior anchored to event if possible
         if messageCount >= 2 && encounterCount >= 1 {
             let score = messageSignals.reduce(0.0) { $0 + $1.weight } / 2.0
+            if let event = topEvent {
+                return ("Following up after \(event.eventName)", min(score, 1.0), .activity)
+            }
             return ("Following up after recent events", min(score, 1.0), .activity)
         }
 
-        // Single named event with supporting activity
-        if eventCount == 1, let event = eventSignals.first {
+        // Single event with supporting activity
+        if let event = topEvent {
             if messageCount >= 1 || encounterCount >= 1 {
                 let totalWeight = event.weight + messageSignals.reduce(0.0) { $0 + $1.weight }
                 return ("Showing up at \(event.eventName)", min(totalWeight / 2.0, 1.0), .activity)
             }
-            // Single event, no other activity — still worth showing if recent
             if event.weight >= 0.7 {
                 return ("Active at \(event.eventName)", event.weight * 0.6, .activity)
             }
         }
 
-        // Multiple events but no top event resolved (shouldn't happen, but guard)
-        if eventCount >= 1 && (messageCount >= 1 || encounterCount >= 1) {
-            let topEvent = eventSignals.sorted { $0.weight > $1.weight }.first?.eventName
-            if let event = topEvent {
-                return ("Showing up at \(event)", 0.4, .activity)
-            }
-        }
-
+        // No event at all → omit entirely (don't fill with generic)
         return nil
     }
 
