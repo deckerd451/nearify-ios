@@ -99,23 +99,85 @@ final class DynamicProfileService: ObservableObject {
             candidates.append(activityLine)
         }
 
-        // Step 3: Confidence filter + differentiation pressure
-        // Prefer 1 strong line over 3 weak ones.
-        // Raise threshold: only lines with score >= 0.35 survive.
-        let threshold: Double = 0.35
-        let filtered = candidates
-            .filter { $0.score >= threshold }
-            .sorted { $0.score > $1.score }
+        // Step 3: Selection with user-specific priority
+        //
+        // Rule: topic and people phrases are user-specific (derived from personal
+        // interests, skills, shared_interests). Activity/momentum phrases are
+        // shared-event context (same event name across all attendees).
+        //
+        // User-specific lines MUST appear before shared-event lines.
+        // A shared-event phrase may appear as a supporting line, never the sole identity line.
 
-        // Step 4: Max 3, no duplicates across categories
-        var usedCategories: Set<Category> = []
+        let threshold: Double = 0.35
+
+        let topicCandidate = candidates.first { $0.category == .topic && $0.score >= threshold }
+        let peopleCandidate = candidates.first { $0.category == .people && $0.score >= threshold }
+        let activityCandidate = candidates.first { $0.category == .activity && $0.score >= threshold }
+
+        #if DEBUG
+        print("[Lately] ── Candidate selection ──")
+        print("[Lately]   topic:    \(topicCandidate.map { "\($0.line) (score=\(String(format: "%.2f", $0.score)))" } ?? "none")")
+        print("[Lately]   people:   \(peopleCandidate.map { "\($0.line) (score=\(String(format: "%.2f", $0.score)))" } ?? "none")")
+        print("[Lately]   momentum: \(activityCandidate.map { "\($0.line) (score=\(String(format: "%.2f", $0.score)))" } ?? "none")")
+        #endif
+
+        // Assemble: user-specific first, shared-event second
         var result: [String] = []
-        for candidate in filtered {
-            guard !usedCategories.contains(candidate.category) else { continue }
-            usedCategories.insert(candidate.category)
-            result.append(candidate.line)
-            if result.count >= 3 { break }
+        let hasUserSpecific = topicCandidate != nil || peopleCandidate != nil
+
+        // 1. Always include user-specific lines first (topic, then people)
+        if let topic = topicCandidate {
+            result.append(topic.line)
         }
+        if let people = peopleCandidate, result.count < 3 {
+            result.append(people.line)
+        }
+
+        // 2. Activity/momentum line: only as secondary, never the sole line
+        //    when user-specific candidates exist
+        if let activity = activityCandidate, result.count < 3 {
+            if !hasUserSpecific {
+                // No user-specific lines survived → show one shared-event line
+                result.append(activity.line)
+                #if DEBUG
+                print("[Lately]   ⚠️ Shared event phrase is sole line (no user-specific candidates)")
+                #endif
+            } else {
+                // User-specific lines exist → shared event is supporting context
+                result.append(activity.line)
+                #if DEBUG
+                print("[Lately]   ✅ Shared event phrase added as supporting line")
+                #endif
+            }
+        }
+
+        // 3. If still empty and we have a topic or people below threshold,
+        //    try to rescue using user interests/skills as differentiation anchor
+        if result.isEmpty {
+            let user = AuthService.shared.currentUser
+            let interests = user?.interests ?? []
+            let skills = user?.skills ?? []
+            let anchors = (interests + skills)
+                .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+                .filter { !Self.vagueWords.contains($0) && $0.count >= 2 }
+
+            if let anchor = anchors.first {
+                let templates: [(String) -> String] = [
+                    { "Lately focused on \($0)" },
+                    { "Spending time around \($0)" },
+                    { "Getting deeper into \($0)" },
+                ]
+                let t = templates[templateVariant % templates.count]
+                result.append(t(anchor))
+                #if DEBUG
+                print("[Lately]   🔄 Rescued with interest anchor: \(anchor)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[Lately]   final: \(result)")
+        #endif
 
         return result
     }
