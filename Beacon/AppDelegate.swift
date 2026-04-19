@@ -35,9 +35,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         switch payload {
         case .event(let eventId):
             print("🚨 AppDelegate event deep link:", eventId)
-            Task {
-                await EventJoinService.shared.joinEvent(eventID: eventId)
-            }
+            // Deep link event ID is stored in DeepLinkManager (above).
+            // MainTabView.replayPendingEventIfNeeded will join when UI is ready.
+            // DO NOT join here — it causes duplicate joins on cold launch.
 
         case .profile(let communityId):
             print("🚨 AppDelegate profile deep link:", communityId)

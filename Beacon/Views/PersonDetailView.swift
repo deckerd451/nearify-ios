@@ -5,6 +5,7 @@ struct PersonDetailView: View {
     let attendee: EventAttendee
     
     @State private var showingFindSheet = false
+    @State private var publicProfile: PublicProfileSummary?
     
     var body: some View {
         ScrollView {
@@ -34,6 +35,68 @@ struct PersonDetailView: View {
                 // Interests
                 if let interests = attendee.interests, !interests.isEmpty {
                     tagSection(title: "Interests", tags: interests, color: .green)
+                }
+
+                // Lately
+                if let pub = publicProfile, !pub.latelyLines.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Lately")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(pub.latelyLines, id: \.self) { line in
+                                Text(line)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 32)
+                }
+
+                // Emerging Strengths
+                if let paragraph = publicProfile?.emergingStrengthsParagraph {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Emerging Strengths")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        Text(paragraph)
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 32)
+                }
+
+                // Earned Traits
+                if let pub = publicProfile, !pub.earnedTraits.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Earned Traits")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textCase(.uppercase)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(pub.earnedTraits) { trait in
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                    Text(trait.publicText)
+                                        .font(.subheadline)
+                                        .foregroundColor(.primary)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 32)
                 }
                 
                 // Status
@@ -66,6 +129,28 @@ struct PersonDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingFindSheet) {
             FindAttendeeView(attendee: attendee)
+        }
+        .task {
+            // Build a lightweight User for the generation method
+            let targetUser = User(
+                id: attendee.id,
+                userId: nil,
+                name: attendee.name,
+                email: nil,
+                bio: attendee.bio,
+                skills: attendee.skills,
+                interests: attendee.interests,
+                imageUrl: attendee.avatarUrl,
+                imagePath: nil,
+                profileCompleted: nil,
+                connectionCount: nil,
+                createdAt: nil,
+                updatedAt: nil
+            )
+            publicProfile = await DynamicProfileService.shared.generatePublicProfile(
+                for: attendee.id,
+                targetUser: targetUser
+            )
         }
     }
     

@@ -255,24 +255,22 @@ final class InteractionInsightService {
         }
     }
 
-    // MARK: - Scoring
+    // MARK: - Scoring (unified via InteractionScorer)
 
     private func computeScore(_ signal: InteractionSignal) -> Double {
-        var total: Double = 0
-        let secs = signal.totalEncounterSeconds
-        if secs >= 900      { total += Weight.encounterStrong }
-        else if secs >= 300 { total += Weight.encounterMedium }
-        else if secs >= 60  { total += Weight.encounterLight }
-
-        total += recencyBoost(for: signal.lastSeenAt ?? signal.lastMessageAt)
-        if signal.isConnected { total += Weight.connected }
-        if signal.hasMessagedRecently { total += Weight.messagedRecently }
-
-        total += min(
-            Double(signal.sharedInterests.count) * Weight.perSharedInterest,
-            Weight.maxInterestBoost
+        let signals = InteractionScorer.Signals(
+            isBLEDetected: false, // insights are generated from aggregated data, not live BLE
+            isHeartbeatLive: signal.lastSeenAt.map { Date().timeIntervalSince($0) < 60 } ?? false,
+            encounterSeconds: signal.totalEncounterSeconds,
+            historicalOverlapSeconds: 0,
+            lastSeenAt: signal.lastSeenAt ?? signal.lastMessageAt,
+            encounterCount: signal.encounterCount,
+            isConnected: signal.isConnected,
+            hasConversation: signal.hasMessagedRecently,
+            sharedInterestCount: signal.sharedInterests.count
         )
-        return total
+        // Scale to existing range (~0–95) for compatibility with confidence thresholds
+        return InteractionScorer.score(signals) * 95.0
     }
 
     private func computeConfidence(_ signal: InteractionSignal) -> Double {

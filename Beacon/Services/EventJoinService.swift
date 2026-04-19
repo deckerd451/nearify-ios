@@ -17,18 +17,40 @@ final class EventJoinService: ObservableObject {
     /// Canonical membership state — the single source of truth for the UI.
     @Published private(set) var membershipState: EventMembershipState = .notInEvent
 
+    /// Post-event summary generated when leaving or entering dormant state.
+    /// Cleared on next event join.
+    @Published private(set) var postEventSummary: PostEventSummary?
+
+    // MARK: - Event Switch Confirmation
+    //
+    // When the user attempts to join a different event while already in one,
+    // the join is blocked and this state is set so the UI can show a confirmation.
+    // The user must explicitly confirm "Leave & Join" or cancel.
+
+    struct PendingEventSwitch {
+        let currentEventName: String
+        let newEventId: String
+        let newEventName: String?
+    }
+
+    @Published var pendingEventSwitch: PendingEventSwitch?
+
     private let supabase = AppEnvironment.shared.supabaseClient
     private let presence = EventPresenceService.shared
+    private let beaconPresence = BeaconPresenceService.shared
+
+    /// Subscription for beacon zone changes — used for soft recovery.
+    private var beaconCancellable: AnyCancellable?
 
     /// Timestamp when the app entered background. Used for timeout calculation.
     private(set) var backgroundEnteredAt: Date?
 
-    /// Grace window: how long the user stays INACTIVE before timing out.
-    /// At a real event, users routinely lock their device for 15–30+ minutes
-    /// (during talks, meals, conversations). The timeout must be long enough
-    /// that ordinary device sleep never causes an involuntary exit.
-    /// 15 minutes is the minimum realistic value; 30 minutes is safer.
-    let inactivityTimeout: TimeInterval = 900.0  // 15 minutes
+    /// Grace window: how long the user stays INACTIVE before entering dormant state.
+    /// Dormant means the heartbeat pauses but membership is preserved.
+    /// The user remains "joined" in the DB and can resume instantly.
+    /// 3 minutes matches the spec — short enough to pause heartbeat for battery,
+    /// long enough to cover brief app switches and notification checks.
+    let dormancyThreshold: TimeInterval = 180.0  // 3 minutes
 
     // MARK: - Reconnect Recovery
 
@@ -48,6 +70,7 @@ final class EventJoinService: ObservableObject {
     private let lastEventKey = "nearify.lastEventContext"
 
     /// Returns the last event context if it exists and is within the recovery window.
+    /// Not available when dormant — dormant users see the Resume UI instead.
     var reconnectContext: LastEventContext? {
         guard !reconnectDismissedThisSession,
               case .notInEvent = membershipState,
@@ -77,9 +100,50 @@ final class EventJoinService: ObservableObject {
         #endif
     }
 
-    private init() {}
+    private init() {
+        startBeaconRecoveryObservation()
+    }
+
+    // MARK: - Beacon Soft Recovery
+    //
+    // When the user has a recent joined event context and beacon becomes
+    // visible again after an interruption (background, signal loss), this
+    // triggers a throttled presence refresh to improve session resilience.
+    //
+    // RULES:
+    //   - Does NOT create new event joins — only refreshes existing sessions.
+    //   - Does NOT auto-navigate or show UI.
+    //   - Does NOT fire if user explicitly left or dismissed reconnect.
+    //   - Throttled by EventPresenceService.beaconTriggeredRefresh().
+
+    private func startBeaconRecoveryObservation() {
+        beaconCancellable = beaconPresence.$currentZoneState
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newZone in
+                guard let self else { return }
+                guard newZone == .inside else { return }
+
+                // Only act if user has an active joined event.
+                // Beacon alone never creates a join — it only reinforces one.
+                guard self.isEventJoined else { return }
+
+                #if DEBUG
+                print("[EventJoin] 📡 Beacon zone → inside while event active — triggering confidence refresh")
+                #endif
+
+                Task {
+                    await self.presence.beaconTriggeredRefresh()
+                }
+            }
+    }
 
     // MARK: - Join Event
+    //
+    // EVENT OWNERSHIP RULE:
+    //   The user is in EXACTLY ONE event or NO event. Never multiple.
+    //   Joining a different event while already in one is BLOCKED.
+    //   The caller must use confirmEventSwitch() after the user confirms.
 
     func joinEvent(eventID: String) async {
         #if DEBUG
@@ -90,6 +154,69 @@ final class EventJoinService: ObservableObject {
             joinError = "Invalid event ID"
             return
         }
+
+        // GUARD: Already joined this exact event — no-op.
+        if isEventJoined && currentEventID == eventID {
+            #if DEBUG
+            print("[EventJoin] ⛔ Already in event \(eventID) — skipping duplicate join")
+            #endif
+            joinError = nil
+            return
+        }
+
+        // GUARD: Already in a DIFFERENT event — block and request confirmation.
+        // The system NEVER silently switches events.
+        if isEventJoined, let currentName = currentEventName, currentEventID != eventID {
+            #if DEBUG
+            print("[EventJoin] ⛔ Already in \(currentName) — blocking join to \(eventID)")
+            print("[EventJoin]    User must confirm event switch via UI")
+            #endif
+            pendingEventSwitch = PendingEventSwitch(
+                currentEventName: currentName,
+                newEventId: eventID,
+                newEventName: nil  // Will be resolved if user confirms
+            )
+            return
+        }
+
+        // Clean join — no active event.
+        await performJoin(eventUUID: eventUUID)
+    }
+
+    /// Called by UI after user confirms "Leave & Join" in the event switch dialog.
+    func confirmEventSwitch() async {
+        guard let pending = pendingEventSwitch else { return }
+        let newEventId = pending.newEventId
+        pendingEventSwitch = nil
+
+        #if DEBUG
+        print("[EventJoin] ✅ User confirmed event switch → leaving current, joining \(newEventId)")
+        #endif
+
+        // Leave current event first
+        await leaveEvent()
+
+        // Acknowledge the left state immediately so it doesn't block the join
+        membershipState = .notInEvent
+
+        // Now join the new event
+        guard let eventUUID = UUID(uuidString: newEventId) else {
+            joinError = "Invalid event ID"
+            return
+        }
+        await performJoin(eventUUID: eventUUID)
+    }
+
+    /// Called by UI when user cancels the event switch dialog.
+    func cancelEventSwitch() {
+        #if DEBUG
+        print("[EventJoin] 🚫 User cancelled event switch")
+        #endif
+        pendingEventSwitch = nil
+    }
+
+    /// Internal: performs the actual join after all guards have passed.
+    private func performJoin(eventUUID: UUID) async {
 
         do {
             let profile = try await ensureProfile()
@@ -105,6 +232,16 @@ final class EventJoinService: ObservableObject {
             joinError = nil
             backgroundEnteredAt = nil
             reconnectDismissedThisSession = false
+            postEventSummary = nil // Clear previous summary
+
+            // STATE CONSISTENCY CHECK: all event IDs must align.
+            #if DEBUG
+            let presenceCtx = presence.currentContextId
+            if let presenceCtx, presenceCtx != event.id {
+                print("[EventJoin] ⚠️ STATE MISMATCH: presence contextId=\(presenceCtx) != event.id=\(event.id)")
+            }
+            print("[EventJoin] 🔒 Event lock: activeEventId=\(event.id.uuidString)")
+            #endif
 
             // Persist for reconnect recovery
             saveLastEventContext(eventId: event.id.uuidString, eventName: event.name)
@@ -122,6 +259,9 @@ final class EventJoinService: ObservableObject {
 
             // Start encounter tracking for the Social Memory Feed
             EncounterService.shared.startPeriodicFlush()
+
+            // Start local encounter capture (passive, no backend writes)
+            LocalEncounterStore.shared.startCapture()
 
             // Preload event context for intelligence pipeline (fire-and-forget)
             Task(priority: .utility) {
@@ -145,8 +285,16 @@ final class EventJoinService: ObservableObject {
         let eventId = currentEventID ?? ""
 
         #if DEBUG
-        print("[EventJoin] 👋 User leaving event: \(eventName)")
+        print("[LeaveEvent] started for \(eventName)")
         #endif
+
+        // Generate post-event summary BEFORE clearing state
+        // (needs encounter data and event context still available)
+        let encounters = EncounterService.shared.activeEncounters
+        postEventSummary = PostEventSummaryBuilder.build(
+            eventName: eventName,
+            sessionEncounters: encounters
+        )
 
         // Persist for reconnect recovery before clearing state
         if !eventId.isEmpty {
@@ -158,55 +306,115 @@ final class EventJoinService: ObservableObject {
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
+        beaconPresence.reset()
 
         // Flush remaining encounters before leaving
         Task { await EncounterService.shared.flushEncounters() }
         EncounterService.shared.stopPeriodicFlush()
 
-        membershipState = .left(eventName: eventName)
+        // Stop local encounter capture and persist to disk
+        LocalEncounterStore.shared.stopCapture()
+
+        // Upload encounter fragments to backend (fire-and-forget)
+        LocalEncounterStore.shared.uploadPendingFragments()
+
+        // Clear all event state atomically.
         currentEventID = nil
         currentEventName = nil
         isEventJoined = false
         backgroundEnteredAt = nil
+        membershipState = .left(eventName: eventName)
+        pendingEventSwitch = nil
 
         EventContextService.shared.clearCache()
 
-        print("[EventJoin] ✅ Left event: \(eventName), status=left written to DB")
+        #if DEBUG
+        print("[LeaveEvent] state cleared — isEventJoined=false, membership=left")
+        #endif
     }
 
-    // MARK: - Timeout (system-driven exit)
+    // MARK: - Dormant State (inactivity without leaving)
+    //
+    // When the app has been inactive beyond the dormancy threshold,
+    // the heartbeat pauses but membership is PRESERVED.
+    // The user remains status="joined" in event_attendees.
+    // They can resume instantly without re-joining.
+    //
+    // CRITICAL: This does NOT write status="left" to the DB.
+    // Only an explicit leaveEvent() call does that.
 
-    func timeoutEvent() async {
-        let eventName = currentEventName ?? "event"
-        let eventId = currentEventID ?? ""
+    func enterDormant() {
+        guard let name = currentEventName else { return }
 
-        #if DEBUG
-        print("[EventJoin] ⏰ Timing out from event: \(eventName)")
-        #endif
+        // Generate post-event summary while encounter data is still available
+        let encounters = EncounterService.shared.activeEncounters
+        postEventSummary = PostEventSummaryBuilder.build(
+            eventName: name,
+            sessionEncounters: encounters
+        )
 
-        // Persist for reconnect recovery before clearing state
-        if !eventId.isEmpty {
-            saveLastEventContext(eventId: eventId, eventName: eventName)
-        }
+        // Pause heartbeat — stop writing last_seen_at.
+        // But do NOT clear event context or write "left" to DB.
+        presence.stopHeartbeatOnly()
 
-        // Write status="left" to DB (timed-out users are treated as left server-side)
-        await presence.leaveCurrentEvent()
-
+        // Stop BLE to save battery while dormant
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
 
-        Task { await EncounterService.shared.flushEncounters() }
-        EncounterService.shared.stopPeriodicFlush()
+        // Membership preserved — user is still "joined" in DB
+        membershipState = .dormant(eventName: name)
 
-        membershipState = .timedOut(eventName: eventName)
-        currentEventID = nil
-        currentEventName = nil
-        isEventJoined = false
+        #if DEBUG
+        print("[EventJoin] 💤 Entered DORMANT state — membership preserved, heartbeat paused")
+        print("[EventJoin]    Event: \(name)")
+        print("[EventJoin]    DB status remains: joined")
+        #endif
+    }
+
+    /// Resumes an active session from dormant state.
+    /// Restarts heartbeat, BLE, and restores active membership.
+    func resumeFromDormant() async {
+        guard case .dormant(let name) = membershipState else {
+            #if DEBUG
+            print("[EventJoin] ⚠️ resumeFromDormant called but not dormant")
+            #endif
+            return
+        }
+
+        guard let eventId = _dormantEventId ?? currentEventID.flatMap({ UUID(uuidString: $0) }),
+              let profileId = _dormantProfileId ?? presence.currentCommunityId else {
+            #if DEBUG
+            print("[EventJoin] ⚠️ Cannot resume — missing event/profile IDs")
+            #endif
+            return
+        }
+
+        membershipState = .inEvent(eventName: name)
         backgroundEnteredAt = nil
 
-        EventContextService.shared.clearCache()
+        // Restart heartbeat — this writes status="joined" + fresh last_seen_at
+        presence.activateFromQRJoin(
+            eventName: name,
+            contextId: eventId,
+            communityId: profileId
+        )
 
-        print("[EventJoin] ✅ Timed out from event: \(eventName)")
+        // Restart BLE
+        BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
+        BLEScannerService.shared.startScanning()
+
+        #if DEBUG
+        print("[EventJoin] ✅ Resumed from DORMANT → ACTIVE")
+        print("[EventJoin]    Event: \(name)")
+        #endif
+    }
+
+    /// IDs preserved during dormant state for resume.
+    private var _dormantEventId: UUID? {
+        currentEventID.flatMap { UUID(uuidString: $0) }
+    }
+    private var _dormantProfileId: UUID? {
+        presence.currentCommunityId
     }
 
     // MARK: - App Lifecycle
@@ -229,41 +437,81 @@ final class EventJoinService: ObservableObject {
 
     /// Called when the app returns to foreground.
     func handleAppForeground() async {
+        // If dormant, check if user should resume or stay dormant
+        if case .dormant = membershipState {
+            #if DEBUG
+            print("[EventJoin] ☀️ App foregrounded while DORMANT — showing resume UI")
+            #endif
+            // Stay dormant — the UI will show the Resume prompt.
+            // User must tap Resume or Leave explicitly.
+            return
+        }
+
         guard let bgDate = backgroundEnteredAt else { return }
 
         let elapsed = Date().timeIntervalSince(bgDate)
         backgroundEnteredAt = nil
 
         #if DEBUG
-        print("[EventJoin] ☀️ App foregrounded — was background for \(Int(elapsed))s (timeout=\(Int(inactivityTimeout))s)")
+        print("[EventJoin] ☀️ App foregrounded — was background for \(Int(elapsed))s (dormancy threshold=\(Int(dormancyThreshold))s)")
         #endif
 
-        if elapsed > inactivityTimeout {
-            // Genuinely long absence → timeout
-            await timeoutEvent()
+        // Beacon soft recovery: if the user exceeded the dormancy threshold
+        // but is physically in the beacon zone, extend the grace period.
+        let inBeaconZone = beaconPresence.isInBeaconZone
+
+        if elapsed > dormancyThreshold && !inBeaconZone {
+            // Long absence AND not in beacon zone → enter dormant (NOT leave)
+            enterDormant()
+        } else if elapsed > dormancyThreshold && inBeaconZone {
+            // Exceeded threshold but beacon confirms physical presence.
+            // Restore active session — user is clearly still at the event.
+            if isEventJoined, let name = currentEventName {
+                membershipState = .inEvent(eventName: name)
+
+                #if DEBUG
+                print("[EventJoin] 📡 Beacon recovery — exceeded dormancy threshold (\(Int(elapsed))s) but beacon zone active, restoring session")
+                #endif
+
+                await presence.beaconTriggeredRefresh()
+
+                if let profileId = presence.currentCommunityId {
+                    BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
+                }
+                BLEScannerService.shared.startScanning()
+            } else {
+                // Not joined — beacon alone doesn't create a join.
+                enterDormant()
+            }
         } else if isEventJoined, let name = currentEventName {
             // Within grace window → restore active membership immediately.
-            // This covers ordinary device sleep, brief app switches, etc.
             membershipState = .inEvent(eventName: name)
 
             // Write presence immediately so other attendees see us return.
-            // Also restarts the heartbeat if iOS suspended it.
             await presence.debugWritePresenceNow()
 
-            // Restart BLE in case iOS tore down the session during suspension.
+            if inBeaconZone {
+                await presence.beaconTriggeredRefresh()
+            }
+
             if let profileId = presence.currentCommunityId {
                 BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
             }
             BLEScannerService.shared.startScanning()
 
             #if DEBUG
-            print("[EventJoin] ✅ Returned within grace window (\(Int(elapsed))s) — state → IN_EVENT")
+            print("[EventJoin] ✅ Returned within grace window (\(Int(elapsed))s) — state → IN_EVENT\(inBeaconZone ? " (beacon reinforced)" : "")")
             #endif
         }
     }
 
-    /// Called when the user dismisses the LEFT or TIMED_OUT state.
+    /// Called when the user dismisses the LEFT state banner.
+    /// This only affects the Explore banner visibility — event cleanup
+    /// was already completed by leaveEvent().
     func acknowledgeExit() {
+        #if DEBUG
+        print("[LeaveEvent] banner dismissed")
+        #endif
         membershipState = .notInEvent
     }
 
@@ -275,6 +523,7 @@ final class EventJoinService: ObservableObject {
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
+        beaconPresence.reset()
 
         currentEventID = nil
         currentEventName = nil
@@ -282,6 +531,7 @@ final class EventJoinService: ObservableObject {
         joinError = nil
         backgroundEnteredAt = nil
         membershipState = .notInEvent
+        pendingEventSwitch = nil
 
         EventContextService.shared.clearCache()
 

@@ -13,25 +13,35 @@ enum EventMembershipState: Equatable {
     case inEvent(eventName: String)
     /// User is temporarily backgrounded but still within the grace window.
     case inactive(eventName: String)
+    /// User's app has been inactive for >3 minutes. Still a member, heartbeat paused.
+    /// Membership is preserved — user can resume instantly.
+    case dormant(eventName: String)
     /// User explicitly tapped "Leave Event".
     case left(eventName: String)
-    /// User exceeded inactivity threshold and was automatically removed.
-    case timedOut(eventName: String)
 }
 
 extension EventMembershipState {
 
     var isParticipating: Bool {
         switch self {
-        case .inEvent, .inactive: return true
-        case .notInEvent, .left, .timedOut: return false
+        case .inEvent, .inactive, .dormant: return true
+        case .notInEvent, .left: return false
+        }
+    }
+
+    /// Whether the user is still a member of the event (joined in DB).
+    /// Dormant users are members — they just have a paused heartbeat.
+    var isMember: Bool {
+        switch self {
+        case .inEvent, .inactive, .dormant: return true
+        case .notInEvent, .left: return false
         }
     }
 
     var eventName: String? {
         switch self {
         case .notInEvent: return nil
-        case .inEvent(let n), .inactive(let n), .left(let n), .timedOut(let n): return n
+        case .inEvent(let n), .inactive(let n), .dormant(let n), .left(let n): return n
         }
     }
 
@@ -41,8 +51,8 @@ extension EventMembershipState {
         case .notInEvent:       return "No Active Event"
         case .inEvent:          return "Active now"
         case .inactive:         return "Paused — tap to resume"
+        case .dormant:          return "You're still part of this event"
         case .left:             return "You left this event"
-        case .timedOut:         return "Timed out due to inactivity"
         }
     }
 
@@ -52,8 +62,8 @@ extension EventMembershipState {
         case .notInEvent:   return "circle"
         case .inEvent:      return "circle.fill"
         case .inactive:     return "moon.fill"
+        case .dormant:      return "moon.zzz.fill"
         case .left:         return "arrow.right.circle.fill"
-        case .timedOut:     return "clock.badge.xmark"
         }
     }
 
@@ -63,8 +73,8 @@ extension EventMembershipState {
         case .notInEvent:   return .gray
         case .inEvent:      return .green
         case .inactive:     return .orange
+        case .dormant:      return .orange
         case .left:         return .red
-        case .timedOut:     return .red
         }
     }
 }
@@ -97,8 +107,10 @@ final class EventModeState: ObservableObject {
     /// Legacy compatibility — views that check `status` still compile.
     var status: EventStatus {
         switch membership {
-        case .notInEvent, .left, .timedOut:
+        case .notInEvent, .left:
             return BLEService.shared.isScanning ? .scanningForEvent : .idle
+        case .dormant(let name):
+            return .joinedLooking(eventName: name)
         case .inEvent(let name):
             if nearbyResolvedCount > 0 || blePeerCount > 0 {
                 return .joinedWithNearby(eventName: name, nearbyCount: max(nearbyResolvedCount, blePeerCount))

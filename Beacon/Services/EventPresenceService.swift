@@ -37,6 +37,12 @@ struct NearifyProfileRow: Decodable {
 // SINGLE HEARTBEAT OWNER for the entire app.
 // Writes status="joined" + last_seen_at every 25 seconds.
 // No other service should run a competing heartbeat loop.
+//
+// BEACON INTEGRATION (enhancement-only):
+//   When BeaconPresenceService reports the user is in the beacon zone,
+//   the heartbeat may perform a bonus confidence refresh between normal
+//   ticks. This is throttled to avoid spamming writes.
+//   Beacon state NEVER starts or stops the heartbeat — only QR join does that.
 
 @MainActor
 final class EventPresenceService: ObservableObject {
@@ -48,17 +54,27 @@ final class EventPresenceService: ObservableObject {
     @Published private(set) var lastPresenceWrite: Date?
     @Published private(set) var debugStatus: String = "Idle"
 
+    /// Whether the last heartbeat tick was beacon-reinforced.
+    /// Exposed for diagnostics only — does not affect event participation.
+    @Published private(set) var isBeaconReinforced: Bool = false
+
     // Exposed for other services/views
     var currentContextId: UUID? { _currentEventId }
     var currentCommunityId: UUID? { _currentProfileId }
 
     private let supabase = AppEnvironment.shared.supabaseClient
+    private let beaconPresence = BeaconPresenceService.shared
 
     private var heartbeatTask: Task<Void, Never>?
     private var _currentProfileId: UUID?
     private var _currentEventId: UUID?
 
     private let heartbeatInterval: TimeInterval = 25.0
+
+    /// Minimum interval between beacon-triggered bonus refreshes.
+    /// Prevents aggressive writes from fluctuating beacon signal.
+    private let beaconRefreshMinInterval: TimeInterval = 60.0
+    private var lastBeaconRefreshAt: Date?
 
     /// True when context was established via QR join.
     private(set) var isQRJoinActive = false
@@ -156,6 +172,13 @@ final class EventPresenceService: ObservableObject {
                     break
                 }
 
+                // Check beacon zone state for confidence reinforcement.
+                // Beacon is enhancement-only: it does NOT start/stop the heartbeat.
+                // It only annotates the tick with higher confidence when the user
+                // is physically confirmed in the event space.
+                let inZone = await MainActor.run { self.beaconPresence.isInBeaconZone }
+                await MainActor.run { self.isBeaconReinforced = inZone }
+
                 await self.touchAttendance(eventId: eventId, profileId: profileId)
 
                 // Update encounter tracking from BLE data on each tick
@@ -166,6 +189,41 @@ final class EventPresenceService: ObservableObject {
 
             print("[Presence] ⏹️ Heartbeat loop exited")
         }
+    }
+
+    // MARK: - Beacon Confidence Refresh (throttled)
+    //
+    // Called by BeaconPresenceService or EventJoinService when beacon
+    // reappears after an interruption. Performs a single bonus presence
+    // write to immediately update last_seen_at, but only if enough time
+    // has passed since the last beacon-triggered refresh.
+    //
+    // WHY THROTTLED: Beacon signal fluctuates. Without a minimum interval,
+    // brief signal drops and recoveries would spam the database.
+
+    func beaconTriggeredRefresh() async {
+        let now = Date()
+
+        // Throttle: at most one beacon-triggered refresh per minute.
+        if let lastRefresh = lastBeaconRefreshAt,
+           now.timeIntervalSince(lastRefresh) < beaconRefreshMinInterval {
+            #if DEBUG
+            print("[Presence] ⏳ Beacon refresh throttled (last: \(Int(now.timeIntervalSince(lastRefresh)))s ago)")
+            #endif
+            return
+        }
+
+        guard let eventId = _currentEventId, let profileId = _currentProfileId else { return }
+        guard isQRJoinActive else { return }
+
+        lastBeaconRefreshAt = now
+        isBeaconReinforced = true
+
+        #if DEBUG
+        print("[Presence] 📡 Beacon-triggered confidence refresh")
+        #endif
+
+        await touchAttendance(eventId: eventId, profileId: profileId)
     }
 
     private func stopHeartbeat(clearContext: Bool) {
@@ -185,9 +243,38 @@ final class EventPresenceService: ObservableObject {
         }
     }
 
+    /// Pauses the heartbeat without clearing event context or writing "left" to DB.
+    /// Used when entering dormant state — membership is preserved, heartbeat is paused.
+    /// The event context (IDs, event name) remains intact for resume.
+    func stopHeartbeatOnly() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        isWritingPresence = false
+        // Keep isQRJoinActive = true so resume can restart the heartbeat.
+        // Keep _currentEventId, _currentProfileId, currentEvent intact.
+        debugStatus = "Heartbeat paused (dormant)"
+
+        #if DEBUG
+        print("[Presence] 💤 Heartbeat paused — context preserved for resume")
+        print("[Presence]    eventId: \(_currentEventId?.uuidString ?? "nil")")
+        print("[Presence]    profileId: \(_currentProfileId?.uuidString ?? "nil")")
+        #endif
+    }
+
     // MARK: - Presence via event_attendees
 
     private func touchAttendance(eventId: UUID, profileId: UUID) async {
+        // Skip heartbeat writes when offline — no point hitting the network
+        guard await MainActor.run(body: { NetworkMonitor.shared.isOnline }) else {
+            #if DEBUG
+            await MainActor.run {
+                print("[NearbyMode] skipping backend feature: presence heartbeat")
+                self.debugStatus = "Nearby Mode — heartbeat paused"
+            }
+            #endif
+            return
+        }
+
         await MainActor.run {
             isWritingPresence = true
             debugStatus = "Writing attendance heartbeat..."

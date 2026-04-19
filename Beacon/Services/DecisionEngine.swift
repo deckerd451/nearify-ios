@@ -389,45 +389,44 @@ final class DecisionEngine {
         )
     }
 
-    // MARK: - Signal Computation (normalized 0–1, for threshold comparison ONLY)
+    // MARK: - Signal Computation
+    //
+    // Uses the unified InteractionScorer for the interaction score.
+    // Potential and impact scores remain local (interest-based, not interaction-based).
+    // Timing score is derived from the unified recency + proximity sub-scores.
 
     private func computeSignals(_ c: DecisionCandidate, totalAttendees: Int) -> DecisionSignals {
-        // ── Interaction score ──
-        // v1: 15 min = 1.0 — too strict for real events
-        // v2: 5 min = 1.0 — most meaningful encounters are 1-5 min
-        let encNorm = min(Double(c.totalEncounterSeconds) / 300.0, 1.0)  // was /900
-        let msgNorm: Double = c.hasRecentMessage ? 0.4 : 0.0
-        let connNorm: Double = c.isConnected ? 0.2 : 0.0
-        let interactionScore = min(encNorm + msgNorm + connNorm, 1.0)
+        // ── Unified interaction score via InteractionScorer ──
+        let unified = InteractionScorer.Signals(
+            isBLEDetected: c.candidateIsActive,  // active candidate ≈ BLE-detectable
+            isHeartbeatLive: c.candidateIsActive,
+            encounterSeconds: c.totalEncounterSeconds,
+            historicalOverlapSeconds: 0,
+            lastSeenAt: c.lastSeenAge.map { Date().addingTimeInterval(-$0) },
+            encounterCount: c.encounterCount,
+            isConnected: c.isConnected,
+            hasConversation: c.hasRecentMessage,
+            sharedInterestCount: c.sharedInterests.count
+        )
+        let interactionScore = InteractionScorer.score(unified)
 
-        // ── Potential score: shared interests depth ──
+        // ── Potential score: shared interests depth (unchanged — interest-specific) ──
         let interestOverlap = Double(c.sharedInterests.count)
         let maxPossible = max(Double(min(c.viewerInterests.count, c.theirInterests.count)), 1.0)
         let potentialScore = min(interestOverlap / maxPossible, 1.0)
 
-        // ── Impact score: complementarity ──
+        // ── Impact score: complementarity (unchanged — interest-specific) ──
         let viewerSet = Set(c.viewerInterests)
         let theirSet = Set(c.theirInterests)
         let uniqueToThem = theirSet.subtracting(viewerSet).count
         let impactScore = min(Double(uniqueToThem + c.sharedInterests.count) / max(Double(theirSet.count), 1.0), 1.0)
 
-        // ── Timing score ──
-        // v1: readinessA * readinessB * max(intent, 0.1) — required message+proximity
-        // v2: readiness is a floor (0.5 if inactive, not 0.3), and intent is more
-        //     generous: recent proximity alone gives 0.5, which is enough for Tier 2.
-        let readinessA: Double = c.viewerIsActive ? 1.0 : 0.5   // was 0.3
-        let readinessB: Double = c.candidateIsActive ? 1.0 : 0.5 // was 0.3
-
-        var intent: Double = 0.0
-        if c.hasRecentMessage { intent += 0.5 }
-        if let age = c.lastSeenAge, age < 300 { intent += 0.5 }      // was 600
-        else if let age = c.lastSeenAge, age < 1800 { intent += 0.3 } // was 3600/0.2
-        else if let age = c.lastSeenAge, age < 7200 { intent += 0.1 }
-        intent = min(intent, 1.0)
-
-        // Floor: if there's any encounter data at all, timing never goes below 0.15
-        let encFloor: Double = c.totalEncounterSeconds > 0 ? 0.15 : 0.0
-        let timingScore = max(readinessA * readinessB * max(intent, 0.1), encFloor)
+        // ── Timing score: derived from unified recency + proximity ──
+        let timingScore = max(
+            InteractionScorer.proximityScore(unified) * 0.5
+            + InteractionScorer.recencyScore(unified) * 0.5,
+            c.totalEncounterSeconds > 0 ? 0.15 : 0.0  // floor preserved
+        )
 
         return DecisionSignals(
             interactionScore: interactionScore,

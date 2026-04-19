@@ -14,8 +14,54 @@ struct EventAttendee: Identifiable, Equatable {
     let energy: Double
     let lastSeen: Date
 
+    // MARK: - Event Presence State
+    //
+    // Derived from event_attendees heartbeat (last_seen_at).
+    // "present" = heartbeat within 60s (actively writing).
+    // "stale" = heartbeat within 300s (in event but may have backgrounded).
+    // "absent" = heartbeat older than 300s (should not be in active list).
+
+    enum PresenceState: String {
+        case present  // heartbeat < 60s
+        case stale    // heartbeat 60s–300s
+        case absent   // heartbeat > 300s
+    }
+
+    var presenceState: PresenceState {
+        let age = Date().timeIntervalSince(lastSeen)
+        if age < 60  { return .present }
+        if age < 300 { return .stale }
+        return .absent
+    }
+
+    // MARK: - Findability State
+    //
+    // Whether this person can be navigated to via Find.
+    // Requires EITHER fresh heartbeat OR recent BLE signal.
+    // Checked at navigation time, not at list render time.
+
+    enum FindabilityState: String {
+        case liveSignal     // BLE device seen within 15s
+        case recentlySeen   // heartbeat within 60s (no BLE required)
+        case unavailable    // neither BLE nor fresh heartbeat
+    }
+
+    /// Computes findability from heartbeat age + BLE state.
+    /// `hasBLESignal` should be provided by the caller from BLEScannerService.
+    func findability(hasBLESignal: Bool) -> FindabilityState {
+        if hasBLESignal { return .liveSignal }
+        if presenceState == .present { return .recentlySeen }
+        return .unavailable
+    }
+
     var isActiveNow: Bool {
-        Date().timeIntervalSince(lastSeen) < 60
+        presenceState == .present
+    }
+
+    /// Whether this attendee should be shown with "here now" language.
+    /// Stricter than list membership — only for truly active heartbeats.
+    var isHereNow: Bool {
+        presenceState == .present
     }
 
     var lastSeenText: String {
@@ -120,6 +166,14 @@ final class EventAttendeesService: ObservableObject {
     @Published private(set) var attendeeCount: Int = 0
     @Published var debugStatus: String = "idle"
 
+    /// Canonical live attendee count for all UI decisions.
+    /// Excludes the current user. Only counts attendees where isHereNow == true.
+    /// Use this instead of `attendeeCount` or manual filtering for UI branching.
+    var liveOtherCount: Int {
+        let myId = AuthService.shared.currentUser?.id
+        return attendees.filter { $0.id != myId && $0.isHereNow }.count
+    }
+
     private let presence = EventPresenceService.shared
     private let eventJoin = EventJoinService.shared
     private let supabase = AppEnvironment.shared.supabaseClient
@@ -169,10 +223,20 @@ final class EventAttendeesService: ObservableObject {
                 #endif
                 self.startRefreshing()
             } else {
-                #if DEBUG
-                print("[Attendees] 🔴 Presence not ready — stopping refresh")
-                #endif
-                self.stopRefreshing()
+                // Offline guard: when network is unavailable, preserve existing
+                // attendees and allow BLE + cached data to drive the UI.
+                if !NetworkMonitor.shared.isOnline {
+                    #if DEBUG
+                    print("[NearbyMode] preventing attendee clear — network offline, preserving cached state")
+                    #endif
+                    // Don't stop refresh or clear attendees; let BLE fallback fill the gap
+                    self.injectBLEFallbackAttendees()
+                } else {
+                    #if DEBUG
+                    print("[Attendees] 🔴 Presence not ready — stopping refresh")
+                    #endif
+                    self.stopRefreshing()
+                }
             }
         }
         .store(in: &cancellables)
@@ -232,9 +296,102 @@ final class EventAttendeesService: ObservableObject {
         #endif
     }
 
+    // MARK: - Offline BLE Fallback
+
+    private var bleFallbackCancellable: AnyCancellable?
+
+    /// Scans BLE devices and injects minimal attendees from ProfileCache
+    /// when the network is offline and the attendee list would otherwise be empty.
+    /// Only activates when offline — online behavior is unchanged.
+    private func injectBLEFallbackAttendees() {
+        // Cancel any previous observation to avoid duplicates
+        bleFallbackCancellable?.cancel()
+
+        // Observe BLE device changes while offline
+        bleFallbackCancellable = BLEScannerService.shared.$discoveredDevices
+            .receive(on: RunLoop.main)
+            .sink { [weak self] devices in
+                guard let self else { return }
+                // Only inject when offline — if we come back online, normal refresh takes over
+                guard !NetworkMonitor.shared.isOnline else {
+                    self.bleFallbackCancellable?.cancel()
+                    self.bleFallbackCancellable = nil
+                    return
+                }
+
+                let bcnDevices = devices.values.filter { $0.name.hasPrefix("BCN-") }
+                guard !bcnDevices.isEmpty else { return }
+
+                let cache = ProfileCache.shared
+                var injected: [EventAttendee] = []
+
+                for device in bcnDevices {
+                    guard let prefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else { continue }
+
+                    // Try to resolve a profile ID from the prefix
+                    if let cached = cache.profile(forPrefix: prefix) {
+                        // Avoid duplicates with existing attendees
+                        guard !self.attendees.contains(where: { $0.id == cached.id }) else { continue }
+
+                        let attendee = cache.offlineAttendee(forPrefix: prefix, profileId: cached.id)
+                        injected.append(attendee)
+
+                        #if DEBUG
+                        print("[NearbyMode] injecting BLE attendee: \(attendee.name) (prefix: \(prefix))")
+                        #endif
+                    } else {
+                        // No cached profile — build a stable anonymous identity
+                        // Use a deterministic UUID derived from the prefix so the same
+                        // BLE device always maps to the same attendee identity.
+                        let deterministicId = UUID(uuidString: "\(prefix)-0000-0000-0000-000000000000")
+                            ?? UUID()
+                        guard !self.attendees.contains(where: { $0.id == deterministicId }) else { continue }
+
+                        let name = cache.displayName(forPrefix: prefix)
+                        let attendee = EventAttendee(
+                            id: deterministicId,
+                            name: name,
+                            avatarUrl: nil,
+                            bio: nil,
+                            skills: nil,
+                            interests: nil,
+                            energy: 0.5,
+                            lastSeen: device.lastSeen
+                        )
+                        injected.append(attendee)
+
+                        #if DEBUG
+                        print("[NearbyMode] injecting BLE attendee (anonymous): \(name) (prefix: \(prefix))")
+                        #endif
+                    }
+                }
+
+                if !injected.isEmpty {
+                    // Merge with existing attendees (preserve any cached ones from previous online session)
+                    let existingIds = Set(self.attendees.map(\.id))
+                    let newOnly = injected.filter { !existingIds.contains($0.id) }
+                    self.attendees.append(contentsOf: newOnly)
+                    self.attendeeCount = self.attendees.count
+                    self.debugStatus = "offline: \(self.attendees.count) attendee(s) via BLE+cache"
+
+                    #if DEBUG
+                    print("[NearbyMode] total attendees after injection: \(self.attendees.count)")
+                    #endif
+                }
+            }
+    }
+
     // MARK: - Fetch Attendees
 
     private func fetchAttendees() async {
+        // Skip network fetch when offline — BLE fallback handles attendee injection
+        guard NetworkMonitor.shared.isOnline else {
+            #if DEBUG
+            print("[NearbyMode] skipping backend feature: attendees refresh")
+            #endif
+            return
+        }
+
         guard let eventId = presence.currentContextId,
               let currentProfileId = presence.currentCommunityId else {
             #if DEBUG
@@ -275,33 +432,62 @@ final class EventAttendeesService: ObservableObject {
             #endif
 
             let recentCutoff = Date().addingTimeInterval(-activeWindow)
+            let now = Date()
+            let liveCutoff: TimeInterval = 60.0  // "here now" threshold
+
+            // Split rows into three tiers:
+            // - live: heartbeat < 60s → published to UI, drives decisions
+            // - stale: heartbeat 60–300s → NOT published, NOT shown as "here now"
+            // - expired: heartbeat > 300s → dropped entirely
             let activeRows = rows.filter { $0.lastSeenAt >= recentCutoff }
+            let liveRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) < liveCutoff }
+            let staleRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) >= liveCutoff }
+            let expiredRows = rows.filter { $0.lastSeenAt < recentCutoff }
 
             #if DEBUG
             print("[Attendees]   recent cutoff: \(recentCutoff)")
-            print("[Attendees]   active rows after cutoff: \(activeRows.count)")
-            for row in activeRows {
-                print("[Attendees]   active profile_id=\(row.profileId.uuidString)")
+            print("[Attendees]   live (< \(Int(liveCutoff))s): \(liveRows.count)")
+            print("[Attendees]   stale (\(Int(liveCutoff))–\(Int(activeWindow))s): \(staleRows.count) (not shown in UI)")
+            print("[Attendees]   expired (> \(Int(activeWindow))s): \(expiredRows.count)")
+            for row in liveRows {
+                let age = Int(now.timeIntervalSince(row.lastSeenAt))
+                print("[Attendees]   ✅ live profile_id=\(row.profileId.uuidString.prefix(8)) age=\(age)s")
+            }
+            for row in staleRows {
+                let age = Int(now.timeIntervalSince(row.lastSeenAt))
+                print("[Attendees]   ⏳ stale profile_id=\(row.profileId.uuidString.prefix(8)) age=\(age)s → excluded from UI")
+            }
+            for row in expiredRows {
+                let age = Int(now.timeIntervalSince(row.lastSeenAt))
+                print("[Attendees]   ⏰ expired profile_id=\(row.profileId.uuidString.prefix(8)) age=\(age)s → dropped")
             }
             #endif
 
-            if activeRows.isEmpty {
-                let sig = "0"
+            // ONLY live attendees are published to the UI.
+            // Stale attendees are NOT shown as "here now" — they may have
+            // backgrounded, left, or lost connectivity. The UI must reflect
+            // "who is here RIGHT NOW", not "who was here recently".
+            if liveRows.isEmpty {
+                let sig = "live:0"
                 if sig != lastFetchSignature {
                     lastFetchSignature = sig
                     #if DEBUG
-                    print("[Attendees] No active attendees")
+                    print("[Attendees] No live attendees (stale: \(staleRows.count))")
                     #endif
                 }
 
                 attendees = []
                 attendeeCount = 0
-                debugStatus = "No active attendees"
+                debugStatus = "No live attendees"
                 isLoading = false
+
+                // No live attendees → target is not present
+                evaluateTargetIntent(activeAttendeeIds: [])
+
                 return
             }
 
-            let profileIds = Array(Set(activeRows.map(\.profileId)))
+            let profileIds = Array(Set(liveRows.map(\.profileId)))
 
             #if DEBUG
             print("[Attendees]   requesting profiles for \(profileIds.count) id(s)")
@@ -319,7 +505,7 @@ final class EventAttendeesService: ObservableObject {
             }
             #endif
 
-            let newAttendees: [EventAttendee] = activeRows.map { row in
+            let newAttendees: [EventAttendee] = liveRows.map { row in
                 let profile = profilesById[row.profileId]
 
                 return EventAttendee(
@@ -359,7 +545,13 @@ final class EventAttendeesService: ObservableObject {
 
             attendees = newAttendees
             attendeeCount = newAttendees.count
-            debugStatus = "\(newAttendees.count) attendee(s)"
+            debugStatus = "\(newAttendees.count) live, \(staleRows.count) stale"
+
+            // Populate offline profile cache
+            ProfileCache.shared.storeAttendees(newAttendees)
+
+            // ── Target Intent Detection ──
+            evaluateTargetIntent(activeAttendeeIds: Set(newAttendees.map(\.id)))
 
         } catch {
             debugStatus = "query failed: \(error.localizedDescription)"
@@ -367,6 +559,25 @@ final class EventAttendeesService: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    // MARK: - Target Intent Detection
+
+    /// Evaluates target intent against the current active attendee set.
+    /// Called on every attendee refresh cycle.
+    private func evaluateTargetIntent(activeAttendeeIds: Set<UUID>) {
+        let intent = TargetIntentManager.shared
+        guard intent.isActive, let targetId = intent.targetProfileId else { return }
+
+        #if DEBUG
+        print("[TargetResolution] checking for target: \(intent.targetName ?? "unknown")")
+        #endif
+
+        if activeAttendeeIds.contains(targetId) {
+            intent.markFound()
+        } else {
+            intent.markNotPresent()
+        }
     }
 
     // MARK: - Profile Resolution

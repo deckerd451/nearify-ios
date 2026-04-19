@@ -57,6 +57,7 @@ final class BeaconConfidenceService: ObservableObject {
     @Published private(set) var nearbyPeerCount: Int = 0
 
     private let scanner = BLEScannerService.shared
+    private let bleService = BLEService.shared
     private var cancellables = Set<AnyCancellable>()
     private var confidenceTimer: Timer?
 
@@ -64,6 +65,9 @@ final class BeaconConfidenceService: ObservableObject {
     private let rssiThreshold: Int = -80
     private let confidenceWindow: TimeInterval = 3.0
     private let freshnessWindow: TimeInterval = 10.0
+
+    /// iBeacon ranging results older than this are stale.
+    private let iBeaconFreshnessWindow: TimeInterval = 5.0
 
     // Tracking
     private var candidateStartTime: Date?
@@ -89,13 +93,21 @@ final class BeaconConfidenceService: ObservableObject {
 
     private func startMonitoring() {
         #if DEBUG
-        print("[CONFIDENCE-DIAG] Starting anchor monitoring (scanner + 2.0s timer)")
+        print("[CONFIDENCE-DIAG] Starting anchor monitoring (scanner + iBeacon + 2.0s timer)")
         #endif
         
         scanner.$discoveredDevices
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.evaluateBeacons(trigger: "scanner")
+            }
+            .store(in: &cancellables)
+
+        // Observe CLLocationManager iBeacon ranging results from BLEService.
+        bleService.$latestRangedAnchor
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.evaluateBeacons(trigger: "iBeacon")
             }
             .store(in: &cancellables)
 
@@ -120,9 +132,40 @@ final class BeaconConfidenceService: ObservableObject {
                 now.timeIntervalSince(beacon.lastSeen) < freshnessWindow
             }
 
-        let eventAnchors = qualifyingBeacons
+        // Path 1: CBCentralManager anchors (MOONSIDE-branded BLE GATT devices)
+        let cbAnchors = qualifyingBeacons
             .filter { isEventAnchor($0.name) }
             .sorted { $0.rssi > $1.rssi }
+
+        // Path 2: CLLocationManager iBeacon anchors (registered hardware beacons)
+        // Synthesize a DiscoveredBLEDevice so the existing candidate/stable logic works.
+        var iBeaconAnchors: [DiscoveredBLEDevice] = []
+        if let ranged = bleService.latestRangedAnchor,
+           now.timeIntervalSince(ranged.lastSeen) < iBeaconFreshnessWindow,
+           ranged.rssi >= rssiThreshold {
+            let synthetic = DiscoveredBLEDevice(
+                id: ranged.beaconId,
+                identifier: ranged.beaconId,
+                name: "iBeacon:\(ranged.label)",
+                rssi: ranged.rssi,
+                lastSeen: ranged.lastSeen,
+                isKnownBeacon: true,
+                advertisedLocalName: nil,
+                peripheralName: nil,
+                serviceUUIDs: nil,
+                manufacturerData: nil,
+                isConnectable: nil
+            )
+            iBeaconAnchors.append(synthetic)
+        }
+
+        // Path 3: Organizer anchor phones (ANCHOR-<prefix> via CBCentralManager)
+        let organizerAnchors = qualifyingBeacons
+            .filter { $0.name.hasPrefix("ANCHOR-") }
+            .sorted { $0.rssi > $1.rssi }
+
+        // Merge all anchor sources, pick strongest.
+        let eventAnchors = (cbAnchors + iBeaconAnchors + organizerAnchors).sorted { $0.rssi > $1.rssi }
 
         let bcnPeerDevices = qualifyingBeacons
             .filter { $0.name.hasPrefix("BCN-") }

@@ -46,7 +46,10 @@ struct EncounterCardView: View {
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(name) was nearby")
+                    Text(UserPresenceStateResolver.current == .insideEvent
+                         || UserPresenceStateResolver.current == .nearbyOnly
+                         ? "\(name) is here now"
+                         : "\(name) was nearby")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.white)

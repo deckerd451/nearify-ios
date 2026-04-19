@@ -271,6 +271,7 @@ final class BLEScannerService: NSObject, ObservableObject, CBCentralManagerDeleg
             let isFirstDetection = !self.firstDetectionLogged.contains(identifier)
             let isBeaconRelevant = isKnown
                 || displayName.hasPrefix("BCN-")
+                || displayName.hasPrefix("ANCHOR-")
                 || displayName.hasPrefix("BEACON-")
                 || displayName.contains("MOONSIDE")
 
@@ -295,21 +296,39 @@ final class BLEScannerService: NSObject, ObservableObject, CBCentralManagerDeleg
                     
                     // Unified identity classification
                     let isBCN = displayName.hasPrefix("BCN-")
+                    let isANCHOR = displayName.hasPrefix("ANCHOR-")
                     let extractedPrefix = BLEAdvertiserService.parseCommunityPrefix(from: displayName)
+                        ?? BLEAdvertiserService.parseAnchorPrefix(from: displayName)
                     let hasEventServiceUUID = serviceUUIDs?.contains(CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")) ?? false
                     print("[BLE-DEBUG] 🔎 Identity: \(displayName)")
-                    print("  BCN- name: \(isBCN) | Service UUID match: \(hasEventServiceUUID) | Known: \(isKnown)")
-                    if isBCN {
+                    print("  BCN- name: \(isBCN) | ANCHOR- name: \(isANCHOR) | Service UUID match: \(hasEventServiceUUID) | Known: \(isKnown)")
+                    if isANCHOR {
+                        print("  → Organizer anchor (prefix: \(extractedPrefix ?? "?"))")
+                    } else if isBCN {
                         print("  → Attendee beacon (prefix: \(extractedPrefix ?? "?"))")
                     } else if hasEventServiceUUID {
                         print("  → Attendee beacon candidate (name pending)")
                     } else if displayName.hasPrefix("BEACON-") {
                         print("  → Legacy BEACON- device")
                     } else if displayName.contains("MOONSIDE") {
-                        print("  → Event anchor")
+                        print("  → Event anchor (hardware)")
                     }
                     #endif
                 }
+
+                // TEMPORARY DIAGNOSTIC: Log strong-signal unrecognized devices.
+                // If the physical beacon advertises under an unexpected name,
+                // this will surface it. Only logs devices with RSSI >= -75 that
+                // are NOT already classified as beacon-relevant.
+                #if DEBUG
+                if !isBeaconRelevant && rssiValue >= -75 && displayName != "Unknown" {
+                    print("[BLE-ANCHOR-AUDIT] ⚠️ Strong unrecognized device:")
+                    print("  name=\"\(displayName)\" localName=\"\(advertisedLocalName ?? "nil")\" periph=\"\(peripheralName ?? "nil")\"")
+                    print("  RSSI=\(rssiValue) dBm | UUIDs=\(serviceUUIDs?.map(\.uuidString) ?? []) | mfr=\(manufacturerData?.count ?? 0) bytes")
+                    print("  connectable=\(isConnectable?.description ?? "nil") | known=\(isKnown)")
+                    print("  → Not matching: BCN-, BEACON-, MOONSIDE, or service UUID 6E400001")
+                }
+                #endif
             }
 
             if var existing = self.stagedDevices[identifier] {
@@ -348,7 +367,7 @@ final class BLEScannerService: NSObject, ObservableObject, CBCentralManagerDeleg
                 let beaconFlag = isKnown ? " [KNOWN BEACON]" : ""
                 // Only log beacon-relevant devices on first detection
                 #if DEBUG
-                if isKnown || displayName.hasPrefix("BCN-") || displayName.hasPrefix("BEACON-") || displayName.contains("MOONSIDE") {
+                if isKnown || displayName.hasPrefix("BCN-") || displayName.hasPrefix("ANCHOR-") || displayName.hasPrefix("BEACON-") || displayName.contains("MOONSIDE") {
                     print("[BLE] device discovered: \(displayName) \(rssiValue) dBm\(beaconFlag)")
                 }
                 #endif
@@ -377,6 +396,9 @@ final class BLEScannerService: NSObject, ObservableObject, CBCentralManagerDeleg
             if localName.hasPrefix("BCN-") {
                 return true
             }
+            if localName.hasPrefix("ANCHOR-") {
+                return true
+            }
             if localName.contains("BEACON-") {
                 return true
             }
@@ -388,6 +410,9 @@ final class BLEScannerService: NSObject, ObservableObject, CBCentralManagerDeleg
         // Check peripheral name (least reliable, often nil)
         if let pName = peripheralName {
             if pName.hasPrefix("BCN-") {
+                return true
+            }
+            if pName.hasPrefix("ANCHOR-") {
                 return true
             }
             if pName.contains("BEACON-") {

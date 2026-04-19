@@ -16,7 +16,13 @@ struct ConnectAttendeeView: View {
         case ready
         case connecting
         case success(alreadyExisted: Bool)
+        case savedLocally
         case error(String)
+    }
+
+    /// Whether the view is operating in Nearby Mode (offline).
+    private var isNearbyMode: Bool {
+        AuthService.shared.isOfflineMode || !NetworkMonitor.shared.isOnline
     }
 
     private var myQRImage: UIImage? {
@@ -31,6 +37,8 @@ struct ConnectAttendeeView: View {
 
                 if case .success(let existed) = connectionState {
                     successView(alreadyExisted: existed)
+                } else if case .savedLocally = connectionState {
+                    savedLocallyView
                 } else {
                     handshakeView
                 }
@@ -88,34 +96,66 @@ struct ConnectAttendeeView: View {
                 .font(.headline)
                 .foregroundColor(.white)
 
-            Text("Verified attendee · Very close")
-                .font(.caption)
-                .foregroundColor(.green)
+            if isNearbyMode {
+                Text(isAlreadyConfirmed ? "Met nearby ✓" : "Detected nearby · Bluetooth")
+                    .font(.caption)
+                    .foregroundColor(.cyan)
+            } else {
+                Text("Verified attendee · Very close")
+                    .font(.caption)
+                    .foregroundColor(.green)
+            }
         }
     }
 
     // MARK: - Direct Connect
 
+    /// Whether this attendee has already been confirmed in Nearby Mode.
+    private var isAlreadyConfirmed: Bool {
+        let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
+        return NearbyModeTracker.shared.isConfirmed(prefix: prefix)
+    }
+
     private var directConnectButton: some View {
-        Button(action: { handleDirectConnect() }) {
-            HStack(spacing: 10) {
-                if case .connecting = connectionState {
-                    ProgressView().tint(.black)
-                } else {
-                    Image(systemName: "person.crop.circle.badge.plus")
+        Group {
+            if isNearbyMode && isAlreadyConfirmed {
+                // Already confirmed — show static saved state
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text("Met nearby ✓")
+                        .fontWeight(.semibold)
                 }
-                Text("Connect with \(attendee.name)")
-                    .fontWeight(.semibold)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color.cyan.opacity(0.2))
+                .foregroundColor(.cyan)
+                .cornerRadius(14)
+                .padding(.horizontal, 24)
+            } else {
+                Button(action: { handleDirectConnect() }) {
+                    HStack(spacing: 10) {
+                        if case .connecting = connectionState {
+                            ProgressView().tint(.black)
+                        } else {
+                            Image(systemName: isNearbyMode ? "checkmark.circle" : "person.crop.circle.badge.plus")
+                        }
+                        Text(isNearbyMode ? "Save encounter" : "Connect with \(attendee.name)")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(connectionState == .connecting
+                                ? (isNearbyMode ? Color.cyan.opacity(0.5) : Color.green.opacity(0.5))
+                                : (isNearbyMode ? Color.cyan : Color.green))
+                    .foregroundColor(.black)
+                    .cornerRadius(14)
+                }
+                .disabled(connectionState == .connecting)
+                .padding(.horizontal, 24)
             }
-            .font(.headline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(connectionState == .connecting ? Color.green.opacity(0.5) : Color.green)
-            .foregroundColor(.black)
-            .cornerRadius(14)
         }
-        .disabled(connectionState == .connecting)
-        .padding(.horizontal, 24)
     }
 
     // MARK: - QR Fallback
@@ -258,6 +298,43 @@ struct ConnectAttendeeView: View {
         }
     }
 
+    // MARK: - Saved Locally View (Nearby Mode)
+
+    private var savedLocallyView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 64))
+                .foregroundColor(.cyan)
+
+            Text("Encounter Saved")
+                .font(.title2)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+
+            Text("Met \(attendee.name) nearby — will sync when online")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            Spacer()
+
+            Button(action: { dismiss() }) {
+                Text("Done")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.cyan)
+                    .foregroundColor(.black)
+                    .cornerRadius(14)
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 32)
+        }
+    }
+
     // MARK: - Direct Connect Handler
 
     private func handleDirectConnect() {
@@ -267,6 +344,13 @@ struct ConnectAttendeeView: View {
         }() else { return }
 
         print("[Connect] 🤝 Direct connect tapped for \(attendee.name) (id: \(attendee.id))")
+
+        // Nearby Mode: save encounter locally instead of calling backend
+        if isNearbyMode {
+            handleNearbyModeConnect()
+            return
+        }
+
         connectionState = .connecting
 
         Task {
@@ -321,6 +405,41 @@ struct ConnectAttendeeView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Nearby Mode Connect (local save)
+
+    private func handleNearbyModeConnect() {
+        let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
+
+        // Prevent duplicate confirmation
+        if NearbyModeTracker.shared.isConfirmed(prefix: prefix) {
+            connectionState = .savedLocally
+            #if DEBUG
+            print("[NearbyMode] already confirmed: \(attendee.name) (prefix: \(prefix))")
+            #endif
+            return
+        }
+
+        // Build a local encounter from the attendee data
+        let encounter = NearbyModeTracker.LocalEncounter(
+            id: prefix,
+            profileId: attendee.id,
+            name: attendee.name,
+            avatarUrl: attendee.avatarUrl,
+            firstSeen: attendee.lastSeen,
+            lastSeen: Date(),
+            strongestRSSI: -50,
+            latestRSSI: -50
+        )
+
+        NearbyModeTracker.shared.confirmEncounter(encounter)
+        connectionState = .savedLocally
+
+        #if DEBUG
+        print("[NearbyMode] local encounter confirmed: \(attendee.name) (prefix: \(prefix))")
+        print("[NearbyMode] saved locally")
+        #endif
     }
 
     // MARK: - QR Scan Handler

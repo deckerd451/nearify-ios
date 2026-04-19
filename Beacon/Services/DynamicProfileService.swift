@@ -29,6 +29,26 @@ struct DynamicProfileSignals {
     }
 }
 
+// MARK: - Public Profile Summary (for viewing other users)
+
+/// Lightweight public-safe profile output for another user.
+/// Derived from the viewer's own feed items involving the target user.
+struct PublicProfileSummary {
+    let latelyLines: [String]
+    let emergingStrengthsParagraph: String?
+    let earnedTraits: [EarnedTrait]
+}
+
+// MARK: - Earned Trait
+
+/// A durable, behavior-backed identity trait earned through repeated activity.
+/// Higher confidence threshold than Emerging Strengths.
+struct EarnedTrait: Identifiable, Equatable {
+    let id: String          // trait key: "follows-through", "consistently-active", "theme-driven"
+    let publicText: String  // public-facing label
+    let evidenceCount: Int  // number of qualifying evidence points
+}
+
 /// Generates "Lately" lines for the Profile tab.
 /// Lightweight, client-side, derived from existing data sources.
 /// Returns 0–3 short phrases reflecting recent activity patterns.
@@ -40,6 +60,8 @@ final class DynamicProfileService: ObservableObject {
     static let shared = DynamicProfileService()
 
     @Published private(set) var latelyLines: [String] = []
+    @Published private(set) var emergingStrengthsParagraph: String?
+    @Published private(set) var earnedTraits: [EarnedTrait] = []
     @Published private(set) var isLoading = false
 
     /// Lightweight signals for Home to consume. Derived, not stored.
@@ -80,14 +102,164 @@ final class DynamicProfileService: ObservableObject {
             let lines = await generateLines()
             latelyLines = lines
             currentSignals = await buildSignals()
+            emergingStrengthsParagraph = await generateEmergingStrengthsParagraph()
+            earnedTraits = await generateEarnedTraits()
             lastGenerated = Date()
             isLoading = false
 
             #if DEBUG
             print("[Lately] Generated \(lines.count) lines: \(lines)")
             print("[Lately] Signals: themes=\(currentSignals.topThemes) event=\(currentSignals.recentEventName ?? "none") momentum=\(currentSignals.hasFollowUpMomentum) sharedInterests=\(currentSignals.recentSharedInterests.count)")
+            print("[EmergingStrengths] Paragraph: \(emergingStrengthsParagraph ?? "nil")")
+            print("[EarnedTraits] \(earnedTraits.map { $0.publicText })")
             #endif
         }
+    }
+
+    // MARK: - Public Profile Generation (for other users)
+
+    /// Generates a public-safe profile summary for another user,
+    /// derived from the current viewer's feed items involving that user.
+    /// Returns nil-safe output — empty lines and nil paragraph are valid.
+    func generatePublicProfile(for targetId: UUID, targetUser: User?) async -> PublicProfileSummary {
+        let feedItems = FeedService.shared.feedItems
+        let now = Date()
+
+        // Filter to feed items involving the target user
+        let targetItems = feedItems.filter { item in
+            item.actorProfileId == targetId &&
+            (item.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+
+        guard !targetItems.isEmpty else {
+            return PublicProfileSummary(latelyLines: [], emergingStrengthsParagraph: nil, earnedTraits: [])
+        }
+
+        // ── Lately lines ──
+
+        var lines: [String] = []
+
+        // Event activity
+        var eventNames: [String: Double] = [:]
+        for item in targetItems {
+            guard let eventName = item.metadata?.eventName, !eventName.isEmpty else { continue }
+            guard let date = item.createdAt else { continue }
+            eventNames[eventName, default: 0] += Weight.forAge(now.timeIntervalSince(date))
+        }
+        let topEvent = eventNames.max(by: { $0.value < $1.value })
+
+        // Topic from user profile interests/skills + event themes
+        var topicScores: [String: Double] = [:]
+        for (eventName, weight) in eventNames {
+            for theme in extractTopicWords(from: eventName) {
+                topicScores[theme, default: 0] += weight
+            }
+        }
+        for interest in targetUser?.interests ?? [] {
+            let raw = interest.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !Self.vagueWords.contains(raw), raw.count >= 2 else { continue }
+            topicScores[raw, default: 0] += 0.3
+        }
+        for skill in targetUser?.skills ?? [] {
+            let raw = skill.lowercased().trimmingCharacters(in: .whitespaces)
+            guard !Self.vagueWords.contains(raw), raw.count >= 2 else { continue }
+            topicScores[raw, default: 0] += 0.2
+        }
+        for key in topicScores.keys where Self.vagueWords.contains(key) {
+            topicScores[key] = (topicScores[key] ?? 0) * 0.3
+        }
+
+        let topTopics = topicScores.sorted { $0.value > $1.value }
+            .prefix(2)
+            .filter { $0.value >= 0.3 }
+            .map { $0.key }
+
+        // Use target user's ID for template variation (so different users get different phrasing)
+        let variant = (targetId.uuidString.hashValue &+ (Calendar.current.ordinality(of: .day, in: .year, for: now) ?? 0)) & 0x7FFFFFFF
+
+        if topTopics.count >= 2 {
+            let templates: [(String, String) -> String] = [
+                { "Exploring \($0) and \($1)" },
+                { "Focused on \($0) and \($1)" },
+            ]
+            lines.append(templates[variant % templates.count](topTopics[0], topTopics[1]))
+        } else if let topic = topTopics.first {
+            let templates: [(String) -> String] = [
+                { "Exploring \($0)" },
+                { "Focused on \($0)" },
+            ]
+            lines.append(templates[variant % templates.count](topic))
+        }
+
+        if let event = topEvent, event.value >= 0.4 {
+            let templates: [(String) -> String] = [
+                { "Active at \($0)" },
+                { "Showing up at \($0)" },
+            ]
+            lines.append(templates[variant % templates.count](event.key))
+        }
+
+        // ── Emerging Strengths paragraph ──
+
+        let messageItems = targetItems.filter { $0.feedType == .message }
+        let connectionItems = targetItems.filter { $0.feedType == .connection }
+        let messageCount = messageItems.count
+        let distinctEventCount = eventNames.count
+
+        var traits: [String] = []
+
+        // Follow-through
+        if messageCount >= 2 && !connectionItems.isEmpty {
+            traits.append("They often follow up after events.")
+        }
+
+        // Consistency
+        if distinctEventCount >= 3 {
+            if let dom = topEvent, dom.value >= 1.0 {
+                traits.append("They regularly attend \(dom.key) events.")
+            } else {
+                traits.append("They consistently show up in community gatherings.")
+            }
+        }
+
+        // Connector behavior (shared interests across multiple encounters)
+        var themeConnections: [String: Int] = [:]
+        for item in targetItems {
+            guard item.feedType == .encounter || item.feedType == .connection else { continue }
+            if let interests = item.metadata?.sharedInterests {
+                for interest in interests {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard key.count >= 2, !Self.vagueWords.contains(key) else { continue }
+                    themeConnections[key, default: 0] += 1
+                }
+            }
+        }
+        let topConnectorTheme = themeConnections.filter { $0.value >= 2 }.max(by: { $0.value < $1.value })
+        if let theme = topConnectorTheme {
+            traits.append("They connect others around \(theme.key).")
+        }
+
+        // Thematic engagement
+        let topTheme = topicScores.filter { $0.value >= 1.0 && !Self.vagueWords.contains($0.key) }
+            .max(by: { $0.value < $1.value })
+        if let theme = topTheme, traits.count < 2 {
+            traits.append("They are active in conversations around \(theme.key).")
+        }
+
+        let paragraph: String? = traits.isEmpty ? nil : traits.prefix(2).joined(separator: " ")
+
+        // Earned traits for public profile (same evidence rules, applied to target items)
+        let publicEarned = evaluateEarnedTraits(
+            feedItems: targetItems,
+            targetUser: targetUser,
+            topicScores: topicScores
+        )
+
+        return PublicProfileSummary(
+            latelyLines: Array(lines.prefix(3)),
+            emergingStrengthsParagraph: paragraph,
+            earnedTraits: publicEarned
+        )
     }
 
     // MARK: - Generation Pipeline
@@ -553,7 +725,9 @@ final class DynamicProfileService: ObservableObject {
     /// Builds lightweight signals from the same data sources used for Lately lines.
     /// Called alongside generateLines() so signals are always fresh.
     private func buildSignals() async -> DynamicProfileSignals {
-        guard let myId = AuthService.shared.currentUser?.id else { return DynamicProfileSignals() }
+        guard AuthService.shared.currentUser?.id != nil else {
+            return DynamicProfileSignals()
+        }
         let user = AuthService.shared.currentUser
         let interests = user?.interests ?? []
         let skills = user?.skills ?? []
@@ -622,6 +796,914 @@ final class DynamicProfileService: ObservableObject {
             recentEventName: recentEvent,
             hasFollowUpMomentum: hasFollowUp,
             recentSharedInterests: sharedInterests
+        )
+    }
+
+    // MARK: - Earned Traits
+
+    /// Generates durable, behavior-backed earned traits for the current user.
+    /// Higher confidence threshold than Emerging Strengths.
+    /// Returns 0–3 traits max.
+    func generateEarnedTraits() async -> [EarnedTrait] {
+        let feedItems = FeedService.shared.feedItems
+        let user = AuthService.shared.currentUser
+
+        // Build topic scores for theme-driven trait
+        var topicScores: [String: Double] = [:]
+        let now = Date()
+        for item in feedItems {
+            guard let date = item.createdAt else { continue }
+            let w = Weight.forAge(now.timeIntervalSince(date))
+            guard w > 0 else { continue }
+            if let eventName = item.metadata?.eventName {
+                for theme in extractTopicWords(from: eventName) {
+                    topicScores[theme, default: 0] += w
+                }
+            }
+            if let shared = item.metadata?.sharedInterests {
+                for interest in shared {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard !Self.vagueWords.contains(key), key.count >= 2 else { continue }
+                    topicScores[key, default: 0] += w
+                }
+            }
+        }
+        for interest in user?.interests ?? [] {
+            let key = normalizeInterest(interest)
+            if topicScores[key] != nil { topicScores[key]! += 0.3 }
+        }
+        for skill in user?.skills ?? [] {
+            let key = normalizeInterest(skill)
+            if topicScores[key] != nil { topicScores[key]! += 0.2 }
+        }
+
+        return evaluateEarnedTraits(
+            feedItems: feedItems,
+            targetUser: user,
+            topicScores: topicScores
+        )
+    }
+
+    /// Shared evaluation logic for earned traits. Used by both self-profile and public-profile paths.
+    /// Applies strict thresholds: repetition, time consistency, context diversity.
+    private func evaluateEarnedTraits(
+        feedItems: [FeedItem],
+        targetUser: User?,
+        topicScores: [String: Double]
+    ) -> [EarnedTrait] {
+        let now = Date()
+        var result: [EarnedTrait] = []
+
+        // ── 1. Follows Through ──
+        // Evidence: ≥3 follow-up messages after meeting people, across ≥2 unique people, across ≥2 event contexts
+        let messageItems = feedItems.filter { $0.feedType == .message }
+        let connectionItems = feedItems.filter { $0.feedType == .connection }
+
+        // Find people the user both connected with AND messaged
+        let connectedActorIds = Set(connectionItems.compactMap { $0.actorProfileId })
+        let messagedActorIds = Set(messageItems.compactMap { $0.actorProfileId })
+        let followedUpPeople = connectedActorIds.intersection(messagedActorIds)
+
+        // Count total follow-up messages (messages to people we connected with)
+        let followUpMessages = messageItems.filter { item in
+            guard let actorId = item.actorProfileId else { return false }
+            return followedUpPeople.contains(actorId)
+        }
+
+        // Event contexts for follow-up (from the connection items for followed-up people)
+        let followUpEventContexts = Set(
+            connectionItems
+                .filter { item in
+                    guard let actorId = item.actorProfileId else { return false }
+                    return followedUpPeople.contains(actorId)
+                }
+                .compactMap { $0.eventId }
+        )
+        // Also count distinct days as context diversity proxy
+        let followUpDays = Set(
+            followUpMessages.compactMap { item -> String? in
+                guard let date = item.createdAt else { return nil }
+                let cal = Calendar.current
+                return "\(cal.component(.year, from: date))-\(cal.component(.month, from: date))-\(cal.component(.day, from: date))"
+            }
+        )
+        let followUpContexts = max(followUpEventContexts.count, followUpDays.count)
+
+        if followUpMessages.count >= 3 && followedUpPeople.count >= 2 && followUpContexts >= 2 {
+            result.append(EarnedTrait(
+                id: "follows-through",
+                publicText: "Follows through after events",
+                evidenceCount: followUpMessages.count
+            ))
+        }
+
+        // ── 2. Consistently Active ──
+        // Evidence: activity across ≥3 separate days OR ≥3 events, spanning time not one burst
+        let allDates = feedItems.compactMap { $0.createdAt }
+        let activeDays = Set(allDates.map { date -> String in
+            let cal = Calendar.current
+            return "\(cal.component(.year, from: date))-\(cal.component(.month, from: date))-\(cal.component(.day, from: date))"
+        })
+
+        var eventNames: Set<String> = []
+        for item in feedItems {
+            if let name = item.metadata?.eventName, !name.isEmpty {
+                eventNames.insert(name.lowercased())
+            }
+        }
+
+        // Time span check: earliest to latest activity must span ≥3 days
+        let sortedDates = allDates.sorted()
+        let timeSpanDays: Int
+        if let earliest = sortedDates.first, let latest = sortedDates.last {
+            timeSpanDays = max(1, Int(latest.timeIntervalSince(earliest) / 86400))
+        } else {
+            timeSpanDays = 0
+        }
+        let spansTime = timeSpanDays >= 3
+
+        let dayCount = activeDays.count
+        let eventCount = eventNames.count
+
+        if (dayCount >= 3 || eventCount >= 3) && spansTime {
+            // Check if a specific event family dominates
+            var eventNameCounts: [String: Int] = [:]
+            for item in feedItems {
+                if let name = item.metadata?.eventName, !name.isEmpty {
+                    eventNameCounts[name, default: 0] += 1
+                }
+            }
+            let dominant = eventNameCounts.max(by: { $0.value < $1.value })
+
+            let text: String
+            if let dom = dominant, dom.value >= 3, eventCount <= 2 {
+                text = "Consistently active at \(dom.key) events"
+            } else {
+                text = "Consistently active in community spaces"
+            }
+
+            result.append(EarnedTrait(
+                id: "consistently-active",
+                publicText: text,
+                evidenceCount: max(dayCount, eventCount)
+            ))
+        }
+
+        // ── 3. Theme-Driven ──
+        // Evidence: repeated theme signal across ≥2 contexts, supported by profile + behavioral data
+        // Find themes with strong scores that appear in multiple contexts
+        var themeContexts: [String: Set<String>] = [:]
+        for item in feedItems {
+            guard let date = item.createdAt else { continue }
+            let w = Weight.forAge(now.timeIntervalSince(date))
+            guard w > 0 else { continue }
+
+            var itemThemes: [String] = []
+            if let eventName = item.metadata?.eventName {
+                itemThemes.append(contentsOf: extractTopicWords(from: eventName))
+            }
+            if let shared = item.metadata?.sharedInterests {
+                for interest in shared {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard !Self.vagueWords.contains(key), key.count >= 2 else { continue }
+                    itemThemes.append(key)
+                }
+            }
+
+            // Context = event ID or day (for context diversity)
+            let context: String
+            if let eventId = item.eventId {
+                context = "event:\(eventId)"
+            } else {
+                let cal = Calendar.current
+                context = "day:\(cal.component(.year, from: date))-\(cal.component(.month, from: date))-\(cal.component(.day, from: date))"
+            }
+
+            for theme in itemThemes {
+                themeContexts[theme, default: []].insert(context)
+            }
+        }
+
+        // Boost themes that match user profile
+        let userAnchors = Set(
+            ((targetUser?.interests ?? []) + (targetUser?.skills ?? []))
+                .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+                .filter { !Self.vagueWords.contains($0) }
+        )
+
+        // Find the best theme: ≥2 contexts, decent topic score, profile match preferred
+        let qualifiedThemes = themeContexts
+            .filter { $0.value.count >= 2 && !Self.vagueWords.contains($0.key) }
+            .sorted { a, b in
+                let scoreA = (topicScores[a.key] ?? 0) * (userAnchors.contains(a.key) ? 1.5 : 1.0)
+                let scoreB = (topicScores[b.key] ?? 0) * (userAnchors.contains(b.key) ? 1.5 : 1.0)
+                if scoreA != scoreB { return scoreA > scoreB }
+                return a.value.count > b.value.count
+            }
+
+        if let best = qualifiedThemes.first,
+           (topicScores[best.key] ?? 0) >= 1.0 {
+            result.append(EarnedTrait(
+                id: "theme-driven",
+                publicText: "Active around \(best.key) conversations",
+                evidenceCount: best.value.count
+            ))
+        }
+
+        return Array(result.prefix(3))
+    }
+
+    /// Produces debug evidence for all 3 earned trait candidates.
+    /// Reuses the same metric computation as evaluateEarnedTraits but captures
+    /// actual vs required values for each threshold.
+    func evaluateEarnedTraitEvidence(
+        feedItems: [FeedItem],
+        targetUser: User?,
+        topicScores: [String: Double]
+    ) -> [DebugProfileSummary.EarnedTraitEvidence] {
+        typealias Evidence = DebugProfileSummary.EarnedTraitEvidence
+        typealias Metric = Evidence.Metric
+        let now = Date()
+        var evidence: [Evidence] = []
+
+        // ── 1. Follows Through ──
+        let messageItems = feedItems.filter { $0.feedType == .message }
+        let connectionItems = feedItems.filter { $0.feedType == .connection }
+        let connectedActorIds = Set(connectionItems.compactMap { $0.actorProfileId })
+        let messagedActorIds = Set(messageItems.compactMap { $0.actorProfileId })
+        let followedUpPeople = connectedActorIds.intersection(messagedActorIds)
+        let followUpMessages = messageItems.filter { item in
+            guard let actorId = item.actorProfileId else { return false }
+            return followedUpPeople.contains(actorId)
+        }
+        let followUpEventContexts = Set(
+            connectionItems
+                .filter { item in
+                    guard let actorId = item.actorProfileId else { return false }
+                    return followedUpPeople.contains(actorId)
+                }
+                .compactMap { $0.eventId }
+        )
+        let followUpDays = Set(
+            followUpMessages.compactMap { item -> String? in
+                guard let date = item.createdAt else { return nil }
+                let cal = Calendar.current
+                return "\(cal.component(.year, from: date))-\(cal.component(.month, from: date))-\(cal.component(.day, from: date))"
+            }
+        )
+        let followUpContexts = max(followUpEventContexts.count, followUpDays.count)
+        let ftQualified = followUpMessages.count >= 3 && followedUpPeople.count >= 2 && followUpContexts >= 2
+
+        evidence.append(Evidence(
+            traitKey: "follows-through",
+            traitName: "Follows Through",
+            qualified: ftQualified,
+            outputText: ftQualified ? "Follows through after events" : nil,
+            metrics: [
+                Metric(label: "Follow-up messages", actual: "\(followUpMessages.count)", required: "≥ 3", met: followUpMessages.count >= 3),
+                Metric(label: "Unique people", actual: "\(followedUpPeople.count)", required: "≥ 2", met: followedUpPeople.count >= 2),
+                Metric(label: "Contexts", actual: "\(followUpContexts)", required: "≥ 2", met: followUpContexts >= 2),
+            ]
+        ))
+
+        // ── 2. Consistently Active ──
+        let allDates = feedItems.compactMap { $0.createdAt }
+        let activeDays = Set(allDates.map { date -> String in
+            let cal = Calendar.current
+            return "\(cal.component(.year, from: date))-\(cal.component(.month, from: date))-\(cal.component(.day, from: date))"
+        })
+        var eventNames: Set<String> = []
+        for item in feedItems {
+            if let name = item.metadata?.eventName, !name.isEmpty {
+                eventNames.insert(name.lowercased())
+            }
+        }
+        let sortedDates = allDates.sorted()
+        let timeSpanDays: Int
+        if let earliest = sortedDates.first, let latest = sortedDates.last {
+            timeSpanDays = max(1, Int(latest.timeIntervalSince(earliest) / 86400))
+        } else {
+            timeSpanDays = 0
+        }
+        let dayCount = activeDays.count
+        let eventCount = eventNames.count
+        let caQualified = (dayCount >= 3 || eventCount >= 3) && timeSpanDays >= 3
+
+        var caText: String? = nil
+        if caQualified {
+            var eventNameCounts: [String: Int] = [:]
+            for item in feedItems {
+                if let name = item.metadata?.eventName, !name.isEmpty {
+                    eventNameCounts[name, default: 0] += 1
+                }
+            }
+            let dominant = eventNameCounts.max(by: { $0.value < $1.value })
+            if let dom = dominant, dom.value >= 3, eventCount <= 2 {
+                caText = "Consistently active at \(dom.key) events"
+            } else {
+                caText = "Consistently active in community spaces"
+            }
+        }
+
+        evidence.append(Evidence(
+            traitKey: "consistently-active",
+            traitName: "Consistently Active",
+            qualified: caQualified,
+            outputText: caText,
+            metrics: [
+                Metric(label: "Active days", actual: "\(dayCount)", required: "≥ 3", met: dayCount >= 3),
+                Metric(label: "Events", actual: "\(eventCount)", required: "≥ 3", met: eventCount >= 3),
+                Metric(label: "Time span (days)", actual: "\(timeSpanDays)", required: "≥ 3", met: timeSpanDays >= 3),
+            ]
+        ))
+
+        // ── 3. Theme-Driven ──
+        var themeContexts: [String: Set<String>] = [:]
+        for item in feedItems {
+            guard let date = item.createdAt else { continue }
+            let w = Weight.forAge(now.timeIntervalSince(date))
+            guard w > 0 else { continue }
+            var itemThemes: [String] = []
+            if let eventName = item.metadata?.eventName {
+                itemThemes.append(contentsOf: extractTopicWords(from: eventName))
+            }
+            if let shared = item.metadata?.sharedInterests {
+                for interest in shared {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard !Self.vagueWords.contains(key), key.count >= 2 else { continue }
+                    itemThemes.append(key)
+                }
+            }
+            let context: String
+            if let eventId = item.eventId {
+                context = "event:\(eventId)"
+            } else {
+                let cal = Calendar.current
+                context = "day:\(cal.component(.year, from: date))-\(cal.component(.month, from: date))-\(cal.component(.day, from: date))"
+            }
+            for theme in itemThemes {
+                themeContexts[theme, default: []].insert(context)
+            }
+        }
+        let userAnchors = Set(
+            ((targetUser?.interests ?? []) + (targetUser?.skills ?? []))
+                .map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+                .filter { !Self.vagueWords.contains($0) }
+        )
+        let qualifiedThemes = themeContexts
+            .filter { $0.value.count >= 2 && !Self.vagueWords.contains($0.key) }
+            .sorted { a, b in
+                let scoreA = (topicScores[a.key] ?? 0) * (userAnchors.contains(a.key) ? 1.5 : 1.0)
+                let scoreB = (topicScores[b.key] ?? 0) * (userAnchors.contains(b.key) ? 1.5 : 1.0)
+                if scoreA != scoreB { return scoreA > scoreB }
+                return a.value.count > b.value.count
+            }
+        let bestTheme = qualifiedThemes.first
+        let bestThemeScore = bestTheme.flatMap { topicScores[$0.key] } ?? 0
+        let bestThemeContextCount = bestTheme?.value.count ?? 0
+        let bestThemeProfileMatch = bestTheme.map { userAnchors.contains($0.key) } ?? false
+        let tdQualified = bestTheme != nil && bestThemeScore >= 1.0
+
+        evidence.append(Evidence(
+            traitKey: "theme-driven",
+            traitName: "Theme-Driven",
+            qualified: tdQualified,
+            outputText: tdQualified ? "Active around \(bestTheme!.key) conversations" : nil,
+            metrics: [
+                Metric(label: "Theme", actual: bestTheme?.key ?? "(none)", required: "exists", met: bestTheme != nil),
+                Metric(label: "Contexts", actual: "\(bestThemeContextCount)", required: "≥ 2", met: bestThemeContextCount >= 2),
+                Metric(label: "Topic score", actual: String(format: "%.1f", bestThemeScore), required: "≥ 1.0", met: bestThemeScore >= 1.0),
+                Metric(label: "Profile match", actual: bestThemeProfileMatch ? "yes" : "no", required: "preferred", met: bestThemeProfileMatch),
+            ]
+        ))
+
+        return evidence
+    }
+
+    // MARK: - Emerging Strengths
+
+    /// Confidence tier for behavioral traits.
+    /// Each signal family produces exactly one tier — the highest earned.
+    private enum ConfidenceTier: Int, Comparable {
+        case low = 1      // weak but meaningful anchor
+        case medium = 2   // repeated signal or moderate support
+        case high = 3     // multi-signal support or clearly repeated behavior
+
+        static func < (lhs: ConfidenceTier, rhs: ConfidenceTier) -> Bool {
+            lhs.rawValue < rhs.rawValue
+        }
+    }
+
+    /// A single evaluated trait with its progression tier.
+    private struct ProgressiveTrait {
+        let family: String         // signal family key (for dedup across tiers)
+        let tier: ConfidenceTier
+        let phrase: String
+        let specificity: Int       // higher = more specific (named context > generic)
+    }
+
+    /// Generates a short paragraph (1–2 sentences) summarizing up to 2 earned behavioral traits.
+    /// Traits progress through 3 confidence stages as signals accumulate:
+    ///   low → cautious early-signal language
+    ///   medium → clearer moderate language
+    ///   high → earned trait language
+    /// Returns nil if no signals reach even the low threshold.
+    func generateEmergingStrengthsParagraph() async -> String? {
+        guard AuthService.shared.currentUser?.id != nil else { return nil }
+        let feedItems = FeedService.shared.feedItems
+        let now = Date()
+
+        // ── Gather raw signals ──
+
+        // Messages sent after events (follow-through)
+        let messageFeedItems = feedItems.filter {
+            $0.feedType == .message &&
+            ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+        let messageCount = messageFeedItems.count
+
+        // Connections that have conversations (follow-through via connection→message)
+        let connectionItems = feedItems.filter {
+            $0.feedType == .connection &&
+            ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+        let connectionActorIds = Set(connectionItems.compactMap { $0.actorProfileId })
+        let messageActorIds = Set(messageFeedItems.compactMap { $0.actorProfileId })
+        let connectionsFollowedByMessages = connectionActorIds.intersection(messageActorIds).count
+
+        // Events attended (distinct event names in last 30 days)
+        var eventNameCounts: [String: Int] = [:]
+        for item in feedItems {
+            guard let eventName = item.metadata?.eventName, !eventName.isEmpty else { continue }
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            eventNameCounts[eventName.lowercased(), default: 0] += 1
+        }
+        if let currentEvent = EventJoinService.shared.currentEventName {
+            eventNameCounts[currentEvent.lowercased(), default: 0] += 1
+        }
+        let distinctEventCount = eventNameCounts.count
+        let dominantEvent = eventNameCounts.max(by: { $0.value < $1.value })
+
+        // Connection clusters/themes (shared interests across connections)
+        var themeConnections: [String: Set<UUID>] = [:]
+        for item in feedItems {
+            guard item.feedType == .connection || item.feedType == .encounter else { continue }
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            guard let actorId = item.actorProfileId else { continue }
+            if let interests = item.metadata?.sharedInterests {
+                for interest in interests {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard key.count >= 2, !Self.vagueWords.contains(key) else { continue }
+                    themeConnections[key, default: []].insert(actorId)
+                }
+            }
+        }
+        let multiPersonThemes = themeConnections.filter { $0.value.count >= 2 }
+        let distinctClusterCount = multiPersonThemes.count
+        let topConnectorTheme = multiPersonThemes.max(by: { $0.value.count < $1.value.count })
+
+        // Thematic engagement
+        let user = AuthService.shared.currentUser
+        let interests = user?.interests ?? []
+        let skills = user?.skills ?? []
+        var themeInteractionCount: [String: Int] = [:]
+        for item in feedItems {
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            if let eventName = item.metadata?.eventName {
+                for theme in extractTopicWords(from: eventName) {
+                    themeInteractionCount[theme, default: 0] += 1
+                }
+            }
+            if let shared = item.metadata?.sharedInterests {
+                for interest in shared {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard !Self.vagueWords.contains(key) else { continue }
+                    themeInteractionCount[key, default: 0] += 1
+                }
+            }
+        }
+        for interest in interests {
+            let key = normalizeInterest(interest)
+            if themeInteractionCount[key] != nil {
+                themeInteractionCount[key]! += 1
+            }
+        }
+        for skill in skills {
+            let key = normalizeInterest(skill)
+            if themeInteractionCount[key] != nil {
+                themeInteractionCount[key]! += 1
+            }
+        }
+        // Top theme by interaction count (no minimum yet — tier logic handles thresholds)
+        let topTheme = themeInteractionCount
+            .filter { !Self.vagueWords.contains($0.key) }
+            .max(by: { $0.value < $1.value })
+
+        // ── Evaluate each signal family across 3 tiers ──
+        // For each family, compute the highest tier earned. Only that tier's phrase is kept.
+
+        var bestPerFamily: [String: ProgressiveTrait] = [:]
+
+        // A. Follow-through
+        //   high:   messages ≥ 2 AND connections→messages ≥ 2
+        //   medium: messages ≥ 2 OR connections→messages ≥ 2
+        //   low:    messages ≥ 1 AND at least 1 connection exists
+        let familyFollowThrough = "follow-through"
+        if messageCount >= 2 && connectionsFollowedByMessages >= 2 {
+            bestPerFamily[familyFollowThrough] = ProgressiveTrait(
+                family: familyFollowThrough, tier: .high,
+                phrase: "They often follow up after events.",
+                specificity: 1
+            )
+        } else if messageCount >= 2 || connectionsFollowedByMessages >= 2 {
+            bestPerFamily[familyFollowThrough] = ProgressiveTrait(
+                family: familyFollowThrough, tier: .medium,
+                phrase: "Showing signs of following up after events.",
+                specificity: 1
+            )
+        } else if messageCount >= 1 && !connectionItems.isEmpty {
+            bestPerFamily[familyFollowThrough] = ProgressiveTrait(
+                family: familyFollowThrough, tier: .low,
+                phrase: "Starting to follow up after events.",
+                specificity: 1
+            )
+        }
+
+        // B. Consistency
+        //   high:   ≥ 3 distinct events + dominant event with ≥ 2 appearances
+        //   medium: ≥ 3 distinct events (no dominant)  OR  ≥ 2 events + message activity
+        //   low:    ≥ 1 event + at least 1 other signal (message or encounter)
+        let familyConsistency = "consistency"
+        let hasEncounterActivity = feedItems.contains {
+            $0.feedType == .encounter &&
+            ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+
+        if distinctEventCount >= 3, let dominant = dominantEvent, dominant.value >= 2 {
+            let originalName = feedItems
+                .compactMap { $0.metadata?.eventName }
+                .first { $0.lowercased() == dominant.key } ?? dominant.key
+            bestPerFamily[familyConsistency] = ProgressiveTrait(
+                family: familyConsistency, tier: .high,
+                phrase: "They regularly attend \(originalName) events.",
+                specificity: 3
+            )
+        } else if distinctEventCount >= 3 {
+            bestPerFamily[familyConsistency] = ProgressiveTrait(
+                family: familyConsistency, tier: .high,
+                phrase: "They consistently show up in community gatherings.",
+                specificity: 1
+            )
+        } else if distinctEventCount >= 2 && (messageCount >= 1 || hasEncounterActivity) {
+            bestPerFamily[familyConsistency] = ProgressiveTrait(
+                family: familyConsistency, tier: .medium,
+                phrase: "Showing up at community events.",
+                specificity: 1
+            )
+        } else if distinctEventCount >= 1 && (messageCount >= 1 || hasEncounterActivity) {
+            bestPerFamily[familyConsistency] = ProgressiveTrait(
+                family: familyConsistency, tier: .low,
+                phrase: "Beginning to explore community events.",
+                specificity: 1
+            )
+        }
+
+        // C. Connector behavior
+        //   high:   ≥ 2 clusters + top theme with ≥ 3 people
+        //   medium: ≥ 2 clusters (smaller groups)
+        //   low:    ≥ 1 cluster with ≥ 2 people  OR  connections across ≥ 2 event contexts
+        let familyConnector = "connector"
+        let connectionEventIds = Set(connectionItems.compactMap { $0.eventId })
+
+        if distinctClusterCount >= 2, let top = topConnectorTheme, top.value.count >= 3 {
+            bestPerFamily[familyConnector] = ProgressiveTrait(
+                family: familyConnector, tier: .high,
+                phrase: "They connect others around \(top.key).",
+                specificity: 3
+            )
+        } else if distinctClusterCount >= 2 {
+            bestPerFamily[familyConnector] = ProgressiveTrait(
+                family: familyConnector, tier: .high,
+                phrase: "They bring people together across different groups.",
+                specificity: 2
+            )
+        } else if multiPersonThemes.count >= 1 {
+            let themeName = multiPersonThemes.first?.key ?? ""
+            bestPerFamily[familyConnector] = ProgressiveTrait(
+                family: familyConnector, tier: .medium,
+                phrase: "Engaging with people around \(themeName).",
+                specificity: 2
+            )
+        } else if connectionEventIds.count >= 2 {
+            bestPerFamily[familyConnector] = ProgressiveTrait(
+                family: familyConnector, tier: .low,
+                phrase: "Starting to connect across different events.",
+                specificity: 1
+            )
+        }
+
+        // D. Thematic engagement
+        //   high:   theme interaction count ≥ 4 + user interest/skill match
+        //   medium: theme interaction count ≥ 2
+        //   low:    theme interaction count == 1 + user interest/skill match
+        let familyThematic = "thematic"
+        if let theme = topTheme {
+            let userAnchors = (interests + skills).map { normalizeInterest($0) }
+            let matchesUserProfile = userAnchors.contains(theme.key)
+
+            if theme.value >= 4 && matchesUserProfile {
+                bestPerFamily[familyThematic] = ProgressiveTrait(
+                    family: familyThematic, tier: .high,
+                    phrase: "They are active in conversations around \(theme.key).",
+                    specificity: 3
+                )
+            } else if theme.value >= 2 {
+                bestPerFamily[familyThematic] = ProgressiveTrait(
+                    family: familyThematic, tier: .medium,
+                    phrase: "Engaging regularly in \(theme.key).",
+                    specificity: 2
+                )
+            } else if theme.value >= 1 && matchesUserProfile {
+                bestPerFamily[familyThematic] = ProgressiveTrait(
+                    family: familyThematic, tier: .low,
+                    phrase: "Early signs of activity around \(theme.key).",
+                    specificity: 1
+                )
+            }
+        }
+
+        // ── Trait selection ──
+        // Collect all families that produced at least one tier.
+        let allTraits = Array(bestPerFamily.values)
+        guard !allTraits.isEmpty else { return nil }
+
+        // Rank: tier (high > medium > low), then specificity, then family name for stability.
+        let ranked = allTraits.sorted {
+            if $0.tier != $1.tier { return $0.tier > $1.tier }
+            if $0.specificity != $1.specificity { return $0.specificity > $1.specificity }
+            return $0.family < $1.family
+        }
+
+        let selected = Array(ranked.prefix(2))
+
+        // ── Compose paragraph ──
+        if selected.count == 2 {
+            return "\(selected[0].phrase) \(selected[1].phrase)"
+        } else if selected.count == 1 {
+            return selected[0].phrase
+        }
+
+        return nil
+    }
+
+    // MARK: - Debug Summary
+
+    /// Lightweight summary of all intelligence signals, thresholds, and reasoning.
+    /// Used by the Intelligence Debug panel — never shown to end users.
+    struct DebugProfileSummary {
+        struct SignalSnapshot {
+            let messageCount: Int
+            let connectionCount: Int
+            let encounterCount: Int
+            let connectionsFollowedByMessages: Int
+            let distinctEventCount: Int
+            let dominantEvent: String?
+            let dominantEventHits: Int
+            let distinctClusterCount: Int
+            let topConnectorTheme: String?
+            let topConnectorThemePeople: Int
+            let topTheme: String?
+            let topThemeInteractions: Int
+            let activeThemes: [String]
+            let hasEncounterActivity: Bool
+        }
+
+        struct TraitEvaluation {
+            let family: String
+            let tier: String       // "low", "medium", "high", or "none"
+            let phrase: String?
+            let reason: String     // why this tier was chosen or why it failed
+        }
+
+        /// Debug evidence for a single earned trait candidate.
+        struct EarnedTraitEvidence {
+            let traitKey: String
+            let traitName: String
+            let qualified: Bool
+            let outputText: String?
+            let metrics: [Metric]
+
+            struct Metric {
+                let label: String
+                let actual: String
+                let required: String
+                let met: Bool
+            }
+        }
+
+        let signals: SignalSnapshot
+        let traitEvaluations: [TraitEvaluation]
+        let traitEvidence: [EarnedTraitEvidence]
+        let latelyLines: [String]
+        let emergingStrengthsParagraph: String?
+
+        /// Top proximity interaction from encounters (name + duration)
+        let topProximityInteraction: String?
+    }
+
+    /// Generates a full debug summary by reusing existing signal-gathering paths.
+    func debugSummary() async -> DebugProfileSummary {
+        let feedItems = FeedService.shared.feedItems
+        let now = Date()
+
+        // ── Gather signals (same logic as generateEmergingStrengthsParagraph) ──
+
+        let messageFeedItems = feedItems.filter {
+            $0.feedType == .message &&
+            ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+        let messageCount = messageFeedItems.count
+
+        let connectionItems = feedItems.filter {
+            $0.feedType == .connection &&
+            ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+        let connectionActorIds = Set(connectionItems.compactMap { $0.actorProfileId })
+        let messageActorIds = Set(messageFeedItems.compactMap { $0.actorProfileId })
+        let connectionsFollowedByMessages = connectionActorIds.intersection(messageActorIds).count
+
+        let encounterItems = feedItems.filter {
+            $0.feedType == .encounter &&
+            ($0.createdAt.map { now.timeIntervalSince($0) < Weight.thirtyDays } ?? false)
+        }
+        let encounterCount = encounterItems.count
+        let hasEncounterActivity = encounterCount > 0
+
+        // Top proximity interaction
+        let topEncounter = encounterItems
+            .sorted { ($0.metadata?.overlapSeconds ?? 0) > ($1.metadata?.overlapSeconds ?? 0) }
+            .first
+        let topProximity: String? = topEncounter.flatMap { item in
+            let name = item.metadata?.actorName ?? "Unknown"
+            let secs = item.metadata?.overlapSeconds ?? 0
+            let mins = secs / 60
+            return mins > 0 ? "\(name), \(mins) min" : "\(name), \(secs)s"
+        }
+
+        var eventNameCounts: [String: Int] = [:]
+        for item in feedItems {
+            guard let eventName = item.metadata?.eventName, !eventName.isEmpty else { continue }
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            eventNameCounts[eventName.lowercased(), default: 0] += 1
+        }
+        if let currentEvent = EventJoinService.shared.currentEventName {
+            eventNameCounts[currentEvent.lowercased(), default: 0] += 1
+        }
+        let distinctEventCount = eventNameCounts.count
+        let dominantEvent = eventNameCounts.max(by: { $0.value < $1.value })
+
+        var themeConnections: [String: Set<UUID>] = [:]
+        for item in feedItems {
+            guard item.feedType == .connection || item.feedType == .encounter else { continue }
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            guard let actorId = item.actorProfileId else { continue }
+            if let interests = item.metadata?.sharedInterests {
+                for interest in interests {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard key.count >= 2, !Self.vagueWords.contains(key) else { continue }
+                    themeConnections[key, default: []].insert(actorId)
+                }
+            }
+        }
+        let multiPersonThemes = themeConnections.filter { $0.value.count >= 2 }
+        let distinctClusterCount = multiPersonThemes.count
+        let topConnectorTheme = multiPersonThemes.max(by: { $0.value.count < $1.value.count })
+
+        let user = AuthService.shared.currentUser
+        let interests = user?.interests ?? []
+        let skills = user?.skills ?? []
+        var themeInteractionCount: [String: Int] = [:]
+        for item in feedItems {
+            guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            if let eventName = item.metadata?.eventName {
+                for theme in extractTopicWords(from: eventName) {
+                    themeInteractionCount[theme, default: 0] += 1
+                }
+            }
+            if let shared = item.metadata?.sharedInterests {
+                for interest in shared {
+                    let key = interest.lowercased().trimmingCharacters(in: .whitespaces)
+                    guard !Self.vagueWords.contains(key) else { continue }
+                    themeInteractionCount[key, default: 0] += 1
+                }
+            }
+        }
+        for interest in interests {
+            let key = normalizeInterest(interest)
+            if themeInteractionCount[key] != nil { themeInteractionCount[key]! += 1 }
+        }
+        for skill in skills {
+            let key = normalizeInterest(skill)
+            if themeInteractionCount[key] != nil { themeInteractionCount[key]! += 1 }
+        }
+        let topTheme = themeInteractionCount
+            .filter { !Self.vagueWords.contains($0.key) }
+            .max(by: { $0.value < $1.value })
+
+        let activeThemes = themeInteractionCount
+            .filter { $0.value >= 2 && !Self.vagueWords.contains($0.key) }
+            .sorted { $0.value > $1.value }
+            .prefix(5)
+            .map { $0.key }
+
+        let signals = DebugProfileSummary.SignalSnapshot(
+            messageCount: messageCount,
+            connectionCount: connectionItems.count,
+            encounterCount: encounterCount,
+            connectionsFollowedByMessages: connectionsFollowedByMessages,
+            distinctEventCount: distinctEventCount,
+            dominantEvent: dominantEvent?.key,
+            dominantEventHits: dominantEvent?.value ?? 0,
+            distinctClusterCount: distinctClusterCount,
+            topConnectorTheme: topConnectorTheme?.key,
+            topConnectorThemePeople: topConnectorTheme?.value.count ?? 0,
+            topTheme: topTheme?.key,
+            topThemeInteractions: topTheme?.value ?? 0,
+            activeThemes: activeThemes,
+            hasEncounterActivity: hasEncounterActivity
+        )
+
+        // ── Evaluate trait families (mirrors generateEmergingStrengthsParagraph) ──
+
+        var evals: [DebugProfileSummary.TraitEvaluation] = []
+
+        // Follow-through
+        if messageCount >= 2 && connectionsFollowedByMessages >= 2 {
+            evals.append(.init(family: "follow-through", tier: "high", phrase: "They often follow up after events.", reason: "msgs=\(messageCount)≥2 AND conn→msg=\(connectionsFollowedByMessages)≥2"))
+        } else if messageCount >= 2 || connectionsFollowedByMessages >= 2 {
+            evals.append(.init(family: "follow-through", tier: "medium", phrase: "Showing signs of following up after events.", reason: "msgs=\(messageCount) OR conn→msg=\(connectionsFollowedByMessages) (one ≥2)"))
+        } else if messageCount >= 1 && !connectionItems.isEmpty {
+            evals.append(.init(family: "follow-through", tier: "low", phrase: "Starting to follow up after events.", reason: "msgs=\(messageCount)≥1 AND connections exist"))
+        } else {
+            evals.append(.init(family: "follow-through", tier: "none", phrase: nil, reason: "msgs=\(messageCount), conn→msg=\(connectionsFollowedByMessages), connections=\(connectionItems.count) — insufficient"))
+        }
+
+        // Consistency
+        let connectionEventIds = Set(connectionItems.compactMap { $0.eventId })
+        if distinctEventCount >= 3, let dom = dominantEvent, dom.value >= 2 {
+            evals.append(.init(family: "consistency", tier: "high", phrase: "They regularly attend \(dom.key) events.", reason: "events=\(distinctEventCount)≥3, dominant=\(dom.key)×\(dom.value)"))
+        } else if distinctEventCount >= 3 {
+            evals.append(.init(family: "consistency", tier: "high", phrase: "They consistently show up in community gatherings.", reason: "events=\(distinctEventCount)≥3, no dominant"))
+        } else if distinctEventCount >= 2 && (messageCount >= 1 || hasEncounterActivity) {
+            evals.append(.init(family: "consistency", tier: "medium", phrase: "Showing up at community events.", reason: "events=\(distinctEventCount)≥2 + supporting activity"))
+        } else if distinctEventCount >= 1 && (messageCount >= 1 || hasEncounterActivity) {
+            evals.append(.init(family: "consistency", tier: "low", phrase: "Beginning to explore community events.", reason: "events=\(distinctEventCount)≥1 + supporting activity"))
+        } else {
+            evals.append(.init(family: "consistency", tier: "none", phrase: nil, reason: "events=\(distinctEventCount), encounters=\(hasEncounterActivity), msgs=\(messageCount) — insufficient"))
+        }
+
+        // Connector
+        if distinctClusterCount >= 2, let top = topConnectorTheme, top.value.count >= 3 {
+            evals.append(.init(family: "connector", tier: "high", phrase: "They connect others around \(top.key).", reason: "clusters=\(distinctClusterCount)≥2, top=\(top.key)×\(top.value.count)people"))
+        } else if distinctClusterCount >= 2 {
+            evals.append(.init(family: "connector", tier: "high", phrase: "They bring people together across different groups.", reason: "clusters=\(distinctClusterCount)≥2"))
+        } else if multiPersonThemes.count >= 1 {
+            let name = multiPersonThemes.first?.key ?? ""
+            evals.append(.init(family: "connector", tier: "medium", phrase: "Engaging with people around \(name).", reason: "1 multi-person theme: \(name)"))
+        } else if connectionEventIds.count >= 2 {
+            evals.append(.init(family: "connector", tier: "low", phrase: "Starting to connect across different events.", reason: "connections across \(connectionEventIds.count) events"))
+        } else {
+            evals.append(.init(family: "connector", tier: "none", phrase: nil, reason: "clusters=\(distinctClusterCount), connEventIds=\(connectionEventIds.count) — insufficient"))
+        }
+
+        // Thematic
+        if let theme = topTheme {
+            let userAnchors = (interests + skills).map { normalizeInterest($0) }
+            let matchesProfile = userAnchors.contains(theme.key)
+            if theme.value >= 4 && matchesProfile {
+                evals.append(.init(family: "thematic", tier: "high", phrase: "They are active in conversations around \(theme.key).", reason: "interactions=\(theme.value)≥4 + profile match"))
+            } else if theme.value >= 2 {
+                evals.append(.init(family: "thematic", tier: "medium", phrase: "Engaging regularly in \(theme.key).", reason: "interactions=\(theme.value)≥2"))
+            } else if theme.value >= 1 && matchesProfile {
+                evals.append(.init(family: "thematic", tier: "low", phrase: "Early signs of activity around \(theme.key).", reason: "interactions=\(theme.value), profile match=true"))
+            } else {
+                evals.append(.init(family: "thematic", tier: "none", phrase: nil, reason: "theme=\(theme.key), interactions=\(theme.value), profileMatch=\(matchesProfile) — insufficient"))
+            }
+        } else {
+            evals.append(.init(family: "thematic", tier: "none", phrase: nil, reason: "no theme detected"))
+        }
+
+        return DebugProfileSummary(
+            signals: signals,
+            traitEvaluations: evals,
+            traitEvidence: evaluateEarnedTraitEvidence(
+                feedItems: feedItems,
+                targetUser: user,
+                topicScores: themeInteractionCount.mapValues { Double($0) }
+            ),
+            latelyLines: latelyLines,
+            emergingStrengthsParagraph: emergingStrengthsParagraph,
+            topProximityInteraction: topProximity
         )
     }
 
@@ -738,6 +1820,11 @@ final class DynamicProfileService: ObservableObject {
     ]
 
     // MARK: - Helpers
+
+    /// Public accessor for theme extraction. Used by HomeStateResolver for gap intelligence.
+    func extractTopicWordsPublic(from eventName: String) -> [String] {
+        extractTopicWords(from: eventName)
+    }
 
     /// Extracts tokens from an event name, normalizes them through the theme map,
     /// and returns only mapped, human-readable themes. Unmapped tokens are dropped.

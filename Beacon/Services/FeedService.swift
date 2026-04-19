@@ -16,6 +16,11 @@ final class FeedService: ObservableObject {
 
     private let supabase = AppEnvironment.shared.supabaseClient
 
+    // MARK: - Event Name Cache
+    // Resolves eventId → eventName for feed item metadata.
+    // Populated once per refresh cycle, shared across all generators.
+    private var eventNameCache: [UUID: String] = [:]
+
     // MARK: - Refresh Coalescing
 
     private var isRefreshing = false
@@ -70,13 +75,102 @@ final class FeedService: ObservableObject {
             return
         }
 
+        // Skip network-dependent refresh when offline — existing cached items remain
+        guard NetworkMonitor.shared.isOnline else {
+            #if DEBUG
+            print("[NearbyMode] skipping backend feature: feed refresh")
+            #endif
+            return
+        }
+
         isLoading = true
         defer { isLoading = false }
 
-        await generateConnectionFeedItems(myId: myId)
-        await generateEncounterFeedItems(myId: myId)
-        await generateMessageFeedItems(myId: myId)
+        // Compute zone-aware scoring multipliers once per refresh cycle.
+        // FeedService is @MainActor, so reading UserPresenceStateResolver is safe here.
+        // These plain Doubles are then passed into the nonisolated FeedPriorityScorer.
+        let zoneBoost = UserPresenceStateResolver.feedZoneMultiplier
+        let zoneSuppression = UserPresenceStateResolver.feedZoneSuppression
+
+        await resolveEventNames(myId: myId)
+        await generateConnectionFeedItems(myId: myId, zoneBoost: zoneBoost)
+        await generateEncounterFeedItems(myId: myId, zoneBoost: zoneBoost)
+        await generateMessageFeedItems(myId: myId, zoneBoost: zoneBoost)
         await fetchFeedItems(myId: myId)
+
+        // Note: zoneSuppression is available for suggestion scoring when that
+        // generation path is added. Currently suggestions are scored at read time.
+        _ = zoneSuppression
+    }
+
+    // MARK: - Event Name Resolution
+
+    /// Batch-resolves event names for all events the user has attended.
+    /// Queries event_attendees → events to build a UUID→name cache.
+    /// Called once per refresh cycle; individual generators read from the cache.
+    private func resolveEventNames(myId: UUID) async {
+        // Gather event IDs from event_attendees (past attendance)
+        struct AttendanceRow: Decodable {
+            let eventId: UUID
+            enum CodingKeys: String, CodingKey {
+                case eventId = "event_id"
+            }
+        }
+
+        do {
+            let rows: [AttendanceRow] = try await supabase
+                .from("event_attendees")
+                .select("event_id")
+                .eq("profile_id", value: myId.uuidString)
+                .execute()
+                .value
+
+            let eventIds = Array(Set(rows.map(\.eventId)))
+            guard !eventIds.isEmpty else {
+                eventNameCache = [:]
+                return
+            }
+
+            // Batch fetch event names
+            struct EventRow: Decodable {
+                let id: UUID
+                let name: String
+            }
+
+            let events: [EventRow] = try await supabase
+                .from("events")
+                .select("id,name")
+                .in("id", values: eventIds.map(\.uuidString))
+                .execute()
+                .value
+
+            var cache: [UUID: String] = [:]
+            for event in events {
+                cache[event.id] = event.name
+            }
+
+            // Also include the current/last event from EventJoinService
+            if let lastCtx = EventJoinService.shared.reconnectContext,
+               let lastId = UUID(uuidString: lastCtx.eventId) {
+                cache[lastId] = lastCtx.eventName
+            }
+            if let currentId = EventJoinService.shared.currentEventID.flatMap({ UUID(uuidString: $0) }),
+               let currentName = EventJoinService.shared.currentEventName {
+                cache[currentId] = currentName
+            }
+
+            eventNameCache = cache
+
+            #if DEBUG
+            print("[Feed] 🗺️ Event name cache: \(cache.count) events resolved")
+            for (id, name) in cache {
+                print("[Feed]    \(id.uuidString.prefix(8))… → \(name)")
+            }
+            #endif
+        } catch {
+            print("[Feed] ⚠️ Event name resolution failed: \(error)")
+            eventNameCache = [:]
+        }
     }
 
     /// Legacy: direct refresh of feed items only (no generation).
@@ -120,16 +214,18 @@ final class FeedService: ObservableObject {
 
     // MARK: - Generate Connection Feed Items
 
-    private func generateConnectionFeedItems(myId: UUID) async {
+    private func generateConnectionFeedItems(myId: UUID, zoneBoost: Double = 1.0) async {
         do {
             let connections = try await ConnectionService.shared.fetchConnections()
 
             for conn in connections {
                 let other = conn.otherUser(for: myId)
-                let score = FeedPriorityScorer.scoreConnection(connectionCreatedAt: conn.createdAt)
+                let score = FeedPriorityScorer.scoreConnection(connectionCreatedAt: conn.createdAt, zoneMultiplier: zoneBoost)
+
+                let resolvedEventName = conn.eventId.flatMap { eventNameCache[$0] }
 
                 let metadata = FeedItemMetadata(
-                    eventName: nil,
+                    eventName: resolvedEventName,
                     sharedInterests: nil,
                     actorName: other.name,
                     actorAvatarUrl: nil
@@ -162,7 +258,7 @@ final class FeedService: ObservableObject {
 
     // MARK: - Generate Encounter Feed Items (batched profile lookup)
 
-    private func generateEncounterFeedItems(myId: UUID) async {
+    private func generateEncounterFeedItems(myId: UUID, zoneBoost: Double = 1.0) async {
         do {
             let encounters: [Encounter] = try await supabase
                 .from("encounters")
@@ -226,10 +322,14 @@ final class FeedService: ObservableObject {
 
                 let score = FeedPriorityScorer.scoreEncounter(
                     sourceTimestamp: sourceTimestamp,
-                    overlapSeconds: encounter.overlapSeconds
+                    overlapSeconds: encounter.overlapSeconds,
+                    zoneMultiplier: zoneBoost
                 )
 
+                let resolvedEventName = encounter.eventId.flatMap { eventNameCache[$0] }
+
                 let metadata = FeedItemMetadata(
+                    eventName: resolvedEventName,
                     overlapSeconds: encounter.overlapSeconds,
                     actorName: actorName,
                     insightText: insight?.insightText,
@@ -264,7 +364,7 @@ final class FeedService: ObservableObject {
 
     // MARK: - Generate Message Feed Items (batched profile lookup)
 
-    private func generateMessageFeedItems(myId: UUID) async {
+    private func generateMessageFeedItems(myId: UUID, zoneBoost: Double = 1.0) async {
         do {
             let conversations: [Conversation] = try await supabase
                 .from("conversations")
@@ -294,9 +394,14 @@ final class FeedService: ObservableObject {
                 let otherId = convo.otherParticipant(for: myId)
                 let actorName = profileMap[otherId]?.name
 
-                let score = FeedPriorityScorer.scoreMessage(sourceTimestamp: latestMessage.createdAt)
+                let score = FeedPriorityScorer.scoreMessage(sourceTimestamp: latestMessage.createdAt, zoneMultiplier: zoneBoost)
+
+                // Resolve event name from conversation or cache
+                let resolvedEventName = convo.eventName
+                    ?? convo.eventId.flatMap { eventNameCache[$0] }
 
                 let metadata = FeedItemMetadata(
+                    eventName: resolvedEventName,
                     messagePreview: String(latestMessage.content.prefix(80)),
                     conversationId: convo.id.uuidString,
                     actorName: actorName

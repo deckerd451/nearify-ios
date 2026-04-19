@@ -3,7 +3,7 @@ import Combine
 
 enum AppTab: Int {
     case home = 0
-    case scan = 1
+    case people = 1
     case event = 2
     case profile = 3
 
@@ -28,15 +28,17 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.home)
 
-            ScanView(selectedTab: $selectedTab)
-                .tabItem {
-                    Label("Scan", systemImage: "camera")
-                }
-                .tag(AppTab.scan)
+            NavigationStack {
+                PeopleView()
+            }
+            .tabItem {
+                Label("People", systemImage: "person.2.fill")
+            }
+            .tag(AppTab.people)
 
-            NetworkView()
+            ExploreView(selectedTab: $selectedTab)
                 .tabItem {
-                    Label("Event", systemImage: "person.3")
+                    Label("Explore", systemImage: "safari")
                 }
                 .tag(AppTab.event)
 
@@ -87,10 +89,10 @@ struct MainTabView: View {
         isConsumingPendingEvent = true
 
         #if DEBUG
-        print("[DeepLink] 🚨 Replaying pending event from \(source): \(eventId)")
+        print("[EventJoin] ✅ User-initiated join via deep link (source: \(source), eventId: \(eventId))")
         #endif
 
-        selectedTab = .event
+        selectedTab = .home
 
         Task {
             await EventJoinService.shared.joinEvent(eventID: eventId)
@@ -98,11 +100,15 @@ struct MainTabView: View {
             await MainActor.run {
                 self.isConsumingPendingEvent = false
 
+                if EventJoinService.shared.isEventJoined {
+                    selectedTab = .home
+                }
+
                 #if DEBUG
                 if EventJoinService.shared.isEventJoined {
-                    print("[DeepLink] ✅ Pending event replay succeeded: \(eventId)")
+                    print("[DeepLink] ✅ Pending event join succeeded: \(eventId)")
                 } else {
-                    print("[DeepLink] ❌ Pending event replay failed: \(eventId)")
+                    print("[DeepLink] ❌ Pending event join failed: \(eventId)")
                 }
                 #endif
             }

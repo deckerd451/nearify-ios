@@ -36,30 +36,35 @@ enum FeedPriorityScorer {
     // MARK: - Public API
 
     /// Score a message feed item using temporal priority.
-    /// - Parameter sourceTimestamp: the latest message's created_at
-    static func scoreMessage(sourceTimestamp: Date?) -> Double {
+    /// - Parameters:
+    ///   - sourceTimestamp: the latest message's created_at
+    ///   - zoneMultiplier: presence-based boost (1.0 = neutral, >1.0 = inside event).
+    ///     Computed by the caller from UserPresenceStateResolver on the main actor.
+    static func scoreMessage(sourceTimestamp: Date?, zoneMultiplier: Double = 1.0) -> Double {
         let recency = recencyBoost(for: sourceTimestamp)
         let baseTotal = messageBase + recency
 
-        // Temporal priority: messages have high signal strength
         let age = sourceTimestamp.map { Date().timeIntervalSince($0) }
         let temporalBoost = TemporalResolver.temporalPriority(
             lastSeenAge: age,
             signalStrength: 0.9
-        ) * 50  // Scale to match base scoring range
+        ) * 50
 
-        let total = baseTotal + temporalBoost
+        let total = (baseTotal + temporalBoost) * zoneMultiplier
 
         #if DEBUG
-        print("[FeedScore] type=message base=\(messageBase) recency=\(recency) temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
+        let zoneLabel = zoneMultiplier != 1.0 ? " zone(×\(String(format: "%.1f", zoneMultiplier)))" : ""
+        print("[FeedScore] type=message base=\(messageBase) recency=\(recency) temporal=\(String(format: "%.1f", temporalBoost))\(zoneLabel) total=\(String(format: "%.1f", total))")
         #endif
 
         return total
     }
 
     /// Score a connection feed item using temporal priority.
-    /// - Parameter connectionCreatedAt: the connection's created_at timestamp
-    static func scoreConnection(connectionCreatedAt: Date?) -> Double {
+    /// - Parameters:
+    ///   - connectionCreatedAt: the connection's created_at timestamp
+    ///   - zoneMultiplier: presence-based boost (1.0 = neutral, >1.0 = inside event).
+    static func scoreConnection(connectionCreatedAt: Date?, zoneMultiplier: Double = 1.0) -> Double {
         let recency = recencyBoost(for: connectionCreatedAt)
         let freshness = connectionFreshnessBoost(createdAt: connectionCreatedAt)
         let baseTotal = connectionBase + recency + freshness
@@ -70,10 +75,11 @@ enum FeedPriorityScorer {
             signalStrength: 0.6
         ) * 40
 
-        let total = baseTotal + temporalBoost
+        let total = (baseTotal + temporalBoost) * zoneMultiplier
 
         #if DEBUG
-        print("[FeedScore] type=connection base=\(connectionBase) recency=\(recency) freshness=\(freshness) temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
+        let zoneLabel = zoneMultiplier != 1.0 ? " zone(×\(String(format: "%.1f", zoneMultiplier)))" : ""
+        print("[FeedScore] type=connection base=\(connectionBase) recency=\(recency) freshness=\(freshness) temporal=\(String(format: "%.1f", temporalBoost))\(zoneLabel) total=\(String(format: "%.1f", total))")
         #endif
 
         return total
@@ -81,13 +87,16 @@ enum FeedPriorityScorer {
 
     /// Score an encounter feed item using temporal priority.
     /// Strong encounters decay slower than weak ones.
-    static func scoreEncounter(sourceTimestamp: Date?, overlapSeconds: Int?) -> Double {
+    /// - Parameters:
+    ///   - sourceTimestamp: encounter's last_seen_at
+    ///   - overlapSeconds: BLE overlap duration
+    ///   - zoneMultiplier: presence-based boost (1.0 = neutral, >1.0 = inside event).
+    static func scoreEncounter(sourceTimestamp: Date?, overlapSeconds: Int?, zoneMultiplier: Double = 1.0) -> Double {
         let recency = recencyBoost(for: sourceTimestamp)
         let overlap = overlapSeconds ?? 0
         let strength = encounterStrengthBoost(overlapSeconds: overlap)
         let baseTotal = encounterBase + recency + strength
 
-        // Signal strength adapts to encounter duration
         let signalStrength: Double
         if overlap >= 900      { signalStrength = 1.0 }
         else if overlap >= 300 { signalStrength = 0.7 }
@@ -100,18 +109,21 @@ enum FeedPriorityScorer {
             signalStrength: signalStrength
         ) * 50
 
-        let total = baseTotal + temporalBoost
+        let total = (baseTotal + temporalBoost) * zoneMultiplier
 
         #if DEBUG
-        print("[FeedScore] type=encounter base=\(encounterBase) recency=\(recency) overlapBoost=\(strength) overlap=\(overlap)s temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
+        let zoneLabel = zoneMultiplier != 1.0 ? " zone(×\(String(format: "%.1f", zoneMultiplier)))" : ""
+        print("[FeedScore] type=encounter base=\(encounterBase) recency=\(recency) overlapBoost=\(strength) overlap=\(overlap)s temporal=\(String(format: "%.1f", temporalBoost))\(zoneLabel) total=\(String(format: "%.1f", total))")
         #endif
 
         return total
     }
 
     /// Score a suggestion feed item.
-    /// - Parameter sourceTimestamp: when the suggestion was generated
-    static func scoreSuggestion(sourceTimestamp: Date?) -> Double {
+    /// - Parameters:
+    ///   - sourceTimestamp: when the suggestion was generated
+    ///   - zoneMultiplier: presence-based suppression (1.0 = neutral, <1.0 = inside event).
+    static func scoreSuggestion(sourceTimestamp: Date?, zoneMultiplier: Double = 1.0) -> Double {
         let recency = recencyBoost(for: sourceTimestamp)
         let baseTotal = suggestionBase + recency
 
@@ -121,10 +133,11 @@ enum FeedPriorityScorer {
             signalStrength: 0.5
         ) * 30
 
-        let total = baseTotal + temporalBoost
+        let total = (baseTotal + temporalBoost) * zoneMultiplier
 
         #if DEBUG
-        print("[FeedScore] type=suggestion base=\(suggestionBase) recency=\(recency) temporal=\(String(format: "%.1f", temporalBoost)) total=\(String(format: "%.1f", total))")
+        let zoneLabel = zoneMultiplier != 1.0 ? " zone(×\(String(format: "%.1f", zoneMultiplier)))" : ""
+        print("[FeedScore] type=suggestion base=\(suggestionBase) recency=\(recency) temporal=\(String(format: "%.1f", temporalBoost))\(zoneLabel) total=\(String(format: "%.1f", total))")
         #endif
 
         return total

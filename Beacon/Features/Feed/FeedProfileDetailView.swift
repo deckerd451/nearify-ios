@@ -16,6 +16,7 @@ struct FeedProfileDetailView: View {
     @State private var errorMessage: String?
     @State private var showNotConnectedAlert = false
     @State private var metAtEventName: String?
+    @State private var publicProfile: PublicProfileSummary?
 
     var body: some View {
         ZStack {
@@ -95,6 +96,68 @@ struct FeedProfileDetailView: View {
 
                 if let skills = user.skills, !skills.isEmpty {
                     tagSection(title: "Skills", tags: skills, color: .blue)
+                }
+
+                // Lately
+                if let pub = publicProfile, !pub.latelyLines.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Lately")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .textCase(.uppercase)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(pub.latelyLines, id: \.self) { line in
+                                Text(line)
+                                    .font(.subheadline)
+                                    .foregroundColor(.white.opacity(0.85))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 32)
+                }
+
+                // Emerging Strengths
+                if let paragraph = publicProfile?.emergingStrengthsParagraph {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Emerging Strengths")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .textCase(.uppercase)
+
+                        Text(paragraph)
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 32)
+                }
+
+                // Earned Traits
+                if let pub = publicProfile, !pub.earnedTraits.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Earned Traits")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .textCase(.uppercase)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(pub.earnedTraits) { trait in
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                    Text(trait.publicText)
+                                        .font(.subheadline)
+                                        .foregroundColor(.white.opacity(0.85))
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 32)
                 }
 
                 // Actions
@@ -189,6 +252,12 @@ struct FeedProfileDetailView: View {
 
         // Resolve "Met at [Event]" context via MessagingService
         metAtEventName = await MessagingService.shared.eventName(forConversationWith: profileId)
+
+        // Generate public-facing dynamic profile sections
+        publicProfile = await DynamicProfileService.shared.generatePublicProfile(
+            for: profileId,
+            targetUser: profile
+        )
 
         #if DEBUG
         print("[FeedProfile] ✅ Profile loaded: \(profile?.name ?? "nil"), connected: \(isConnected), metAt: \(metAtEventName ?? "nil")")

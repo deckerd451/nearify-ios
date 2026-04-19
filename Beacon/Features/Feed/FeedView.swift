@@ -30,6 +30,7 @@ struct FeedView: View {
     @State private var isOpeningConversation = false
     @State private var isConnecting = false
     @State private var navigationPath = NavigationPath()
+    @State private var showScanner = false
 
     private var displayItems: [FeedItem] {
         feedService.filteredItems(by: selectedFilter)
@@ -89,6 +90,13 @@ struct FeedView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Connect with this person first to start a conversation.")
+            }
+            .fullScreenCover(isPresented: $showScanner) {
+                ScanView(
+                    selectedTab: $selectedTab,
+                    onSuccess: { _ in showScanner = false },
+                    onCancel: { showScanner = false }
+                )
             }
         }
     }
@@ -217,7 +225,7 @@ struct FeedView: View {
                 .padding(.vertical, 12)
                 .background(Capsule().fill(Color.white))
                 .contentShape(Capsule())
-                .onTapGesture { selectedTab = .scan }
+                .onTapGesture { showScanner = true }
 
             Spacer()
         }

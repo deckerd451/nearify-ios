@@ -12,6 +12,11 @@ final class BLEService: NSObject, ObservableObject {
     @Published var closestBeacon: DetectedBeacon?
     @Published var errorMessage: String?
 
+    /// Latest iBeacon ranging result — consumed by BeaconPresenceService
+    /// and BeaconConfidenceService to unify CLBeacon + CBCentralManager signals.
+    /// Updated on every CLLocationManager ranging callback.
+    @Published var latestRangedAnchor: RangedAnchorSignal?
+
     private let supabase = AppEnvironment.shared.supabaseClient
     private let locationManager = CLLocationManager()
     private let beaconRegistry = BeaconRegistryService.shared
@@ -21,6 +26,10 @@ final class BLEService: NSObject, ObservableObject {
     private var rssiHistory: [UUID: [Double]] = [:]
     private var lastPingSent: [UUID: (date: Date, energy: Double)] = [:]
     private var pingQueue: [(beaconId: UUID, energy: Double)] = []
+
+    // iBeacon ranging metadata — captured in didRange, consumed in processBeacons.
+    private var lastRangedRSSI: [UUID: Int] = [:]
+    private var lastRangedProximity: [UUID: Int] = [:]
 
     private var scanTimer: Timer?
     private var retryTimer: Timer?
@@ -108,8 +117,11 @@ final class BLEService: NSObject, ObservableObject {
         lastPingSent.removeAll()
         pingQueue.removeAll()
         monitoredRegions.removeAll()
+        lastRangedRSSI.removeAll()
+        lastRangedProximity.removeAll()
 
         closestBeacon = nil
+        latestRangedAnchor = nil
         errorMessage = nil
         isScanning = false
 
@@ -122,6 +134,7 @@ final class BLEService: NSObject, ObservableObject {
                 // Not in an event — just clean up BLE services
                 BLEScannerService.shared.stopScanning()
                 BeaconConfidenceService.shared.reset()
+                BeaconPresenceService.shared.reset()
                 EventPresenceService.shared.reset()
                 BLEAdvertiserService.shared.stopEventAdvertising()
             }
@@ -208,12 +221,25 @@ final class BLEService: NSObject, ObservableObject {
                     beaconId: closest.beaconId,
                     label: closest.label,
                     energy: closest.energy,
+                    rssi: self.lastRangedRSSI[closest.beaconId] ?? -70,
+                    lastSeen: Date()
+                )
+
+                // Publish ranged anchor signal for BeaconPresenceService / BeaconConfidenceService.
+                // This bridges the CLBeacon → presence layer gap that CBCentralManager cannot cross.
+                self.latestRangedAnchor = RangedAnchorSignal(
+                    beaconId: closest.beaconId,
+                    label: closest.label,
+                    rssi: self.lastRangedRSSI[closest.beaconId] ?? -70,
+                    proximity: self.lastRangedProximity[closest.beaconId] ?? 0,
+                    energy: closest.energy,
                     lastSeen: Date()
                 )
             }
         } else {
             DispatchQueue.main.async {
                 self.closestBeacon = nil
+                self.latestRangedAnchor = nil
             }
         }
 
@@ -372,6 +398,10 @@ extension BLEService: CLLocationManagerDelegate {
                 history.removeFirst()
             }
             rssiHistory[registeredBeacon.id] = history
+
+            // Capture latest RSSI + proximity per beacon for the ranged anchor signal.
+            lastRangedRSSI[registeredBeacon.id] = beacon.rssi
+            lastRangedProximity[registeredBeacon.id] = beacon.proximity.rawValue
         }
     }
 }
@@ -382,5 +412,24 @@ struct DetectedBeacon {
     let beaconId: UUID
     let label: String
     let energy: Double
+    let rssi: Int
+    let lastSeen: Date
+}
+
+// MARK: - Ranged Anchor Signal
+//
+// Lightweight struct published by BLEService when CLLocationManager
+// ranges a registered iBeacon. Consumed by BeaconPresenceService and
+// BeaconConfidenceService to bridge the CLBeacon → CBCentralManager gap.
+//
+// iBeacon advertisements are hidden from CBCentralManager by iOS.
+// This signal is the only way anchor beacons reach the presence layer.
+
+struct RangedAnchorSignal {
+    let beaconId: UUID
+    let label: String
+    let rssi: Int
+    let proximity: Int   // CLProximity raw value: 0=unknown, 1=immediate, 2=near, 3=far
+    let energy: Double   // 0.0–1.0 normalized from BLEService energy calculation
     let lastSeen: Date
 }

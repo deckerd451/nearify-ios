@@ -10,6 +10,7 @@ struct EventModeView: View {
     @ObservedObject private var resolver = AttendeeStateResolver.shared
     @ObservedObject private var confidence = BeaconConfidenceService.shared
     @ObservedObject private var presence = EventPresenceService.shared
+    @ObservedObject private var beaconPresence = BeaconPresenceService.shared
     @State private var showingPrivacyInfo = false
     @State private var showDiagnostics = false
 
@@ -218,6 +219,7 @@ struct EventModeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 diagRow("BLE Scanning", scanner.isScanning ? "Active" : "Off")
                 diagRow("BLE Advertising", advertiser.isAdvertising ? "Active" : "Off")
+                diagRow("Host Anchor Mode", advertiser.isHostAnchorMode ? "ON" : "Off")
                 diagRow("BLE Peers", "\(state.blePeerCount)")
                 diagRow("Resolved Nearby", "\(state.nearbyResolvedCount)")
                 diagRow("Active Attendees", "\(state.activeAttendeeCount)")
@@ -231,16 +233,56 @@ struct EventModeView: View {
                     diagRow("Last Presence", lastWrite.formatted(date: .omitted, time: .standard))
                 }
 
-                // Legacy anchor subsection
+                // Host Anchor Mode toggle
+                if eventJoin.isEventJoined {
+                    Divider().padding(.vertical, 4)
+                    HStack {
+                        Text("Host Anchor Mode")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { advertiser.isHostAnchorMode },
+                            set: { newValue in
+                                if newValue {
+                                    advertiser.enableHostAnchorMode()
+                                } else {
+                                    advertiser.disableHostAnchorMode()
+                                }
+                            }
+                        ))
+                        .labelsHidden()
+                        .controlSize(.small)
+                    }
+                    Text("Broadcasts this phone as the event anchor")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
+                // Anchor detection (all sources)
                 Divider().padding(.vertical, 4)
-                Text("Legacy Anchor (diagnostic only)")
+                Text("Anchor Detection")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                diagRow("Anchor State", confidence.activeBeacon?.confidenceState.displayText ?? "None")
-                diagRow("Anchor Name", confidence.activeBeacon?.name ?? "None")
+                diagRow("Confidence State", confidence.confidenceState.displayText)
                 if let beacon = confidence.activeBeacon {
+                    diagRow("Anchor Name", beacon.name)
                     diagRow("Anchor RSSI", "\(beacon.rssi) dBm")
                 }
+
+                // Beacon Presence (environmental confidence layer)
+                Divider().padding(.vertical, 4)
+                Text("Beacon Presence (environmental)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                diagRow("Zone State", beaconPresence.currentZoneState.rawValue)
+                diagRow("Beacon Visible", beaconPresence.isBeaconVisible ? "Yes" : "No")
+                diagRow("Confidence", String(format: "%.0f%%", beaconPresence.beaconConfidence * 100))
+                diagRow("Anchor Source", beaconPresence.anchorSource)
+                if let lastSeen = beaconPresence.lastBeaconSeenAt {
+                    diagRow("Last Seen", lastSeen.formatted(date: .omitted, time: .standard))
+                }
+                diagRow("Beacon Reinforced", presence.isBeaconReinforced ? "Yes" : "No")
             }
             .padding(.top, 8)
         }
@@ -313,7 +355,7 @@ struct EventModeView: View {
                     privacySection(
                         icon: "antenna.radiowaves.left.and.right",
                         title: "Bluetooth Discovery",
-                        text: "Event Mode uses Bluetooth Low Energy (BLE) to discover other attendees nearby. Your device broadcasts a short anonymous identifier that other Beacon users can detect."
+                        text: "Event Mode uses Bluetooth Low Energy (BLE) to discover other attendees nearby. Your device broadcasts a short anonymous identifier that other Nearify users can detect."
                     )
                     privacySection(
                         icon: "eye.slash",

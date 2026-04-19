@@ -36,7 +36,17 @@ struct HomeView: View {
                 #endif
             }
             .fullScreenCover(isPresented: $showScanner) {
-                ScanView(selectedTab: $selectedTab)
+                ScanView(
+                    selectedTab: $selectedTab,
+                    onSuccess: { _ in
+                        showScanner = false
+                        // EventJoinService publishes state changes;
+                        // HomeView observes them automatically.
+                    },
+                    onCancel: {
+                        showScanner = false
+                    }
+                )
             }
         }
     }

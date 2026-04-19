@@ -25,7 +25,8 @@ struct NetworkView: View {
                 switch modeState.membership {
                 case .notInEvent: inactiveState
                 case .inEvent, .inactive: activeEventView
-                case .left, .timedOut: exitedState
+                case .dormant: dormantState
+                case .left: exitedState
                 }
             }
             .navigationTitle("Event")
@@ -161,11 +162,53 @@ struct NetworkView: View {
             Text("You left this event.").font(.subheadline).foregroundColor(.gray)
             Text("Your connections and messages are still available in the Feed.").font(.caption).foregroundColor(.gray.opacity(0.7)).multilineTextAlignment(.center)
         }
-        case .timedOut: VStack(spacing: 6) {
-            Text("You were removed due to inactivity.").font(.subheadline).foregroundColor(.gray)
-            Text("Your connections and messages are still available in the Feed.").font(.caption).foregroundColor(.gray.opacity(0.7)).multilineTextAlignment(.center)
-        }
         default: EmptyView()
+        }
+    }
+
+    // MARK: - Dormant State
+
+    private var dormantState: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 16) {
+                    Image(systemName: "moon.zzz.fill")
+                        .font(.system(size: 36)).foregroundColor(.orange)
+
+                    if let name = modeState.membership.eventName {
+                        Text(name).font(.headline).foregroundColor(.white)
+                    }
+
+                    Text("You're still part of this event")
+                        .font(.subheadline).foregroundColor(.white.opacity(0.7))
+
+                    Text("Your session is paused. Resume to reconnect with nearby attendees.")
+                        .font(.caption).foregroundColor(.gray)
+                        .multilineTextAlignment(.center).padding(.horizontal, 32)
+
+                    Button {
+                        Task { await eventJoin.resumeFromDormant() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.clockwise").font(.caption)
+                            Text("Resume").font(.subheadline).fontWeight(.semibold)
+                        }
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.orange)
+                        .cornerRadius(10)
+                    }
+                    .padding(.horizontal, 40)
+
+                    Button {
+                        showLeaveConfirmation = true
+                    } label: {
+                        Text("Leave Event").font(.subheadline).foregroundColor(.red.opacity(0.8))
+                    }
+                }
+            }
+            .padding(.top, 40)
         }
     }
 
@@ -174,7 +217,7 @@ struct NetworkView: View {
     private var activeEventView: some View {
         ScrollView {
             VStack(spacing: 0) {
-                eventHeader; topPeopleSection; nearbyDevicesSection
+                eventHeader; nearbyDevicesSection
                 if displayAttendees.isEmpty { emptyState }
                 else {
                     if viewMode == .visualization { attendeeVisualization.frame(height: 420) }

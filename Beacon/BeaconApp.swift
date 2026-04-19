@@ -13,13 +13,17 @@ struct BeaconApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authService = AuthService.shared
     @State private var selectedTab: AppTab = .home
+    @State private var showReconnectionToast = false
+    @State private var syncedEncounterCount = 0
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         print("🚨 DEBUG BUILD WITH APPDELEGATE INSTALLED")
+        _ = NetworkMonitor.shared
         _ = BLEAdvertiserService.shared
         _ = BLEScannerService.shared
         _ = BeaconConfidenceService.shared
+        _ = BeaconPresenceService.shared
         _ = EventPresenceService.shared
         _ = EventAttendeesService.shared
         _ = FeedService.shared
@@ -35,16 +39,64 @@ struct BeaconApp: App {
                     if let currentUser = authService.currentUser {
                         switch authService.profileState {
                         case .ready:
-                            MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
+                            ZStack(alignment: .top) {
+                                MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
+
+                                // Nearby Mode banner — non-disruptive, auto-hides on recovery
+                                if authService.isOfflineMode {
+                                    nearbyModeBanner
+                                }
+
+                                // Reconnection toast — shown briefly when connectivity returns
+                                if showReconnectionToast {
+                                    ReconnectionToastView(syncedCount: syncedEncounterCount)
+                                        .padding(.top, 4)
+                                        .transition(.move(edge: .top).combined(with: .opacity))
+                                }
+                            }
+                            .animation(.easeInOut(duration: 0.3), value: authService.isOfflineMode)
+                            .animation(.easeInOut(duration: 0.3), value: showReconnectionToast)
+                            .onChange(of: authService.isOfflineMode) { wasOffline, isOffline in
+                                if wasOffline && !isOffline {
+                                    // Just came back online — show reconnection toast
+                                    syncedEncounterCount = 0
+                                    showReconnectionToast = true
+                                    #if DEBUG
+                                    print("[NearbyMode] exiting (connection restored)")
+                                    #endif
+                                    // After a brief delay, update with actual sync count
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        syncedEncounterCount = NearbyModeTracker.shared.lastSyncedCount
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                                        withAnimation { showReconnectionToast = false }
+                                    }
+                                }
+                                if !wasOffline && isOffline {
+                                    #if DEBUG
+                                    print("[NearbyMode] entered")
+                                    #endif
+                                    NearbyModeTracker.shared.startTracking()
+                                }
+                            }
 
                         case .incomplete, .missing:
-                            ProfileCompletionView(profile: currentUser) {
-                                Task {
-                                    await authService.refreshProfile()
+                            if authService.isOfflineMode {
+                                // In Nearby Mode with incomplete profile, still show the app
+                                ZStack(alignment: .top) {
+                                    MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
+                                    nearbyModeBanner
+                                }
+                            } else {
+                                ProfileCompletionView(profile: currentUser) {
+                                    Task {
+                                        await authService.refreshProfile()
+                                    }
                                 }
                             }
                         }
                     } else {
+                        // No currentUser yet — still loading or failed
                         VStack(spacing: 16) {
                             ProgressView()
                                 .scaleEffect(1.2)
@@ -87,30 +139,41 @@ struct BeaconApp: App {
                 switch payload {
                 case .event(let eventId):
                     #if DEBUG
-                    print("[DeepLink] 🎫 Event: '\(eventId)'")
-                    print("[DeepLink] 📱 Switching to Network tab (UI signal)")
+                    print("[DeepLink] 🎫 Event deep link: '\(eventId)'")
+                    print("[DeepLink] 📥 Stored in DeepLinkManager — MainTabView will join when ready")
                     #endif
-                    selectedTab = .event
-                    Task {
-                        #if DEBUG
-                        print("[DeepLink] 🎫 Routing to EventJoinService")
-                        #endif
-                        await EventJoinService.shared.joinEvent(eventID: eventId)
-                        #if DEBUG
-                        if EventJoinService.shared.isEventJoined {
-                            print("[DeepLink] ✅ Join succeeded: '\(eventId)'")
-                        } else {
-                            let err = EventJoinService.shared.joinError ?? "unknown error"
-                            print("[DeepLink] ❌ Join failed for '\(eventId)': \(err)")
-                        }
-                        #endif
-                    }
+                    // Deep link event ID is stored in DeepLinkManager (above).
+                    // MainTabView.replayPendingEventIfNeeded will join when UI is ready.
+                    // DO NOT join here — it causes duplicate joins.
+                    selectedTab = .home
 
                 case .profile(let communityId):
                     #if DEBUG
                     print("[DeepLink] 👤 Profile: \(communityId)")
                     #endif
                     _ = communityId
+                }
+            }
+            // MARK: - Event Switch Confirmation
+            //
+            // Shown when the user attempts to join a different event while already in one.
+            // The system NEVER silently switches events — user must confirm.
+            .alert(
+                "Switch events?",
+                isPresented: Binding(
+                    get: { EventJoinService.shared.pendingEventSwitch != nil },
+                    set: { if !$0 { EventJoinService.shared.cancelEventSwitch() } }
+                )
+            ) {
+                Button("Leave & Join", role: .destructive) {
+                    Task { await EventJoinService.shared.confirmEventSwitch() }
+                }
+                Button("Stay", role: .cancel) {
+                    EventJoinService.shared.cancelEventSwitch()
+                }
+            } message: {
+                if let pending = EventJoinService.shared.pendingEventSwitch {
+                    Text("You're in \(pending.currentEventName). Leave and join the new event?")
                 }
             }
         }
@@ -125,6 +188,8 @@ struct BeaconApp: App {
             print("[Lifecycle] 🌙 App → background")
             #endif
             EventJoinService.shared.handleAppBackground()
+            // Persist local encounter data before backgrounding
+            LocalEncounterStore.shared.stopCapture()
 
         case .active:
             #if DEBUG
@@ -133,6 +198,12 @@ struct BeaconApp: App {
             Task {
                 await EventJoinService.shared.handleAppForeground()
             }
+            // Resume local encounter capture if in an event or Nearby Mode
+            if EventJoinService.shared.isEventJoined || AuthService.shared.isOfflineMode {
+                LocalEncounterStore.shared.startCapture()
+            }
+            // Upload any pending encounter fragments
+            LocalEncounterStore.shared.uploadPendingFragments()
 
         case .inactive:
             // Transitional state (e.g. notification center pulled down).
@@ -143,6 +214,28 @@ struct BeaconApp: App {
             break
         }
     }
+    // MARK: - Nearby Mode Banner
+
+    private var nearbyModeBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 11))
+            Text("Nearby Mode")
+                .font(.caption2)
+                .fontWeight(.semibold)
+            Text("·")
+                .font(.caption2)
+            Text("Bluetooth discovery active")
+                .font(.caption2)
+        }
+        .foregroundColor(.cyan.opacity(0.9))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.cyan.opacity(0.12))
+        .cornerRadius(8)
+        .padding(.top, 4)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
 }
 
 struct LoginView: View {
@@ -150,48 +243,78 @@ struct LoginView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Nearify")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        VStack(spacing: 0) {
+            Spacer()
 
+            // Hero
+            VStack(spacing: 16) {
+                Image(systemName: "person.2.wave.2.fill")
+                    .font(.system(size: 56))
+                    .foregroundColor(.blue.opacity(0.8))
+
+                Text("Meet the right people\nat live events")
+                    .font(.title)
+                    .fontWeight(.bold)
+                    .multilineTextAlignment(.center)
+
+                Text("Join an event and get real-time guidance\non who to talk to.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+
+            Spacer()
+
+            // Sign-in buttons
             VStack(spacing: 12) {
                 Button {
-                    Task {
-                        await signInWithOAuth(provider: .google)
-                    }
+                    Task { await signInWithOAuth(provider: .google) }
                 } label: {
-                    HStack {
+                    HStack(spacing: 8) {
                         Image(systemName: "globe")
                         Text("Continue with Google")
+                            .fontWeight(.medium)
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
                 }
-                .buttonStyle(.bordered)
                 .disabled(isLoading)
 
                 Button {
-                    Task {
-                        await signInWithOAuth(provider: .github)
-                    }
+                    Task { await signInWithOAuth(provider: .github) }
                 } label: {
-                    HStack {
+                    HStack(spacing: 8) {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
                         Text("Continue with GitHub")
+                            .fontWeight(.medium)
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(.systemGray5))
+                    .foregroundColor(.primary)
+                    .cornerRadius(12)
                 }
-                .buttonStyle(.bordered)
                 .disabled(isLoading)
-            }
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .font(.caption)
+                if isLoading {
+                    ProgressView()
+                        .padding(.top, 8)
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundColor(.red)
+                        .font(.caption)
+                        .padding(.top, 4)
+                }
             }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 48)
         }
-        .padding()
     }
 
     private func signInWithOAuth(provider: Provider) async {

@@ -15,6 +15,12 @@ private enum ScanPhase: Equatable {
 struct ScanView: View {
     @Binding var selectedTab: AppTab
     @Environment(\.dismiss) private var dismiss
+
+    /// Called when an event join succeeds. Parent is responsible for dismissing.
+    var onSuccess: ((UUID) -> Void)?
+    /// Called when the user cancels. Parent is responsible for dismissing.
+    var onCancel: (() -> Void)?
+
     @State private var phase: ScanPhase = .scanning
     @State private var scannedProfile: User?
     @State private var showingProfile = false
@@ -47,6 +53,21 @@ struct ScanView: View {
         .sheet(isPresented: $showingProfile, onDismiss: resetScanner) {
             if let profile = scannedProfile {
                 ProfileView(profile: profile)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            // Close button — visible when presented as modal
+            if onCancel != nil {
+                Button {
+                    shutdownCameraForDismiss()
+                    onCancel?()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white.opacity(0.8), .black.opacity(0.3))
+                }
+                .padding(.top, 16)
+                .padding(.trailing, 20)
             }
         }
     }
@@ -89,7 +110,7 @@ struct ScanView: View {
             case .success(let eventName):
                 statusPill(
                     icon: "checkmark.circle.fill",
-                    text: "Joined \(eventName) — opening Network",
+                    text: "Joined \(eventName)",
                     color: .green
                 )
 
@@ -405,19 +426,25 @@ struct ScanView: View {
             try? await Task.sleep(nanoseconds: 800_000_000)
 
             await MainActor.run {
-                #if DEBUG
-                print("[ScanUI] 🧭 Frame 1: selectedTab → .event")
-                #endif
-                selectedTab = .event
-            }
-
-            try? await Task.sleep(nanoseconds: 50_000_000)
-
-            await MainActor.run {
-                #if DEBUG
-                print("[ScanUI] 🧭 Frame 2: dismiss()")
-                #endif
-                dismiss()
+                if let eventIdStr = EventJoinService.shared.currentEventID,
+                   let eventUUID = UUID(uuidString: eventIdStr) {
+                    #if DEBUG
+                    print("[ScanUI] ✅ Emitting onSuccess(\(eventUUID))")
+                    #endif
+                    onSuccess?(eventUUID)
+                } else {
+                    // Fallback: dismiss via callback or environment
+                    #if DEBUG
+                    print("[ScanUI] 🧭 No event UUID — falling back to dismiss()")
+                    #endif
+                    if let onSuccess = onSuccess {
+                        // Use a nil-safe fallback UUID
+                        onSuccess(UUID())
+                    } else {
+                        selectedTab = .home
+                        dismiss()
+                    }
+                }
             }
 
             #if DEBUG

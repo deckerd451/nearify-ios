@@ -14,6 +14,10 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
     
     /// The community ID prefix currently being advertised (first 8 chars of UUID)
     @Published private(set) var advertisedCommunityPrefix: String?
+
+    /// Whether this device is broadcasting as a host anchor for the event.
+    /// When true, advertises as ANCHOR-<prefix> instead of BCN-<prefix>.
+    @Published private(set) var isHostAnchorMode: Bool = false
     
     private var peripheralManager: CBPeripheralManager!
     private let serviceUUID = CBUUID(string: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
@@ -137,7 +141,58 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
     func stopEventAdvertising() {
         communityId = nil
         advertisedCommunityPrefix = nil
+        isHostAnchorMode = false
         stopAdvertising()
+    }
+
+    // MARK: - Host Anchor Mode
+    //
+    // Allows an organizer's phone to act as the event anchor beacon.
+    // When enabled, the BLE local name changes from BCN-<prefix> to ANCHOR-<prefix>.
+    // Attendee devices recognize ANCHOR- as an event zone signal, distinct from
+    // normal peer BLE (BCN-). This replaces the need for dedicated hardware beacons.
+    //
+    // RULES:
+    //   - Only available while joined to an event (communityId must be set).
+    //   - Toggling restarts advertising with the new prefix.
+    //   - Does not affect the organizer's own event participation state.
+
+    func enableHostAnchorMode() {
+        guard communityId != nil else {
+            #if DEBUG
+            print("[BLE-ADV] ⚠️ Cannot enable host anchor — not joined to event")
+            #endif
+            return
+        }
+        guard !isHostAnchorMode else { return }
+
+        isHostAnchorMode = true
+        restartAdvertising()
+
+        #if DEBUG
+        print("[BLE-ADV] 🏠 Host Anchor Mode ENABLED")
+        #endif
+    }
+
+    func disableHostAnchorMode() {
+        guard isHostAnchorMode else { return }
+
+        isHostAnchorMode = false
+        restartAdvertising()
+
+        #if DEBUG
+        print("[BLE-ADV] 🏠 Host Anchor Mode DISABLED — back to attendee mode")
+        #endif
+    }
+
+    /// Restarts advertising with current mode (anchor vs attendee).
+    private func restartAdvertising() {
+        guard peripheralManager.state == .poweredOn else { return }
+        if peripheralManager.isAdvertising {
+            peripheralManager.stopAdvertising()
+            isAdvertising = false
+        }
+        forceStartAdvertising()
     }
     
     // MARK: - Advertising Control
@@ -157,12 +212,18 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
             return
         }
         
-        // Build local name with community ID prefix for identity resolution
+        // Build local name with community ID prefix for identity resolution.
+        // Host anchor mode: "ANCHOR-<prefix>" — recognized as event zone signal.
+        // Normal attendee mode: "BCN-<prefix>" — recognized as peer BLE.
         let localName: String
         let isLegacy: Bool
         if let cid = communityId {
             let prefix = String(cid.uuidString.prefix(8)).lowercased()
-            localName = "BCN-\(prefix)"
+            if isHostAnchorMode {
+                localName = "ANCHOR-\(prefix)"
+            } else {
+                localName = "BCN-\(prefix)"
+            }
             advertisedCommunityPrefix = prefix
             isLegacy = false
         } else {
@@ -185,12 +246,11 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         #if DEBUG
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         print("[BLE-ADV] 📡 Started advertising")
-        print("  Mode: \(isLegacy ? "⚠️ LEGACY" : "✅ IDENTITY")")
+        print("  Mode: \(isLegacy ? "⚠️ LEGACY" : isHostAnchorMode ? "🏠 HOST ANCHOR" : "✅ IDENTITY")")
         print("  Local Name: \(localName)")
         print("  Full Community ID: \(communityId?.uuidString ?? "none")")
         print("  Advertised Prefix: \(advertisedCommunityPrefix ?? "none")")
         print("  Service UUID: \(serviceUUID.uuidString)")
-        print("  Peripheral Manager State: \(peripheralManager.state.rawValue)")
         print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         #endif
     }
@@ -209,7 +269,11 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         let isLegacy: Bool
         if let cid = communityId {
             let prefix = String(cid.uuidString.prefix(8)).lowercased()
-            localName = "BCN-\(prefix)"
+            if isHostAnchorMode {
+                localName = "ANCHOR-\(prefix)"
+            } else {
+                localName = "BCN-\(prefix)"
+            }
             advertisedCommunityPrefix = prefix
             isLegacy = false
         } else {
@@ -228,7 +292,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         isAdvertising = true
         
         #if DEBUG
-        print("[BLE-ADV] 📡 Force-started advertising (mode: \(isLegacy ? "LEGACY" : "IDENTITY"), name: \(localName))")
+        print("[BLE-ADV] 📡 Force-started advertising (mode: \(isLegacy ? "LEGACY" : isHostAnchorMode ? "HOST ANCHOR" : "IDENTITY"), name: \(localName))")
         #endif
     }
     
@@ -248,6 +312,15 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
     static func parseCommunityPrefix(from deviceName: String) -> String? {
         guard deviceName.hasPrefix("BCN-") else { return nil }
         let prefix = deviceName.replacingOccurrences(of: "BCN-", with: "").lowercased()
+        guard prefix.count == 8 else { return nil }
+        return prefix
+    }
+
+    /// Extracts the community ID prefix from an organizer anchor device name.
+    /// Returns the 8-char hex prefix if the name matches "ANCHOR-<prefix>", nil otherwise.
+    static func parseAnchorPrefix(from deviceName: String) -> String? {
+        guard deviceName.hasPrefix("ANCHOR-") else { return nil }
+        let prefix = deviceName.replacingOccurrences(of: "ANCHOR-", with: "").lowercased()
         guard prefix.count == 8 else { return nil }
         return prefix
     }

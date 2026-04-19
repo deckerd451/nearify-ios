@@ -1,5 +1,20 @@
 import SwiftUI
 
+// MARK: - Find Signal State
+
+/// Explicit state machine for the Find Attendee radar.
+/// Eliminates contradictory UI by making the signal source unambiguous.
+enum FindSignalState: Equatable {
+    /// Actively scanning, no BLE match yet, no presence fallback yet
+    case searchingForDirectSignal
+    /// Direct BLE signal locked — live RSSI guidance available
+    case directSignalLocked(rssi: Int, deviceId: UUID)
+    /// No direct BLE signal, but attendee is known present via event presence
+    case fallbackEventPresence
+    /// Had a signal but lost it (device went stale)
+    case signalLost
+}
+
 /// Find Attendee screen with identity, status block, chips, radar, and signal details
 struct FindAttendeeView: View {
     let attendee: EventAttendee
@@ -12,11 +27,72 @@ struct FindAttendeeView: View {
     @State private var hasTriggeredConnect = false
     @State private var connectDismissedAt: Date?
     @State private var signalTimer: Timer?
+    @State private var hadDirectSignal = false
 
     @Environment(\.dismiss) private var dismiss
 
     private var presentation: AttendeePresentation {
         stateResolver.resolve(for: attendee)
+    }
+
+    /// The single source of truth for what the radar is showing.
+    private var findSignalState: FindSignalState {
+        // Try to find the best BLE device for this attendee
+        if let device = bestPeerDevice {
+            let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
+            let age = Date().timeIntervalSince(device.lastSeen)
+
+            if age > 15 {
+                // Had a device but it went stale
+                return .signalLost
+            }
+
+            return .directSignalLocked(rssi: rssi, deviceId: device.id)
+        }
+
+        // No BLE device found
+        if hadDirectSignal {
+            return .signalLost
+        }
+
+        // Check if attendee is at least present via event presence
+        let presenceAge = Date().timeIntervalSince(attendee.lastSeen)
+        if presenceAge < 120 {
+            // Scanner is running but no match yet — could still lock
+            if scanner.isScanning {
+                return .searchingForDirectSignal
+            }
+            return .fallbackEventPresence
+        }
+
+        return .signalLost
+    }
+
+    /// Finds the best BLE device for this attendee, collapsing duplicates.
+    /// Prefers the freshest device with the strongest RSSI.
+    private var bestPeerDevice: DiscoveredBLEDevice? {
+        let attendeePrefix = String(attendee.id.uuidString.prefix(8)).lowercased()
+        let allDevices = scanner.getFilteredDevices()
+
+        // Collect all BCN- devices matching this attendee's prefix
+        let matches = allDevices.filter { device in
+            guard let devicePrefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else {
+                return false
+            }
+            return devicePrefix == attendeePrefix
+        }
+
+        guard !matches.isEmpty else { return nil }
+
+        // If multiple matches (duplicate advertisements), pick the freshest with best RSSI
+        return matches
+            .sorted { a, b in
+                let rssiA = scanner.smoothedRSSI(for: a.id) ?? a.rssi
+                let rssiB = scanner.smoothedRSSI(for: b.id) ?? b.rssi
+                if rssiA != rssiB { return rssiA > rssiB }
+                return a.lastSeen > b.lastSeen
+            }
+            .first
     }
 
     var body: some View {
@@ -44,11 +120,51 @@ struct FindAttendeeView: View {
         }
         .onAppear {
             startSignalTimer()
+            #if DEBUG
+            let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
+            print("[FindAttendee] 📡 Opened for: \(attendee.name) (prefix: \(prefix))")
+            print("[FindAttendee]   Scanner active: \(scanner.isScanning)")
+            print("[FindAttendee]   BLE devices: \(scanner.getFilteredDevices().count)")
+            let bcnDevices = scanner.getFilteredDevices().filter { $0.name.hasPrefix("BCN-") }
+            print("[FindAttendee]   BCN- devices: \(bcnDevices.map { "\($0.name) RSSI:\($0.rssi)" })")
+            print("[FindAttendee]   Initial state: \(findSignalState)")
+            #endif
         }
         .onDisappear {
             stopSignalTimer()
         }
         .onChange(of: signalAge) {
+            // Track if we ever had a direct signal (for signalLost detection)
+            if case .directSignalLocked = findSignalState {
+                if !hadDirectSignal {
+                    hadDirectSignal = true
+                    #if DEBUG
+                    print("[FindAttendee] 🔒 Direct BLE lock acquired for \(attendee.name)")
+                    #endif
+                }
+            } else if hadDirectSignal {
+                #if DEBUG
+                switch findSignalState {
+                case .signalLost:
+                    print("[FindAttendee] ❌ Direct BLE lock lost for \(attendee.name)")
+                case .searchingForDirectSignal:
+                    print("[FindAttendee] 🔍 Searching for direct signal — \(attendee.name)")
+                case .fallbackEventPresence:
+                    print("[FindAttendee] 📍 Fallback to event presence — \(attendee.name)")
+                default:
+                    break
+                }
+                #endif
+            }
+
+            #if DEBUG
+            if case .directSignalLocked(let rssi, let deviceId) = findSignalState {
+                // Log current RSSI periodically (every ~4s via signalAge changes)
+                let smoothed = scanner.smoothedRSSI(for: deviceId) ?? rssi
+                print("[FindAttendee] 📶 RSSI: \(smoothed) dBm for \(attendee.name)")
+            }
+            #endif
+
             checkVeryCloseTransition()
         }
         .sheet(isPresented: $showConnectSheet, onDismiss: {
@@ -93,9 +209,9 @@ struct FindAttendeeView: View {
                     .font(.caption)
                     .foregroundColor(presentation.relationship == .unverified ? .gray : .cyan)
 
-                Label(presentation.proximity.label, systemImage: presentation.proximity.icon)
+                Label(signalStateLabel, systemImage: signalStateIcon)
                     .font(.caption)
-                    .foregroundColor(presentation.proximity.color)
+                    .foregroundColor(signalStateColor)
             }
         }
         .padding(.vertical, 10)
@@ -106,6 +222,45 @@ struct FindAttendeeView: View {
                 .fill(Color.white.opacity(0.06))
         )
         .padding(.horizontal, 24)
+    }
+
+    private var signalStateLabel: String {
+        switch findSignalState {
+        case .searchingForDirectSignal:
+            return "Searching for signal"
+        case .directSignalLocked:
+            return "Live BLE signal"
+        case .fallbackEventPresence:
+            return "Event presence only"
+        case .signalLost:
+            return "Signal lost"
+        }
+    }
+
+    private var signalStateIcon: String {
+        switch findSignalState {
+        case .searchingForDirectSignal:
+            return "magnifyingglass"
+        case .directSignalLocked:
+            return "wave.3.right"
+        case .fallbackEventPresence:
+            return "antenna.radiowaves.left.and.right"
+        case .signalLost:
+            return "clock"
+        }
+    }
+
+    private var signalStateColor: Color {
+        switch findSignalState {
+        case .searchingForDirectSignal:
+            return .yellow
+        case .directSignalLocked:
+            return .green
+        case .fallbackEventPresence:
+            return .orange
+        case .signalLost:
+            return .gray
+        }
     }
 
     private var connectionLine: some View {
@@ -221,11 +376,11 @@ struct FindAttendeeView: View {
     }
 
     private var radarOffset: CGSize {
-        guard let device = stateResolver.peerDevice(for: attendee) else {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
+            // No direct signal — place dot at outer edge
             return CGSize(width: 60, height: -40)
         }
 
-        let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
         let norm = max(0, min(1, Double(rssi + 90) / 50.0))
         let distance = 80.0 * (1.0 - norm)
 
@@ -236,9 +391,9 @@ struct FindAttendeeView: View {
 
     private var guidanceCard: some View {
         VStack(spacing: 8) {
-            if let device = stateResolver.peerDevice(for: attendee) {
-                let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
-                let trend = rssiTrend(for: device.id) ?? 0
+            switch findSignalState {
+            case .directSignalLocked(let rssi, let deviceId):
+                let trend = rssiTrend(for: deviceId) ?? 0
 
                 Text(proximityLabel(rssi))
                     .font(.title2)
@@ -260,15 +415,54 @@ struct FindAttendeeView: View {
                     .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 16)
-            } else {
-                Text("Searching for signal")
+
+            case .searchingForDirectSignal:
+                Image(systemName: "magnifyingglass")
+                    .font(.title2)
+                    .foregroundColor(.yellow)
+
+                Text("Searching for direct signal")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.yellow)
+
+                Text("Move around slowly — looking for their signal")
+                    .font(.caption)
+                    .foregroundColor(.gray.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+
+            case .fallbackEventPresence:
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.title2)
+                    .foregroundColor(.orange)
+
+                Text("Using event presence")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.orange)
+
+                Text("Live BLE signal not locked yet — they're at the event but radar guidance is unavailable")
+                    .font(.caption)
+                    .foregroundColor(.gray.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+
+            case .signalLost:
+                Image(systemName: "wifi.slash")
+                    .font(.title2)
+                    .foregroundColor(.gray)
+
+                Text("Signal lost")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.gray)
 
-                Text("Move around the room slowly")
+                Text("They may have moved out of range or turned off their device")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
             }
         }
         .padding(.vertical, 14)
@@ -325,9 +519,8 @@ struct FindAttendeeView: View {
 
     private var signalDetailsView: some View {
         VStack(spacing: 6) {
-            if let device = stateResolver.peerDevice(for: attendee) {
-                let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
-
+            switch findSignalState {
+            case .directSignalLocked(let rssi, _):
                 HStack(spacing: 14) {
                     Label("\(rssi) dBm", systemImage: "antenna.radiowaves.left.and.right")
                         .font(.caption2)
@@ -337,6 +530,10 @@ struct FindAttendeeView: View {
                         .font(.caption2)
                         .foregroundColor(trendColor.opacity(0.7))
                 }
+
+                Text("Live BLE signal detected")
+                    .font(.caption2)
+                    .foregroundColor(.green.opacity(0.6))
 
                 if rssi >= -45 {
                     Button(action: { showConnectSheet = true }) {
@@ -355,8 +552,19 @@ struct FindAttendeeView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 6)
                 }
-            } else {
-                Text("No direct BLE signal — using event presence")
+
+            case .searchingForDirectSignal:
+                Text("Scanning for direct BLE signal…")
+                    .font(.caption2)
+                    .foregroundColor(.yellow.opacity(0.6))
+
+            case .fallbackEventPresence:
+                Text("Using event presence — live BLE signal not locked yet")
+                    .font(.caption2)
+                    .foregroundColor(.orange.opacity(0.6))
+
+            case .signalLost:
+                Text("Direct signal lost — last seen nearby")
                     .font(.caption2)
                     .foregroundColor(.gray.opacity(0.6))
             }
@@ -367,11 +575,9 @@ struct FindAttendeeView: View {
     // MARK: - Helpers
 
     private var signalColor: Color {
-        guard let device = stateResolver.peerDevice(for: attendee) else {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
             return .gray
         }
-
-        let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
 
         switch rssi {
         case -45...0:
@@ -401,8 +607,8 @@ struct FindAttendeeView: View {
     }
 
     private var trendLabel: String {
-        guard let device = stateResolver.peerDevice(for: attendee),
-              let trend = rssiTrend(for: device.id) else {
+        guard case .directSignalLocked(_, let deviceId) = findSignalState,
+              let trend = rssiTrend(for: deviceId) else {
             return "—"
         }
 
@@ -412,8 +618,8 @@ struct FindAttendeeView: View {
     }
 
     private var trendColor: Color {
-        guard let device = stateResolver.peerDevice(for: attendee),
-              let trend = rssiTrend(for: device.id) else {
+        guard case .directSignalLocked(_, let deviceId) = findSignalState,
+              let trend = rssiTrend(for: deviceId) else {
             return .gray
         }
 
@@ -460,10 +666,9 @@ struct FindAttendeeView: View {
             return
         }
 
-        guard let device = stateResolver.peerDevice(for: attendee) else { return }
+        guard case .directSignalLocked(let rssi, let deviceId) = findSignalState else { return }
 
-        let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
-        let trend = rssiTrend(for: device.id) ?? 0
+        let trend = rssiTrend(for: deviceId) ?? 0
 
         guard rssi >= -45, trend >= -2 else { return }
 
