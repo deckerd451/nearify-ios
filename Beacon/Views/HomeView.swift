@@ -7,6 +7,7 @@ struct HomeView: View {
     @ObservedObject private var eventJoin = EventJoinService.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
+    @State private var showLastSummaryRecap = false
 
     var body: some View {
         NavigationStack {
@@ -50,6 +51,11 @@ struct HomeView: View {
                         showScanner = false
                     }
                 )
+            }
+            .sheet(isPresented: $showLastSummaryRecap) {
+                if let summary = eventJoin.postEventSummary {
+                    LastSummaryRecapView(summary: summary)
+                }
             }
         }
     }
@@ -287,46 +293,49 @@ struct HomeView: View {
             }
 
             if let summary = eventJoin.postEventSummary {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Last Summary")
-                        .font(.caption)
-                        .foregroundColor(.cyan)
-                    Text(summary.eventName)
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                    Text("\(summary.totalPeopleMet) people met")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                    if let strongest = summary.strongestInteraction {
-                        Text("Strongest: \(strongest.name)")
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.8))
-                    } else if let key = summary.keyPeople.first {
-                        Text("Key person: \(key.profile.name)")
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
-                    if let followUp = summary.followUpSuggestions.first {
-                        Text("Follow up: \(followUp.targetProfile.name)")
-                            .font(.caption2)
-                            .foregroundColor(.white.opacity(0.7))
+                Button {
+                    showLastSummaryRecap = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text("Last Summary")
+                                .font(.caption)
+                                .foregroundColor(.cyan)
+                            Spacer()
+                            Text("View recap")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.75))
+                            Image(systemName: "chevron.right")
+                                .font(.caption2)
+                                .foregroundColor(.white.opacity(0.75))
+                        }
+
+                        Text(summary.eventName)
+                            .font(.subheadline)
+                            .foregroundColor(.white)
                             .lineLimit(1)
-                    }
-                    if !summary.narrativeWrapUp.isEmpty {
-                        Text(summary.narrativeWrapUp)
+
+                        Text("\(summary.totalPeopleMet) people met")
                             .font(.caption2)
-                            .foregroundColor(.gray.opacity(0.9))
-                            .lineLimit(2)
-                    } else {
-                        Text(summary.snapshot.activityLine)
-                            .font(.caption2)
-                            .foregroundColor(.gray.opacity(0.9))
-                            .lineLimit(2)
+                            .foregroundColor(.gray)
+
+                        if !summary.narrativeWrapUp.isEmpty {
+                            Text(summary.narrativeWrapUp)
+                                .font(.caption2)
+                                .foregroundColor(.gray.opacity(0.9))
+                                .lineLimit(2)
+                        } else {
+                            Text(summary.snapshot.activityLine)
+                                .font(.caption2)
+                                .foregroundColor(.gray.opacity(0.9))
+                                .lineLimit(2)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.06)))
+                .buttonStyle(.plain)
                 .padding(.horizontal)
             }
         }
@@ -354,6 +363,37 @@ struct HomeView: View {
             Text("Loading attendees…")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+        }
+    }
+}
+
+private struct LastSummaryRecapView: View {
+    let summary: PostEventSummary
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                ScrollView {
+                    PostEventSummaryView(
+                        summary: summary,
+                        onMessage: { _ in },
+                        onViewProfile: { _ in }
+                    )
+                    .padding()
+                }
+            }
+            .navigationTitle("Event Recap")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
