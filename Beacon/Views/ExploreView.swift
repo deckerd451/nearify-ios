@@ -424,94 +424,13 @@ struct ExploreView: View {
         let canRejoin = role == .rejoin && canRejoinPastEvent(event)
 
         return VStack(alignment: .leading, spacing: 10) {
-            Text(event.name)
-                .font(.subheadline).fontWeight(.semibold).foregroundColor(.white)
-
-            // Date / location — truncated when collapsed, full when expanded
-            HStack(spacing: 12) {
-                if let date = event.dateDisplay {
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock").font(.system(size: 10))
-                        Text(date)
-                    }
-                    .font(.caption).foregroundColor(.gray)
-                    .lineLimit(isExpanded ? nil : 1)
-                }
-                if let location = event.location, !location.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "mappin").font(.system(size: 10))
-                        Text(location)
-                    }
-                    .font(.caption).foregroundColor(.gray)
-                    .lineLimit(isExpanded ? nil : 1)
-                }
-            }
-
-            // Description — collapsed: 2 lines, expanded: full
-            if let desc = event.eventDescription, !desc.isEmpty {
-                Text(desc)
-                    .font(.caption).foregroundColor(.white.opacity(0.6))
-                    .lineLimit(isExpanded ? nil : 2)
-            }
-
-            if event.activeAttendeeCount > 0 && event.isHappeningNow {
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2.fill").font(.system(size: 10))
-                    Text("\(event.activeAttendeeCount) here now")
-                }
-                .font(.caption).foregroundColor(.green.opacity(0.8))
-            }
-
-            if let preview {
-                HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                        .foregroundColor(.orange.opacity(0.9))
-                    Text(preview.line)
-                        .font(.caption)
-                        .foregroundColor(.orange.opacity(0.9))
-                        .lineLimit(1)
-                }
-
-                if let snippet = preview.snippet {
-                    Text(snippet)
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.5))
-                        .lineLimit(2)
-                }
-            }
-
-            // ── PRE-EVENT BRIEF (expanded only) ──
-            if isExpanded && role != .rejoin {
-                let brief = PreEventBriefBuilder.build(
-                    eventId: event.id,
-                    eventName: event.name
-                )
-                let hasBriefContent = !brief.hereNow.isEmpty
-                    || !brief.likelyAttendees.isEmpty
-                    || !brief.conversationStarters.isEmpty
-                    || !brief.peopleToMeet.isEmpty
-
-                if hasBriefContent {
-                    Divider().background(Color.white.opacity(0.1))
-                        .padding(.vertical, 4)
-
-                    PreEventBriefView(brief: brief)
-                }
-            }
-
-            // CTA — determined by section role
-            HStack(spacing: 10) {
-                switch role {
-                case .happeningNow, .upcoming:
-                    joinButton(eventId: event.id.uuidString)
-                case .rejoin:
-                    if canRejoin {
-                        rejoinButton(eventId: event.id.uuidString)
-                    }
-                }
-            }
-            .padding(.top, 2)
+            eventCardHeader(event)
+            eventCardMetadataRow(event, isExpanded: isExpanded)
+            eventCardDescription(event, isExpanded: isExpanded)
+            eventCardAttendeeRow(event)
+            eventCardPastEventPreview(preview)
+            eventCardPreEventBrief(event, role: role, isExpanded: isExpanded)
+            eventCardActionRow(role: role, eventId: event.id.uuidString, canRejoin: canRejoin)
         }
         .padding(16)
         .background(
@@ -536,6 +455,112 @@ struct ExploreView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func eventCardHeader(_ event: ExploreEvent) -> some View {
+        Text(event.name)
+            .font(.subheadline).fontWeight(.semibold).foregroundColor(.white)
+    }
+
+    @ViewBuilder
+    private func eventCardMetadataRow(_ event: ExploreEvent, isExpanded: Bool) -> some View {
+        HStack(spacing: 12) {
+            if let date = event.dateDisplay {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock").font(.system(size: 10))
+                    Text(date)
+                }
+                .font(.caption).foregroundColor(.gray)
+                .lineLimit(isExpanded ? nil : 1)
+            }
+            if let location = event.location, !location.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "mappin").font(.system(size: 10))
+                    Text(location)
+                }
+                .font(.caption).foregroundColor(.gray)
+                .lineLimit(isExpanded ? nil : 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func eventCardDescription(_ event: ExploreEvent, isExpanded: Bool) -> some View {
+        if let desc = event.eventDescription, !desc.isEmpty {
+            Text(desc)
+                .font(.caption).foregroundColor(.white.opacity(0.6))
+                .lineLimit(isExpanded ? nil : 2)
+        }
+    }
+
+    @ViewBuilder
+    private func eventCardAttendeeRow(_ event: ExploreEvent) -> some View {
+        if event.activeAttendeeCount > 0 && event.isHappeningNow {
+            HStack(spacing: 4) {
+                Image(systemName: "person.2.fill").font(.system(size: 10))
+                Text("\(event.activeAttendeeCount) here now")
+            }
+            .font(.caption).foregroundColor(.green.opacity(0.8))
+        }
+    }
+
+    @ViewBuilder
+    private func eventCardPastEventPreview(_ preview: PastEventPreview?) -> some View {
+        if let preview {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                    .foregroundColor(.orange.opacity(0.9))
+                Text(preview.line)
+                    .font(.caption)
+                    .foregroundColor(.orange.opacity(0.9))
+                    .lineLimit(1)
+            }
+
+            if let snippet = preview.snippet {
+                Text(snippet)
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func eventCardPreEventBrief(_ event: ExploreEvent, role: SectionRole, isExpanded: Bool) -> some View {
+        if isExpanded && role != .rejoin {
+            let brief = PreEventBriefBuilder.build(
+                eventId: event.id,
+                eventName: event.name
+            )
+            let hasBriefContent = !brief.hereNow.isEmpty
+                || !brief.likelyAttendees.isEmpty
+                || !brief.conversationStarters.isEmpty
+                || !brief.peopleToMeet.isEmpty
+
+            if hasBriefContent {
+                Divider().background(Color.white.opacity(0.1))
+                    .padding(.vertical, 4)
+
+                PreEventBriefView(brief: brief)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func eventCardActionRow(role: SectionRole, eventId: String, canRejoin: Bool) -> some View {
+        HStack(spacing: 10) {
+            switch role {
+            case .happeningNow, .upcoming:
+                joinButton(eventId: eventId)
+            case .rejoin:
+                if canRejoin {
+                    rejoinButton(eventId: eventId)
+                }
+            }
+        }
+        .padding(.top, 2)
     }
 
     // MARK: - Past Event Preview
