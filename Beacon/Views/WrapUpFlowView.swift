@@ -6,7 +6,7 @@ import MessageUI
 /// No multi-step summary. No duplicate people. Action-oriented copy.
 struct WrapUpFlowView: View {
     let eventName: String
-    let onComplete: () -> Void
+    let onComplete: () async -> Void
 
     @State private var people: [WrapUpPerson] = []
     @State private var strongCandidateNames: [String] = []
@@ -17,6 +17,8 @@ struct WrapUpFlowView: View {
     @State private var isOpeningConversation = false
     @State private var profileTarget: WrapUpProfileTarget?
     @State private var isNavigatingToProfile = false
+    @State private var isWrappingUpEvent = false
+    @State private var wrapUpTask: Task<Void, Never>?
 
     private enum ShareState: Equatable {
         case hidden             // No strong candidates or share not applicable
@@ -26,6 +28,7 @@ struct WrapUpFlowView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
@@ -72,6 +75,7 @@ struct WrapUpFlowView: View {
                         Spacer().frame(height: 16)
                     }
                 }
+                .allowsHitTesting(!isWrappingUpEvent)
 
                 if isOpeningConversation {
                     Color.black.opacity(0.5).ignoresSafeArea()
@@ -81,6 +85,10 @@ struct WrapUpFlowView: View {
                             .font(.caption).foregroundColor(.white.opacity(0.7))
                     }
                 }
+
+                if isWrappingUpEvent {
+                    wrappingUpOverlay
+                }
             }
             .navigationTitle("Say Goodbye")
             .navigationBarTitleDisplayMode(.inline)
@@ -88,6 +96,7 @@ struct WrapUpFlowView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
                         .foregroundColor(.gray)
+                        .disabled(isWrappingUpEvent)
                 }
             }
             .sheet(item: $activeConversation) { dest in
@@ -117,6 +126,16 @@ struct WrapUpFlowView: View {
             }
         }
         .onAppear { loadPeople() }
+        .onDisappear {
+            wrapUpTask?.cancel()
+            wrapUpTask = nil
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .background, isWrappingUpEvent else { return }
+            wrapUpTask?.cancel()
+            wrapUpTask = nil
+            isWrappingUpEvent = false
+        }
         .sheet(isPresented: $showMessageComposer) {
             MessageComposerView(
                 body: shareMessageBody,
@@ -434,6 +453,8 @@ struct WrapUpFlowView: View {
             .cornerRadius(14)
         }
         .padding(.horizontal, 32)
+        .disabled(isWrappingUpEvent)
+        .opacity(isWrappingUpEvent ? 0.6 : 1.0)
     }
 
     // MARK: - Profile Navigation
@@ -782,9 +803,43 @@ struct WrapUpFlowView: View {
     // MARK: - Flow Control
 
     private func finishWrapUp() {
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            onComplete()
+        guard !isWrappingUpEvent else { return }
+        isWrappingUpEvent = true
+
+        wrapUpTask = Task {
+            await onComplete()
+            await MainActor.run {
+                isWrappingUpEvent = false
+            }
+        }
+    }
+
+    private var wrappingUpOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72).ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.25)
+
+                Text("Wrapping up your event…")
+                    .font(.headline)
+                    .foregroundColor(.white)
+
+                Text("Finalizing your connections and summary")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.75))
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
+            .background(Color.white.opacity(0.06))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .cornerRadius(16)
+            .padding(.horizontal, 28)
         }
     }
 

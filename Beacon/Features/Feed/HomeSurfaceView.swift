@@ -28,6 +28,7 @@ struct HomeSurfaceView: View {
     @State private var showStaleAttendeeAlert = false
     @State private var staleAttendeeName: String = ""
     @State private var showWrapUp = false
+    @State private var isWrappingUpEvent = false
 
     // Arrival Brief — shown once per event session on join.
     // arrivalBriefPending: true from join until dismissed/acted on.
@@ -300,7 +301,12 @@ struct HomeSurfaceView: View {
                 WrapUpFlowView(
                     eventName: eventJoin.currentEventName ?? "Event"
                 ) {
-                    Task { await eventJoin.leaveEvent() }
+                    guard !isWrappingUpEvent else { return }
+                    isWrappingUpEvent = true
+                    defer { isWrappingUpEvent = false }
+
+                    await eventJoin.leaveEvent()
+                    showWrapUp = false
                 }
             }
             .sheet(isPresented: $showBriefSheet) {
