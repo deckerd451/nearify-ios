@@ -96,6 +96,12 @@ final class EncounterService: ObservableObject {
         flushTask = nil
         isFlushLoopRunning = false
     }
+
+    /// Clears in-memory session trackers so the next event starts clean.
+    /// Safe to call after summary generation has consumed activeEncounters.
+    func clearActiveEncounters() {
+        activeEncounters.removeAll()
+    }
     
     /// Writes accumulated encounters to the `encounters` table.
     func flushEncounters() async {
