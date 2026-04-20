@@ -126,7 +126,7 @@ enum PostEventSummaryBuilder {
         // ── 2. Key People ──
         let keyPeople = buildKeyPeople(
             personSignals: personSignals,
-            excludeIds: Set([strongest?.id].compactMap { $0 })
+            strongest: strongest
         )
 
         // ── 3. Recent Connections ──
@@ -166,10 +166,10 @@ enum PostEventSummaryBuilder {
         // ── 5. Follow-Up Suggestions ──
         let suggestions = buildFollowUpSuggestions(
             personSignals: personSignals,
+            strongest: strongest,
             connectedIds: connectedIds,
             myInterests: myInterests,
-            eventName: eventName,
-            excludeIds: Set([strongest?.id].compactMap { $0 })
+            eventName: eventName
         )
 
         let snapshot = buildEventSnapshot(
@@ -337,39 +337,28 @@ enum PostEventSummaryBuilder {
 
     private static func buildKeyPeople(
         personSignals: [PersonSignal],
-        excludeIds: Set<UUID>
+        strongest: ProfileSnapshot?
     ) -> [KeyPerson] {
-        personSignals
-            .filter { !excludeIds.contains($0.relationship.profileId) }
-            .sorted { $0.score > $1.score }
-            .prefix(3)
-            .map { signal in
-                let profile = ProfileSnapshot(
-                    id: signal.relationship.profileId,
-                    name: signal.relationship.name,
-                    avatarUrl: signal.relationship.avatarUrl,
-                    contextLine: signal.relationship.whyLine
-                )
+        var results: [KeyPerson] = []
+        var seenIds: Set<UUID> = []
 
-                let reason: String
-                if signal.hasConfirmedPresence {
-                    reason = "BLE + backend both confirmed shared presence"
-                } else if signal.isConnected {
-                    reason = signal.hasConversation ? "Connected and already in conversation" : "Connected during event but not messaged yet"
-                } else if signal.encounterCount >= 2 {
-                    reason = "Repeated overlap across \(signal.encounterCount) encounters"
-                } else {
-                    let mins = signal.totalSeconds / 60
-                    reason = mins > 0 ? "\(mins) min of overlap during the event" : "Shared event context"
-                }
+        // Ensure strongest interaction can appear in key people if it clears a quality bar.
+        if let strongestId = strongest?.id,
+           let strongestSignal = personSignals.first(where: { $0.relationship.profileId == strongestId }),
+           passesMeaningfulThreshold(strongestSignal) {
+            results.append(makeKeyPerson(from: strongestSignal))
+            seenIds.insert(strongestId)
+        }
 
-                return KeyPerson(
-                    id: profile.id,
-                    profile: profile,
-                    reason: reason,
-                    signalTier: signal.signalTier
-                )
-            }
+        for signal in personSignals.sorted(by: { $0.score > $1.score }) {
+            guard !seenIds.contains(signal.relationship.profileId) else { continue }
+            guard passesMeaningfulThreshold(signal) else { continue }
+            results.append(makeKeyPerson(from: signal))
+            seenIds.insert(signal.relationship.profileId)
+            if results.count >= 3 { break }
+        }
+
+        return results
     }
 
     // MARK: - Event Snapshot
@@ -429,73 +418,144 @@ enum PostEventSummaryBuilder {
 
     private static func buildFollowUpSuggestions(
         personSignals: [PersonSignal],
+        strongest: ProfileSnapshot?,
         connectedIds: Set<UUID>,
         myInterests: Set<String>,
-        eventName: String,
-        excludeIds: Set<UUID>
+        eventName: String
     ) -> [FollowUpSuggestion] {
         var suggestions: [FollowUpSuggestion] = []
+        var addedIds: Set<UUID> = []
+
+        if let strongestId = strongest?.id,
+           let strongestSignal = personSignals.first(where: { $0.relationship.profileId == strongestId }),
+           let strongestSuggestion = groundedSuggestion(for: strongestSignal, eventName: eventName, connectedIds: connectedIds, myInterests: myInterests, preferStrongestLanguage: true) {
+            suggestions.append(strongestSuggestion)
+            addedIds.insert(strongestId)
+        }
 
         let candidates = personSignals
-            .filter { !excludeIds.contains($0.relationship.profileId) }
             .sorted { $0.score > $1.score }
 
         for signal in candidates.prefix(5) {
-            let rel = signal.relationship
-            let isConnected = connectedIds.contains(rel.profileId) || rel.connectionStatus == .accepted
-            let sharedInterests = Set(rel.sharedInterests.map { $0.lowercased() }).intersection(myInterests)
-
-            let type: FollowUpSuggestion.SuggestionType
-            let reason: String
-            let confidence: Double
-
-            if isConnected && !rel.hasConversation {
-                type = .message
-                if signal.hasConfirmedPresence {
-                    reason = "Follow up with \(rel.name) — confirmed shared live presence and new connection"
-                } else {
-                    reason = "Message \(rel.name) now — you connected at \(eventName)"
-                }
-                confidence = 0.92
-            } else if isConnected && rel.hasConversation {
-                type = .followUp
-                reason = "Continue with \(rel.name) — this event reinforced an active conversation"
-                confidence = 0.66
-            } else if signal.totalSeconds >= 180 || signal.encounterCount >= 3 {
-                let mins = signal.totalSeconds / 60
-                type = .followUp
-                if mins > 0 {
-                    reason = "Reconnect with \(rel.name): repeated overlap (\(mins) min) without a connection yet"
-                } else {
-                    reason = "Reconnect with \(rel.name): repeated overlap without a connection yet"
-                }
-                confidence = min(0.96, 0.65 + Double(signal.encounterCount) * 0.06)
-            } else if !sharedInterests.isEmpty {
-                let topic = sharedInterests.first ?? "shared interests"
-                type = .meetNextTime
-                reason = "Follow up on \(topic) with \(rel.name) — clear shared interest signal"
-                confidence = 0.58 + Double(sharedInterests.count) * 0.1
-            } else {
+            guard !addedIds.contains(signal.relationship.profileId) else { continue }
+            guard let suggestion = groundedSuggestion(for: signal, eventName: eventName, connectedIds: connectedIds, myInterests: myInterests, preferStrongestLanguage: false) else {
                 continue
             }
-
-            let profile = ProfileSnapshot(
-                id: rel.profileId,
-                name: rel.name,
-                avatarUrl: rel.avatarUrl,
-                contextLine: rel.whyLine
-            )
-
-            suggestions.append(FollowUpSuggestion(
-                id: rel.profileId,
-                type: type,
-                targetProfile: profile,
-                reason: reason,
-                confidence: min(confidence, 1.0)
-            ))
+            suggestions.append(suggestion)
+            addedIds.insert(signal.relationship.profileId)
+            if suggestions.count >= 3 { break }
         }
 
         return suggestions
+    }
+
+    private static func groundedSuggestion(
+        for signal: PersonSignal,
+        eventName: String,
+        connectedIds: Set<UUID>,
+        myInterests: Set<String>,
+        preferStrongestLanguage: Bool
+    ) -> FollowUpSuggestion? {
+        guard hasGroundedFollowUpEvidence(signal) else { return nil }
+
+        let rel = signal.relationship
+        let isConnected = connectedIds.contains(rel.profileId) || rel.connectionStatus == .accepted
+        let sharedInterests = Set(rel.sharedInterests.map { $0.lowercased() }).intersection(myInterests)
+
+        let type: FollowUpSuggestion.SuggestionType
+        let reason: String
+        let confidence: Double
+
+        if isConnected && !rel.hasConversation {
+            type = .message
+            if signal.hasConfirmedPresence {
+                reason = preferStrongestLanguage
+                    ? "Message \(rel.name): strongest interaction with confirmed shared live presence"
+                    : "Message \(rel.name): confirmed shared live presence and a fresh connection from \(eventName)"
+            } else {
+                reason = "Message \(rel.name): you connected and repeatedly overlapped during \(eventName)"
+            }
+            confidence = 0.9
+        } else if signal.hasConfirmedPresence && (signal.encounterCount >= 2 || signal.totalSeconds >= 120) {
+            type = .followUp
+            let mins = signal.totalSeconds / 60
+            reason = mins > 0
+                ? "Follow up with \(rel.name): confirmed shared presence with \(mins) min overlap"
+                : "Follow up with \(rel.name): confirmed shared presence across multiple encounters"
+            confidence = 0.84
+        } else if signal.encounterCount >= 2 && signal.totalSeconds >= 90 {
+            type = .meetNextTime
+            let mins = signal.totalSeconds / 60
+            reason = mins > 0
+                ? "Reconnect with \(rel.name) next time: repeated overlap (\(mins) min) during \(eventName)"
+                : "Reconnect with \(rel.name) next time: repeated overlap during \(eventName)"
+            confidence = 0.76
+        } else if isConnected && signal.totalSeconds >= 60 && !sharedInterests.isEmpty {
+            type = .message
+            let topic = sharedInterests.first ?? "shared interests"
+            reason = "Message \(rel.name) about \(topic): connected profile with strong session evidence"
+            confidence = 0.72
+        } else {
+            return nil
+        }
+
+        let profile = ProfileSnapshot(
+            id: rel.profileId,
+            name: rel.name,
+            avatarUrl: rel.avatarUrl,
+            contextLine: rel.whyLine
+        )
+
+        return FollowUpSuggestion(
+            id: rel.profileId,
+            type: type,
+            targetProfile: profile,
+            reason: reason,
+            confidence: min(confidence, 1.0)
+        )
+    }
+
+    private static func hasGroundedFollowUpEvidence(_ signal: PersonSignal) -> Bool {
+        let repeatedOverlap = signal.encounterCount >= 2 && signal.totalSeconds >= 90
+        let confirmedPresence = signal.hasConfirmedPresence && (signal.sessionSeconds >= 45 || signal.localSeconds >= 45)
+        let activeSharedContext = signal.hasSharedContext && signal.seenRecently && signal.totalSeconds >= 60
+        return repeatedOverlap || confirmedPresence || activeSharedContext
+    }
+
+    private static func passesMeaningfulThreshold(_ signal: PersonSignal) -> Bool {
+        if signal.hasConfirmedPresence { return true }
+        if signal.totalSeconds >= 120 { return true }
+        if signal.encounterCount >= 2 && signal.totalSeconds >= 60 { return true }
+        if signal.isConnected && signal.totalSeconds >= 60 { return true }
+        return false
+    }
+
+    private static func makeKeyPerson(from signal: PersonSignal) -> KeyPerson {
+        let profile = ProfileSnapshot(
+            id: signal.relationship.profileId,
+            name: signal.relationship.name,
+            avatarUrl: signal.relationship.avatarUrl,
+            contextLine: signal.relationship.whyLine
+        )
+
+        let reason: String
+        if signal.hasConfirmedPresence {
+            reason = "BLE + backend both confirmed shared presence"
+        } else if signal.isConnected {
+            reason = signal.hasConversation ? "Connected and already in conversation" : "Connected during event but not messaged yet"
+        } else if signal.encounterCount >= 2 {
+            reason = "Repeated overlap across \(signal.encounterCount) encounters"
+        } else {
+            let mins = signal.totalSeconds / 60
+            reason = mins > 0 ? "\(mins) min of overlap during the event" : "Shared event context"
+        }
+
+        return KeyPerson(
+            id: profile.id,
+            profile: profile,
+            reason: reason,
+            signalTier: signal.signalTier
+        )
     }
 
     // MARK: - Narrative
