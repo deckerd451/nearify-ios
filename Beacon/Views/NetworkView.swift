@@ -23,7 +23,7 @@ struct NetworkView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 switch modeState.membership {
-                case .notInEvent: inactiveState
+                case .notInEvent, .joined: inactiveState
                 case .inEvent, .inactive: activeEventView
                 case .dormant: dormantState
                 case .left: exitedState

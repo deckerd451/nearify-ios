@@ -92,7 +92,7 @@ struct ExploreView: View {
 
                 // ── STRICT HIERARCHY ──
 
-                // 1. CURRENT EVENT (joined + active) — always first
+                // 1. JOINED EVENT (guest list / intent) — always first
                 if let current = explore.currentEvent {
                     currentEventCard(current)
                 }
@@ -102,18 +102,7 @@ struct ExploreView: View {
                     reconnectBanner
                 }
 
-                // 3. HAPPENING NOW
-                if !explore.happeningNow.isEmpty {
-                    eventSection(
-                        title: "Happening Now",
-                        icon: "circle.fill",
-                        iconColor: .green,
-                        events: explore.happeningNow,
-                        sectionRole: .happeningNow
-                    )
-                }
-
-                // 4. UPCOMING
+                // 3. UPCOMING (primary discovery surface)
                 if !explore.upcoming.isEmpty {
                     eventSection(
                         title: "Upcoming",
@@ -124,10 +113,21 @@ struct ExploreView: View {
                     )
                 }
 
-                // 5. REJOIN (curated, max 2)
+                // 4. LIVE NOW (secondary to upcoming)
+                if !explore.happeningNow.isEmpty {
+                    eventSection(
+                        title: "Live Now",
+                        icon: "circle.fill",
+                        iconColor: .green,
+                        events: explore.happeningNow,
+                        sectionRole: .happeningNow
+                    )
+                }
+
+                // 5. PAST EVENTS (visually secondary)
                 if !explore.recent.isEmpty {
                     eventSection(
-                        title: "Rejoin",
+                        title: "Past Events",
                         icon: "arrow.counterclockwise",
                         iconColor: .orange,
                         events: explore.recent,
@@ -168,11 +168,11 @@ struct ExploreView: View {
             // Live indicator
             HStack(spacing: 4) {
                 Circle()
-                    .fill(UserPresenceStateResolver.statusColor)
+                    .fill(modeState.membership.isParticipating ? UserPresenceStateResolver.statusColor : Color.blue)
                     .frame(width: 6, height: 6)
-                Text(UserPresenceStateResolver.exploreLiveIndicator)
+                Text(modeState.membership.isParticipating ? UserPresenceStateResolver.exploreLiveIndicator : "Joined · Ready to check in")
                     .font(.caption2)
-                    .foregroundColor(UserPresenceStateResolver.statusColor.opacity(0.8))
+                    .foregroundColor((modeState.membership.isParticipating ? UserPresenceStateResolver.statusColor : .blue).opacity(0.8))
             }
 
             // Date / location — truncated when collapsed, full when expanded
@@ -251,12 +251,33 @@ struct ExploreView: View {
                 }
             }
 
-            // Leave button
+            if case .joined = modeState.membership {
+                Button {
+                    Task {
+                        await eventJoin.checkIn()
+                        selectedTab = .home
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.seal.fill").font(.system(size: 12))
+                        Text("Check In")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.green))
+                }
+                .padding(.top, 4)
+            }
+
+            // Leave button (Say Goodbye)
             if case .inEvent = modeState.membership {
                 Button { showLeaveConfirmation = true } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right.circle").font(.system(size: 12))
-                        Text("Leave Event").font(.caption).fontWeight(.medium)
+                        Text("Say Goodbye").font(.caption).fontWeight(.medium)
                     }
                     .foregroundColor(.red.opacity(0.8))
                     .padding(.horizontal, 12).padding(.vertical, 6)
@@ -561,19 +582,15 @@ struct ExploreView: View {
 
     /// Shown after a successful join — replaces the Join/Rejoin button.
     private var joinedConfirmationButton: some View {
-        Button {
-            selectedTab = .home
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill").font(.caption)
-                Text("You're in — go to Home")
-                    .font(.subheadline).fontWeight(.semibold)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(Color.green.opacity(0.15))
-            .foregroundColor(.green)
-            .cornerRadius(8)
+        HStack(spacing: 5) {
+            Image(systemName: "checkmark.circle.fill").font(.caption)
+            Text("Joined")
+                .font(.subheadline).fontWeight(.semibold)
         }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(Color.green.opacity(0.15))
+        .foregroundColor(.green)
+        .cornerRadius(8)
     }
 
     // MARK: - Join Handler
@@ -622,14 +639,12 @@ struct ExploreView: View {
                     print("[Explore] ✅ Join succeeded — showing confirmation")
                     #endif
 
-                    // Auto-navigate to Home after a brief confirmation moment
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        selectedTab = .home
-                        // Reset join state after navigation so Explore is clean on return
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            joinState = .idle
-                        }
+                // Keep user in Explore after join so they can explicitly check in.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    if case .joined = joinState {
+                        joinState = .idle
                     }
+                }
                 } else {
                     let error = eventJoin.joinError ?? "Something went wrong"
                     joinState = .failed(message: error)
@@ -660,6 +675,9 @@ struct ExploreView: View {
                     .font(.subheadline).fontWeight(.semibold).foregroundColor(.white)
                 Text("Joined \(eventName)")
                     .font(.caption).foregroundColor(.gray)
+                Text("Check in when you arrive")
+                    .font(.caption2)
+                    .foregroundColor(.gray.opacity(0.8))
             }
             Spacer()
         }

@@ -130,6 +130,16 @@ final class EventPresenceService: ObservableObject {
         stopHeartbeat(clearContext: true)
     }
 
+    /// Marks a joined attendee as left even when no active heartbeat context exists.
+    /// Used for "joined but not checked in" exits.
+    func markLeftWithoutActiveSession(eventId: UUID, profileId: UUID) async {
+        await setAttendanceStatus(
+            eventId: eventId,
+            profileId: profileId,
+            status: "left"
+        )
+    }
+
     func debugWritePresenceNow() async {
         guard let eventId = _currentEventId, let profileId = _currentProfileId else {
             debugStatus = "FAILED: no active event/profile"
