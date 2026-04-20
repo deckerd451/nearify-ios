@@ -297,6 +297,32 @@ struct HomeView: View {
                     Text("\(summary.totalPeopleMet) people met")
                         .font(.caption2)
                         .foregroundColor(.gray)
+                    if let strongest = summary.strongestInteraction {
+                        Text("Strongest: \(strongest.name)")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.8))
+                    } else if let key = summary.keyPeople.first {
+                        Text("Key person: \(key.profile.name)")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    if let followUp = summary.followUpSuggestions.first {
+                        Text("Follow up: \(followUp.targetProfile.name)")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                    if !summary.narrativeWrapUp.isEmpty {
+                        Text(summary.narrativeWrapUp)
+                            .font(.caption2)
+                            .foregroundColor(.gray.opacity(0.9))
+                            .lineLimit(2)
+                    } else {
+                        Text(summary.snapshot.activityLine)
+                            .font(.caption2)
+                            .foregroundColor(.gray.opacity(0.9))
+                            .lineLimit(2)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)

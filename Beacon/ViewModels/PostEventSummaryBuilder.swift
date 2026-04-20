@@ -54,6 +54,8 @@ enum PostEventSummaryBuilder {
     /// `encounters`: the active encounter trackers from the session (may be empty if already flushed).
     static func build(
         eventName: String,
+        eventId: UUID?,
+        sessionStartedAt: Date?,
         sessionEncounters: [UUID: EncounterTracker] = [:]
     ) -> PostEventSummary {
         let now = Date()
@@ -63,31 +65,48 @@ enum PostEventSummaryBuilder {
         let myId = AuthService.shared.currentUser?.id
         let myInterests = Set((AuthService.shared.currentUser?.interests ?? []).map { $0.lowercased() })
 
-        let currentEventId = EventJoinService.shared.currentEventID.flatMap(UUID.init(uuidString:))
-        let localEncounters = currentEventId.map { LocalEncounterStore.shared.encounters(forEvent: $0) } ?? []
+        let localEncounters = eventId.map { LocalEncounterStore.shared.encounters(forEvent: $0) } ?? []
         let localSignals = buildLocalEncounterSignals(localEncounters)
+        let inferredSessionStart = inferSessionStart(
+            explicitSessionStart: sessionStartedAt,
+            sessionEncounters: sessionEncounters,
+            localEncounters: localEncounters,
+            now: now
+        )
 
         // ── Gather event-scoped data ──
         let eventRelationships = relationships.filter { rel in
+            let hasSessionEncounter = sessionEncounters[rel.profileId] != nil || localSignals[rel.profileId] != nil
+            let touchedDuringSession = relationshipTouchedDuringSession(rel, sessionStart: inferredSessionStart)
+            let hasEventContext = rel.eventContexts.contains(eventName)
             rel.profileId != myId && (
-                rel.eventContexts.contains(eventName)
-                || sessionEncounters[rel.profileId] != nil
-                || localSignals[rel.profileId] != nil
+                hasSessionEncounter
+                || (hasEventContext && touchedDuringSession)
             )
         }
 
         // Recent connections made during this event
         let recentConnectionIds = Set(
             feedItems
-                .filter { $0.feedType == .connection && $0.eventId != nil }
+                .filter { item in
+                    guard item.feedType == .connection else { return false }
+                    guard item.eventId == eventId else { return false }
+                    if let created = item.createdAt {
+                        return created >= inferredSessionStart
+                    }
+                    return true
+                }
                 .compactMap { $0.actorProfileId ?? $0.targetProfileId }
                 .filter { $0 != myId }
         )
 
-        // All people met (encountered or connected)
-        var allMetIds = Set(eventRelationships.map(\.profileId))
-        allMetIds.formUnion(recentConnectionIds)
-        allMetIds.formUnion(localSignals.keys)
+        // Session-scoped people met (encountered, connected, or touched in-session)
+        let sessionEncounterIds = Set(sessionEncounters.keys)
+        let localEncounterIds = Set(localSignals.keys)
+        var metIds = sessionEncounterIds
+        metIds.formUnion(localEncounterIds)
+        metIds.formUnion(recentConnectionIds)
+        metIds.formUnion(eventRelationships.map(\.profileId))
 
         let personSignals = buildPersonSignals(
             eventRelationships: eventRelationships,
@@ -171,7 +190,7 @@ enum PostEventSummaryBuilder {
 
         #if DEBUG
         print("[PostEvent] Summary built for \(eventName)")
-        print("[PostEvent]   totalPeopleMet: \(allMetIds.count)")
+        print("[PostEvent]   totalPeopleMet: \(metIds.count)")
         print("[PostEvent]   strongest: \(strongest?.name ?? "none")")
         print("[PostEvent]   keyPeople: \(keyPeople.count)")
         print("[PostEvent]   recentConnections: \(recentConnections.count)")
@@ -181,7 +200,7 @@ enum PostEventSummaryBuilder {
 
         return PostEventSummary(
             eventName: eventName,
-            totalPeopleMet: allMetIds.count,
+            totalPeopleMet: metIds.count,
             snapshot: snapshot,
             keyPeople: keyPeople,
             strongestInteraction: strongest,
@@ -205,6 +224,34 @@ enum PostEventSummaryBuilder {
             map[profileId] = existing
         }
         return map
+    }
+
+    private static func inferSessionStart(
+        explicitSessionStart: Date?,
+        sessionEncounters: [UUID: EncounterTracker],
+        localEncounters: [LocalEncounterStore.CapturedEncounter],
+        now: Date
+    ) -> Date {
+        if let explicitSessionStart {
+            return explicitSessionStart
+        }
+
+        let trackerStart = sessionEncounters.values.map(\.firstSeen).min()
+        let localStart = localEncounters.map(\.firstSeenAt).min()
+        return [trackerStart, localStart].compactMap { $0 }.min() ?? now.addingTimeInterval(-4 * 3600)
+    }
+
+    private static func relationshipTouchedDuringSession(_ rel: RelationshipMemory, sessionStart: Date) -> Bool {
+        if let lastEncounter = rel.lastEncounterAt, lastEncounter >= sessionStart {
+            return true
+        }
+        if let connectedAt = rel.connectionDate, connectedAt >= sessionStart {
+            return true
+        }
+        if let messagedAt = rel.lastMessageAt, messagedAt >= sessionStart {
+            return true
+        }
+        return false
     }
 
     private static func buildPersonSignals(

@@ -22,6 +22,10 @@ final class EventJoinService: ObservableObject {
     /// Cleared on next event join.
     @Published private(set) var postEventSummary: PostEventSummary?
 
+    /// Local timestamp for the currently active check-in session.
+    /// Used to scope post-event summaries to the session that just ended.
+    @Published private(set) var activeSessionStartedAt: Date?
+
     // MARK: - Event Switch Confirmation
     //
     // When the user attempts to join a different event while already in one,
@@ -236,6 +240,7 @@ final class EventJoinService: ObservableObject {
             membershipState = .joined(eventName: event.name)
             joinError = nil
             backgroundEnteredAt = nil
+            activeSessionStartedAt = nil
             reconnectDismissedThisSession = false
             postEventSummary = nil // Clear previous summary
 
@@ -298,6 +303,9 @@ final class EventJoinService: ObservableObject {
             LocalEncounterStore.shared.startCapture()
 
             isCheckedIn = true
+            if activeSessionStartedAt == nil {
+                activeSessionStartedAt = Date()
+            }
             membershipState = .inEvent(eventName: eventName)
             joinError = nil
         } catch {
@@ -319,6 +327,8 @@ final class EventJoinService: ObservableObject {
         let encounters = EncounterService.shared.activeEncounters
         postEventSummary = PostEventSummaryBuilder.build(
             eventName: eventName,
+            eventId: currentEventID.flatMap(UUID.init(uuidString:)),
+            sessionStartedAt: activeSessionStartedAt,
             sessionEncounters: encounters
         )
 
@@ -342,6 +352,7 @@ final class EventJoinService: ObservableObject {
         // Flush remaining encounters before leaving
         Task { await EncounterService.shared.flushEncounters() }
         EncounterService.shared.stopPeriodicFlush()
+        EncounterService.shared.clearActiveEncounters()
 
         // Stop local encounter capture and persist to disk
         LocalEncounterStore.shared.stopCapture()
@@ -355,6 +366,7 @@ final class EventJoinService: ObservableObject {
         joinedProfileId = nil
         isEventJoined = false
         isCheckedIn = false
+        activeSessionStartedAt = nil
         backgroundEnteredAt = nil
         membershipState = .left(eventName: eventName)
         pendingEventSwitch = nil
@@ -384,6 +396,8 @@ final class EventJoinService: ObservableObject {
         let encounters = EncounterService.shared.activeEncounters
         postEventSummary = PostEventSummaryBuilder.build(
             eventName: name,
+            eventId: currentEventID.flatMap(UUID.init(uuidString:)),
+            sessionStartedAt: activeSessionStartedAt,
             sessionEncounters: encounters
         )
 
@@ -425,6 +439,9 @@ final class EventJoinService: ObservableObject {
 
         membershipState = .inEvent(eventName: name)
         isCheckedIn = true
+        if activeSessionStartedAt == nil {
+            activeSessionStartedAt = Date()
+        }
         backgroundEnteredAt = nil
 
         // Restart heartbeat — this writes status="joined" + fresh last_seen_at
