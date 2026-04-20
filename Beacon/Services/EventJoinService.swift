@@ -47,6 +47,7 @@ final class EventJoinService: ObservableObject {
     /// Subscription for beacon zone changes — used for soft recovery.
     private var beaconCancellable: AnyCancellable?
     private var joinedProfileId: UUID?
+    private var isLeaveInProgress = false
 
     /// Timestamp when the app entered background. Used for timeout calculation.
     private(set) var backgroundEnteredAt: Date?
@@ -315,22 +316,24 @@ final class EventJoinService: ObservableObject {
     }
 
     func leaveEvent() async {
+        guard !isLeaveInProgress else {
+            #if DEBUG
+            print("[LeaveEvent] duplicate leave ignored — already in progress")
+            #endif
+            return
+        }
+        isLeaveInProgress = true
+        defer { isLeaveInProgress = false }
+
         let eventName = currentEventName ?? "event"
         let eventId = currentEventID ?? ""
+        let eventUUID = currentEventID.flatMap(UUID.init(uuidString:))
+        let sessionStartedAt = activeSessionStartedAt
+        let encounterSnapshot = EncounterService.shared.activeEncounters
 
         #if DEBUG
         print("[LeaveEvent] started for \(eventName)")
         #endif
-
-        // Generate post-event summary BEFORE clearing state
-        // (needs encounter data and event context still available)
-        let encounters = EncounterService.shared.activeEncounters
-        postEventSummary = PostEventSummaryBuilder.build(
-            eventName: eventName,
-            eventId: currentEventID.flatMap(UUID.init(uuidString:)),
-            sessionStartedAt: activeSessionStartedAt,
-            sessionEncounters: encounters
-        )
 
         // Persist for reconnect recovery before clearing state
         if !eventId.isEmpty {
@@ -349,16 +352,30 @@ final class EventJoinService: ObservableObject {
         BLEScannerService.shared.stopScanning()
         beaconPresence.reset()
 
-        // Flush remaining encounters before leaving
-        Task { await EncounterService.shared.flushEncounters() }
-        EncounterService.shared.stopPeriodicFlush()
-        EncounterService.shared.clearActiveEncounters()
-
-        // Stop local encounter capture and persist to disk
+        // Stop local encounter capture before summary generation so final fragments are closed.
         LocalEncounterStore.shared.stopCapture()
+
+        // Flush remaining encounters before leaving.
+        await EncounterService.shared.flushEncounters()
+        EncounterService.shared.stopPeriodicFlush()
+
+        // Stabilization step: allow backend-driven connection graph to catch up once.
+        AttendeeStateResolver.shared.refreshConnections()
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+        // Generate post-event summary AFTER stabilization but BEFORE clearing state.
+        postEventSummary = PostEventSummaryBuilder.build(
+            eventName: eventName,
+            eventId: eventUUID,
+            sessionStartedAt: sessionStartedAt,
+            sessionEncounters: encounterSnapshot
+        )
 
         // Upload encounter fragments to backend (fire-and-forget)
         LocalEncounterStore.shared.uploadPendingFragments()
+
+        // Clear session trackers only after summary generation has consumed snapshot state.
+        EncounterService.shared.clearActiveEncounters()
 
         // Clear all event state atomically.
         currentEventID = nil
