@@ -118,9 +118,9 @@ struct ExploreView: View {
                     eventSection(
                         title: "Upcoming",
                         icon: "calendar",
-                        iconColor: .blue,
+                        iconColor: Color.blue,
                         events: explore.upcoming,
-                        sectionRole: .upcoming
+                        sectionRole: ExploreView.SectionRole.upcoming
                     )
                 }
 
@@ -129,9 +129,9 @@ struct ExploreView: View {
                     eventSection(
                         title: "Live Now",
                         icon: "circle.fill",
-                        iconColor: .green,
+                        iconColor: Color.green,
                         events: explore.happeningNow,
-                        sectionRole: .happeningNow
+                        sectionRole: ExploreView.SectionRole.happeningNow
                     )
                 }
 
@@ -140,9 +140,9 @@ struct ExploreView: View {
                     eventSection(
                         title: "Past Events",
                         icon: "arrow.counterclockwise",
-                        iconColor: .orange,
+                        iconColor: Color.orange,
                         events: explore.recent,
-                        sectionRole: .rejoin
+                        sectionRole: ExploreView.SectionRole.rejoin
                     )
                 }
 
@@ -161,7 +161,7 @@ struct ExploreView: View {
 
     // MARK: - Section Role
 
-    private enum SectionRole {
+    enum SectionRole {
         case happeningNow, upcoming, rejoin
     }
 
