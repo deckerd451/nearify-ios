@@ -859,7 +859,11 @@ private struct PastEventRecapView: View {
                         .foregroundColor(.gray)
 
                         if let summary {
-                            PostEventSummaryView(summary: summary)
+                            PostEventSummaryView(
+                                summary: summary,
+                                onMessage: { _ in },
+                                onViewProfile: { _ in }
+                            )
                                 .padding(.top, 4)
                         } else {
                             VStack(alignment: .leading, spacing: 8) {
