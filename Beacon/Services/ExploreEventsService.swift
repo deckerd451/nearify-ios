@@ -5,6 +5,8 @@ import Supabase
 // MARK: - Explore Event Model
 
 struct ExploreEvent: Identifiable, Equatable {
+    private static let defaultEventDuration: TimeInterval = 3 * 60 * 60
+
     let id: UUID
     let name: String
     let eventDescription: String?
@@ -14,13 +16,13 @@ struct ExploreEvent: Identifiable, Equatable {
     let createdAt: Date?
     let activeAttendeeCount: Int
 
-    /// Happening now: starts_at <= now AND (ends_at IS NULL OR ends_at > now)
+    /// Happening now: startsAt <= now <= inferredEndAt
+    /// If endsAt is missing, infer a 3-hour event duration.
     var isHappeningNow: Bool {
         guard let start = startsAt else { return false }
         let now = Date()
-        guard now >= start else { return false }
-        if let end = endsAt { return now < end }
-        return true
+        let end = endsAt ?? start.addingTimeInterval(Self.defaultEventDuration)
+        return start <= now && now <= end
     }
 
     /// Upcoming: starts_at > now

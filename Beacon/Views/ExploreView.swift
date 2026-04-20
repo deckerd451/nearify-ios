@@ -441,7 +441,7 @@ struct ExploreView: View {
                     .lineLimit(isExpanded ? nil : 2)
             }
 
-            if event.activeAttendeeCount > 0 {
+            if event.activeAttendeeCount > 0 && event.isHappeningNow {
                 HStack(spacing: 4) {
                     Image(systemName: "person.2.fill").font(.system(size: 10))
                     Text("\(event.activeAttendeeCount) here now")
