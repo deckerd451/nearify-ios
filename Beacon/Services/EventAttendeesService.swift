@@ -436,8 +436,8 @@ final class EventAttendeesService: ObservableObject {
             let liveCutoff: TimeInterval = 60.0  // "here now" threshold
 
             // Split rows into three tiers:
-            // - live: heartbeat < 60s → published to UI, drives decisions
-            // - stale: heartbeat 60–300s → NOT published, NOT shown as "here now"
+            // - live: heartbeat < 60s → shown as "here now"
+            // - stale: heartbeat 60–300s → still shown, but secondary
             // - expired: heartbeat > 300s → dropped entirely
             let activeRows = rows.filter { $0.lastSeenAt >= recentCutoff }
             let liveRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) < liveCutoff }
@@ -447,7 +447,7 @@ final class EventAttendeesService: ObservableObject {
             #if DEBUG
             print("[Attendees]   recent cutoff: \(recentCutoff)")
             print("[Attendees]   live (< \(Int(liveCutoff))s): \(liveRows.count)")
-            print("[Attendees]   stale (\(Int(liveCutoff))–\(Int(activeWindow))s): \(staleRows.count) (not shown in UI)")
+            print("[Attendees]   stale (\(Int(liveCutoff))–\(Int(activeWindow))s): \(staleRows.count) (shown as recently seen)")
             print("[Attendees]   expired (> \(Int(activeWindow))s): \(expiredRows.count)")
             for row in liveRows {
                 let age = Int(now.timeIntervalSince(row.lastSeenAt))
@@ -455,7 +455,7 @@ final class EventAttendeesService: ObservableObject {
             }
             for row in staleRows {
                 let age = Int(now.timeIntervalSince(row.lastSeenAt))
-                print("[Attendees]   ⏳ stale profile_id=\(row.profileId.uuidString.prefix(8)) age=\(age)s → excluded from UI")
+                print("[Attendees]   ⏳ stale profile_id=\(row.profileId.uuidString.prefix(8)) age=\(age)s → shown as secondary")
             }
             for row in expiredRows {
                 let age = Int(now.timeIntervalSince(row.lastSeenAt))
@@ -463,22 +463,18 @@ final class EventAttendeesService: ObservableObject {
             }
             #endif
 
-            // ONLY live attendees are published to the UI.
-            // Stale attendees are NOT shown as "here now" — they may have
-            // backgrounded, left, or lost connectivity. The UI must reflect
-            // "who is here RIGHT NOW", not "who was here recently".
-            if liveRows.isEmpty {
-                let sig = "live:0"
+            if activeRows.isEmpty {
+                let sig = "active:0"
                 if sig != lastFetchSignature {
                     lastFetchSignature = sig
                     #if DEBUG
-                    print("[Attendees] No live attendees (stale: \(staleRows.count))")
+                    print("[Attendees] No active attendees")
                     #endif
                 }
 
                 attendees = []
                 attendeeCount = 0
-                debugStatus = "No live attendees"
+                debugStatus = "No attendees in active window"
                 isLoading = false
 
                 // No live attendees → target is not present
@@ -487,7 +483,16 @@ final class EventAttendeesService: ObservableObject {
                 return
             }
 
-            let profileIds = Array(Set(liveRows.map(\.profileId)))
+            let orderedActiveRows = (liveRows + staleRows)
+                .sorted { lhs, rhs in
+                    let lhsIsLive = now.timeIntervalSince(lhs.lastSeenAt) < liveCutoff
+                    let rhsIsLive = now.timeIntervalSince(rhs.lastSeenAt) < liveCutoff
+
+                    if lhsIsLive != rhsIsLive { return lhsIsLive && !rhsIsLive }
+                    return lhs.lastSeenAt > rhs.lastSeenAt
+                }
+
+            let profileIds = Array(Set(orderedActiveRows.map(\.profileId)))
 
             #if DEBUG
             print("[Attendees]   requesting profiles for \(profileIds.count) id(s)")
@@ -505,9 +510,11 @@ final class EventAttendeesService: ObservableObject {
             }
             #endif
 
-            let newAttendees: [EventAttendee] = liveRows.map { row in
-                let profile = profilesById[row.profileId]
+            var seenProfileIds = Set<UUID>()
+            let newAttendees: [EventAttendee] = orderedActiveRows.compactMap { row in
+                guard seenProfileIds.insert(row.profileId).inserted else { return nil }
 
+                let profile = profilesById[row.profileId]
                 return EventAttendee(
                     id: row.profileId,
                     name: profile?.name ?? "User \(row.profileId.uuidString.prefix(8))",
@@ -545,13 +552,13 @@ final class EventAttendeesService: ObservableObject {
 
             attendees = newAttendees
             attendeeCount = newAttendees.count
-            debugStatus = "\(newAttendees.count) live, \(staleRows.count) stale"
+            debugStatus = "\(liveRows.count) live, \(staleRows.count) recently seen"
 
             // Populate offline profile cache
             ProfileCache.shared.storeAttendees(newAttendees)
 
             // ── Target Intent Detection ──
-            evaluateTargetIntent(activeAttendeeIds: Set(newAttendees.map(\.id)))
+            evaluateTargetIntent(activeAttendeeIds: Set(liveRows.map(\.profileId)))
 
         } catch {
             debugStatus = "query failed: \(error.localizedDescription)"

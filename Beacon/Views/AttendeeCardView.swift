@@ -3,6 +3,10 @@ import SwiftUI
 /// Compact horizontal card for displaying event attendee profile information
 struct AttendeeCardView: View {
     let attendee: EventAttendee
+
+    private var isRecentlySeen: Bool {
+        attendee.presenceState == .stale
+    }
     
     var body: some View {
         HStack(spacing: 12) {
@@ -16,7 +20,7 @@ struct AttendeeCardView: View {
                 Text(attendee.name)
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.primary)
+                    .foregroundColor(isRecentlySeen ? .secondary : .primary)
                 
                 // Subtitle from bio/skills/interests
                 Text(attendee.detailSubtitleText)
@@ -47,8 +51,14 @@ struct AttendeeCardView: View {
             // Status indicator
             VStack(alignment: .trailing, spacing: 4) {
                 Circle()
-                    .fill(attendee.isActiveNow ? Color.green : Color.gray)
+                    .fill(attendee.isActiveNow ? Color.green : Color.orange.opacity(0.8))
                     .frame(width: 8, height: 8)
+
+                if isRecentlySeen {
+                    Text("Recently seen")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
                 
                 Text(attendee.lastSeenText)
                     .font(.system(size: 10))
@@ -64,6 +74,7 @@ struct AttendeeCardView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color(.separator), lineWidth: 0.5)
         )
+        .opacity(isRecentlySeen ? 0.82 : 1.0)
     }
     
     // MARK: - Avatar View
