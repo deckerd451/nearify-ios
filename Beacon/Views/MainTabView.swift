@@ -22,7 +22,7 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeSurfaceView(selectedTab: $selectedTab)
+            HomeView(selectedTab: $selectedTab)
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
@@ -92,7 +92,7 @@ struct MainTabView: View {
         print("[EventJoin] ✅ User-initiated join via deep link (source: \(source), eventId: \(eventId))")
         #endif
 
-        selectedTab = .home
+        selectedTab = .event
 
         Task {
             await EventJoinService.shared.joinEvent(eventID: eventId)
@@ -101,7 +101,7 @@ struct MainTabView: View {
                 self.isConsumingPendingEvent = false
 
                 if EventJoinService.shared.isEventJoined {
-                    selectedTab = .home
+                    selectedTab = .event
                 }
 
                 #if DEBUG

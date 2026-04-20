@@ -9,6 +9,8 @@ import SwiftUI
 enum EventMembershipState: Equatable {
     /// User has not joined any event.
     case notInEvent
+    /// User has joined the event guest list but is not live at the event yet.
+    case joined(eventName: String)
     /// User has joined and heartbeat is active.
     case inEvent(eventName: String)
     /// User is temporarily backgrounded but still within the grace window.
@@ -25,7 +27,7 @@ extension EventMembershipState {
     var isParticipating: Bool {
         switch self {
         case .inEvent, .inactive, .dormant: return true
-        case .notInEvent, .left: return false
+        case .notInEvent, .joined, .left: return false
         }
     }
 
@@ -33,7 +35,7 @@ extension EventMembershipState {
     /// Dormant users are members — they just have a paused heartbeat.
     var isMember: Bool {
         switch self {
-        case .inEvent, .inactive, .dormant: return true
+        case .joined, .inEvent, .inactive, .dormant: return true
         case .notInEvent, .left: return false
         }
     }
@@ -41,7 +43,7 @@ extension EventMembershipState {
     var eventName: String? {
         switch self {
         case .notInEvent: return nil
-        case .inEvent(let n), .inactive(let n), .dormant(let n), .left(let n): return n
+        case .joined(let n), .inEvent(let n), .inactive(let n), .dormant(let n), .left(let n): return n
         }
     }
 
@@ -49,6 +51,7 @@ extension EventMembershipState {
     var displayLabel: String {
         switch self {
         case .notInEvent:       return "No Active Event"
+        case .joined:           return "Joined — ready to check in"
         case .inEvent:          return "Active now"
         case .inactive:         return "Paused — tap to resume"
         case .dormant:          return "You're still part of this event"
@@ -60,6 +63,7 @@ extension EventMembershipState {
     var iconName: String {
         switch self {
         case .notInEvent:   return "circle"
+        case .joined:       return "checkmark.circle"
         case .inEvent:      return "circle.fill"
         case .inactive:     return "moon.fill"
         case .dormant:      return "moon.zzz.fill"
@@ -71,6 +75,7 @@ extension EventMembershipState {
     var displayColor: Color {
         switch self {
         case .notInEvent:   return .gray
+        case .joined:       return .blue
         case .inEvent:      return .green
         case .inactive:     return .orange
         case .dormant:      return .orange
@@ -107,7 +112,7 @@ final class EventModeState: ObservableObject {
     /// Legacy compatibility — views that check `status` still compile.
     var status: EventStatus {
         switch membership {
-        case .notInEvent, .left:
+        case .notInEvent, .joined, .left:
             return BLEService.shared.isScanning ? .scanningForEvent : .idle
         case .dormant(let name):
             return .joinedLooking(eventName: name)

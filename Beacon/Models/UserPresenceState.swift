@@ -34,7 +34,7 @@ enum UserPresenceState: Equatable {
 enum UserPresenceStateResolver {
 
     static var current: UserPresenceState {
-        let isJoined = EventJoinService.shared.isEventJoined
+        let isJoined = EventJoinService.shared.isCheckedIn
         let zoneState = BeaconPresenceService.shared.currentZoneState
         let isScanning = BLEScannerService.shared.isScanning
         let hasNearbyPeers = EventModeState.shared.blePeerCount > 0

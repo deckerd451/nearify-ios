@@ -6,6 +6,7 @@ struct HomeView: View {
     @ObservedObject private var attendeesService = EventAttendeesService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
     @State private var showScanner = false
+    @State private var showLeaveConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -16,10 +17,10 @@ struct HomeView: View {
                         .padding(.top, 16)
                         .padding(.bottom, 24)
 
-                    if attendeesService.isLoading && attendeesService.attendees.isEmpty && isEventActive {
+                    if attendeesService.isLoading && attendeesService.attendees.isEmpty && eventJoin.isCheckedIn {
                         loadingState.padding(.top, 60)
-                    } else if !isEventActive {
-                        EmptyView()
+                    } else if !eventJoin.isCheckedIn {
+                        neutralState
                     } else if attendeesService.attendees.isEmpty {
                         emptyState.padding(.top, 60)
                     } else {
@@ -27,13 +28,15 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationTitle("DEBUG BUILD SENTINEL")
+            .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.large)
             .refreshable { attendeesService.refresh() }
-            .onAppear {
-                #if DEBUG
-                print("[TEST] HomeView appeared")
-                #endif
+            .onAppear {}
+            .confirmationDialog("Say Goodbye?", isPresented: $showLeaveConfirmation, titleVisibility: .visible) {
+                Button("Leave Event", role: .destructive) { Task { await eventJoin.leaveEvent() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This checks you out and prepares your post-event summary.")
             }
             .fullScreenCover(isPresented: $showScanner) {
                 ScanView(
@@ -53,24 +56,19 @@ struct HomeView: View {
 
     // MARK: - Event Header
 
-    private var isEventActive: Bool {
-        eventJoin.isEventJoined || presence.currentEvent != nil
-    }
-
     private var eventDisplayName: String {
         eventJoin.currentEventName ?? presence.currentEvent ?? "Event"
     }
 
     private var eventHeader: some View {
         VStack(spacing: 12) {
-            if eventJoin.isEventJoined {
-                // Joined state
+            if eventJoin.isCheckedIn {
                 joinedCard
+            } else if eventJoin.isEventJoined {
+                preCheckInCard
             } else if presence.currentEvent != nil {
-                // Legacy beacon-only
                 legacyCard
             } else {
-                // Not joined — scan card
                 scanCard
             }
         }
@@ -145,6 +143,21 @@ struct HomeView: View {
                         .stroke(Color.green.opacity(0.2), lineWidth: 1)
                 )
         )
+        .overlay(alignment: .bottomTrailing) {
+            Button {
+                showLeaveConfirmation = true
+            } label: {
+                Text("Say Goodbye")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.red.opacity(0.9))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.red.opacity(0.12)))
+            }
+            .padding(.trailing, 10)
+            .padding(.bottom, 8)
+        }
     }
 
     private var joinedSubtitle: String {
@@ -153,6 +166,38 @@ struct HomeView: View {
             return "Event active · \(count) nearby"
         }
         return "Event active · Proximity enabled"
+    }
+
+    private var preCheckInCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(eventDisplayName)
+                .font(.headline)
+            Text("You joined this event. Check in when you arrive to become visible to other attendees.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Button {
+                Task { await eventJoin.checkIn() }
+            } label: {
+                Text("Check In")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.blue.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.blue.opacity(0.2), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Legacy Card
@@ -187,7 +232,7 @@ struct HomeView: View {
     private var attendeeList: some View {
         LazyVStack(spacing: 8) {
             HStack {
-                Text("Nearby Attendees")
+                Text("Checked-In Attendees")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
@@ -218,7 +263,49 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Empty / Loading
+    // MARK: - Empty / Loading / Neutral
+
+    private var neutralState: some View {
+        VStack(spacing: 12) {
+            Text("No live event yet")
+                .font(.headline)
+                .foregroundColor(.secondary)
+            Text("Explore events, join one, then check in when you arrive.")
+                .font(.subheadline)
+                .foregroundColor(.secondary.opacity(0.8))
+                .multilineTextAlignment(.center)
+            Button {
+                selectedTab = .event
+            } label: {
+                Text("Go to Explore")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.blue))
+            }
+
+            if let summary = eventJoin.postEventSummary {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Last Summary")
+                        .font(.caption)
+                        .foregroundColor(.cyan)
+                    Text(summary.eventName)
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                    Text("\(summary.totalPeopleMet) people met")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.06)))
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 56)
+    }
 
     private var emptyState: some View {
         VStack(spacing: 16) {

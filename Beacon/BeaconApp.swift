@@ -12,7 +12,8 @@ import Supabase
 struct BeaconApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authService = AuthService.shared
-    @State private var selectedTab: AppTab = .home
+    @State private var selectedTab: AppTab = .event
+    @State private var showPostAuthTransition = true
     @State private var showReconnectionToast = false
     @State private var syncedEncounterCount = 0
     @Environment(\.scenePhase) private var scenePhase
@@ -39,44 +40,55 @@ struct BeaconApp: App {
                     if let currentUser = authService.currentUser {
                         switch authService.profileState {
                         case .ready:
-                            ZStack(alignment: .top) {
-                                MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
-
-                                // Nearby Mode banner — non-disruptive, auto-hides on recovery
-                                if authService.isOfflineMode {
-                                    nearbyModeBanner
-                                }
-
-                                // Reconnection toast — shown briefly when connectivity returns
-                                if showReconnectionToast {
-                                    ReconnectionToastView(syncedCount: syncedEncounterCount)
-                                        .padding(.top, 4)
-                                        .transition(.move(edge: .top).combined(with: .opacity))
-                                }
-                            }
-                            .animation(.easeInOut(duration: 0.3), value: authService.isOfflineMode)
-                            .animation(.easeInOut(duration: 0.3), value: showReconnectionToast)
-                            .onChange(of: authService.isOfflineMode) { wasOffline, isOffline in
-                                if wasOffline && !isOffline {
-                                    // Just came back online — show reconnection toast
-                                    syncedEncounterCount = 0
-                                    showReconnectionToast = true
-                                    #if DEBUG
-                                    print("[NearbyMode] exiting (connection restored)")
-                                    #endif
-                                    // After a brief delay, update with actual sync count
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                        syncedEncounterCount = NearbyModeTracker.shared.lastSyncedCount
+                            if showPostAuthTransition {
+                                PostAuthTransitionView()
+                                    .task {
+                                        // Lightweight prep only.
+                                        ExploreEventsService.shared.refresh()
+                                        selectedTab = .event
+                                        try? await Task.sleep(nanoseconds: 800_000_000)
+                                        showPostAuthTransition = false
                                     }
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                                        withAnimation { showReconnectionToast = false }
+                            } else {
+                                ZStack(alignment: .top) {
+                                    MainTabView(currentUser: currentUser, selectedTab: $selectedTab)
+
+                                    // Nearby Mode banner — non-disruptive, auto-hides on recovery
+                                    if authService.isOfflineMode {
+                                        nearbyModeBanner
+                                    }
+
+                                    // Reconnection toast — shown briefly when connectivity returns
+                                    if showReconnectionToast {
+                                        ReconnectionToastView(syncedCount: syncedEncounterCount)
+                                            .padding(.top, 4)
+                                            .transition(.move(edge: .top).combined(with: .opacity))
                                     }
                                 }
-                                if !wasOffline && isOffline {
-                                    #if DEBUG
-                                    print("[NearbyMode] entered")
-                                    #endif
-                                    NearbyModeTracker.shared.startTracking()
+                                .animation(.easeInOut(duration: 0.3), value: authService.isOfflineMode)
+                                .animation(.easeInOut(duration: 0.3), value: showReconnectionToast)
+                                .onChange(of: authService.isOfflineMode) { wasOffline, isOffline in
+                                    if wasOffline && !isOffline {
+                                        // Just came back online — show reconnection toast
+                                        syncedEncounterCount = 0
+                                        showReconnectionToast = true
+                                        #if DEBUG
+                                        print("[NearbyMode] exiting (connection restored)")
+                                        #endif
+                                        // After a brief delay, update with actual sync count
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                            syncedEncounterCount = NearbyModeTracker.shared.lastSyncedCount
+                                        }
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                                            withAnimation { showReconnectionToast = false }
+                                        }
+                                    }
+                                    if !wasOffline && isOffline {
+                                        #if DEBUG
+                                        print("[NearbyMode] entered")
+                                        #endif
+                                        NearbyModeTracker.shared.startTracking()
+                                    }
                                 }
                             }
 
@@ -109,6 +121,14 @@ struct BeaconApp: App {
                     LoginView()
                 }
             }
+            .onChange(of: authService.isAuthenticated) { _, isAuthenticated in
+                if isAuthenticated {
+                    showPostAuthTransition = true
+                } else {
+                    showPostAuthTransition = true
+                    selectedTab = .event
+                }
+            }
             .onChange(of: scenePhase) { oldPhase, newPhase in
                 handleScenePhaseChange(from: oldPhase, to: newPhase)
             }
@@ -124,6 +144,7 @@ struct BeaconApp: App {
                     print("[DeepLink] 🔐 Routing to OAuth")
                     #endif
                     Task { await authService.handleOAuthCallback(url: url) }
+                    showPostAuthTransition = true
                     return
                 }
 
@@ -145,7 +166,7 @@ struct BeaconApp: App {
                     // Deep link event ID is stored in DeepLinkManager (above).
                     // MainTabView.replayPendingEventIfNeeded will join when UI is ready.
                     // DO NOT join here — it causes duplicate joins.
-                    selectedTab = .home
+                    selectedTab = .event
 
                 case .profile(let communityId):
                     #if DEBUG
@@ -326,6 +347,25 @@ struct LoginView: View {
         } catch {
             errorMessage = error.localizedDescription
             isLoading = false
+        }
+    }
+}
+
+private struct PostAuthTransitionView: View {
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 14) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 42))
+                    .foregroundColor(.cyan.opacity(0.9))
+                Text("Nearify")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                ProgressView()
+                    .tint(.white)
+            }
         }
     }
 }

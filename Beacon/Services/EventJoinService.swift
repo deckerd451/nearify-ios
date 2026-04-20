@@ -12,6 +12,7 @@ final class EventJoinService: ObservableObject {
     @Published private(set) var currentEventID: String?
     @Published private(set) var currentEventName: String?
     @Published private(set) var isEventJoined: Bool = false
+    @Published private(set) var isCheckedIn: Bool = false
     @Published private(set) var joinError: String?
 
     /// Canonical membership state — the single source of truth for the UI.
@@ -41,6 +42,7 @@ final class EventJoinService: ObservableObject {
 
     /// Subscription for beacon zone changes — used for soft recovery.
     private var beaconCancellable: AnyCancellable?
+    private var joinedProfileId: UUID?
 
     /// Timestamp when the app entered background. Used for timeout calculation.
     private(set) var backgroundEnteredAt: Date?
@@ -126,7 +128,7 @@ final class EventJoinService: ObservableObject {
 
                 // Only act if user has an active joined event.
                 // Beacon alone never creates a join — it only reinforces one.
-                guard self.isEventJoined else { return }
+                guard self.isCheckedIn else { return }
 
                 #if DEBUG
                 print("[EventJoin] 📡 Beacon zone → inside while event active — triggering confidence refresh")
@@ -198,6 +200,7 @@ final class EventJoinService: ObservableObject {
 
         // Acknowledge the left state immediately so it doesn't block the join
         membershipState = .notInEvent
+        isCheckedIn = false
 
         // Now join the new event
         guard let eventUUID = UUID(uuidString: newEventId) else {
@@ -227,8 +230,10 @@ final class EventJoinService: ObservableObject {
 
             currentEventID = event.id.uuidString
             currentEventName = event.name
+            joinedProfileId = profile.id
             isEventJoined = true
-            membershipState = .inEvent(eventName: event.name)
+            isCheckedIn = false
+            membershipState = .joined(eventName: event.name)
             joinError = nil
             backgroundEnteredAt = nil
             reconnectDismissedThisSession = false
@@ -246,30 +251,13 @@ final class EventJoinService: ObservableObject {
             // Persist for reconnect recovery
             saveLastEventContext(eventId: event.id.uuidString, eventName: event.name)
 
-            // EventPresenceService is the SINGLE heartbeat owner.
-            // It writes status="joined" + last_seen_at on every tick.
-            presence.activateFromQRJoin(
-                eventName: event.name,
-                contextId: event.id,
-                communityId: profile.id
-            )
-
-            BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profile.id)
-            BLEScannerService.shared.startScanning()
-
-            // Start encounter tracking for the Social Memory Feed
-            EncounterService.shared.startPeriodicFlush()
-
-            // Start local encounter capture (passive, no backend writes)
-            LocalEncounterStore.shared.startCapture()
-
             // Preload event context for intelligence pipeline (fire-and-forget)
             Task(priority: .utility) {
                 await EventContextService.shared.fetchContext(eventId: event.id)
             }
 
             #if DEBUG
-            print("[EventJoin] ✅ Joined event: \(event.name)")
+            print("[EventJoin] ✅ Joined event (ready for check-in): \(event.name)")
             #endif
 
         } catch {
@@ -279,6 +267,44 @@ final class EventJoinService: ObservableObject {
     }
 
     // MARK: - Leave Event (explicit user action)
+
+    func checkIn() async {
+        guard isEventJoined, !isCheckedIn else { return }
+        guard let eventIdString = currentEventID,
+              let eventId = UUID(uuidString: eventIdString),
+              let eventName = currentEventName else {
+            joinError = "Missing event context"
+            return
+        }
+
+        do {
+            let profileId: UUID
+            if let joinedProfileId {
+                profileId = joinedProfileId
+            } else {
+                profileId = try await ensureProfile().id
+                joinedProfileId = profileId
+            }
+
+            presence.activateFromQRJoin(
+                eventName: eventName,
+                contextId: eventId,
+                communityId: profileId
+            )
+
+            BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
+            BLEScannerService.shared.startScanning()
+            EncounterService.shared.startPeriodicFlush()
+            LocalEncounterStore.shared.startCapture()
+
+            isCheckedIn = true
+            membershipState = .inEvent(eventName: eventName)
+            joinError = nil
+        } catch {
+            joinError = error.localizedDescription
+            print("[EventJoin] ❌ Check-in failed: \(error)")
+        }
+    }
 
     func leaveEvent() async {
         let eventName = currentEventName ?? "event"
@@ -302,7 +328,12 @@ final class EventJoinService: ObservableObject {
         }
 
         // Write status="left" to DB before clearing local state
-        await presence.leaveCurrentEvent()
+        if isCheckedIn {
+            await presence.leaveCurrentEvent()
+        } else if let eventUUID = currentEventID.flatMap(UUID.init(uuidString:)),
+                  let profileId = joinedProfileId {
+            await presence.markLeftWithoutActiveSession(eventId: eventUUID, profileId: profileId)
+        }
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
@@ -321,7 +352,9 @@ final class EventJoinService: ObservableObject {
         // Clear all event state atomically.
         currentEventID = nil
         currentEventName = nil
+        joinedProfileId = nil
         isEventJoined = false
+        isCheckedIn = false
         backgroundEnteredAt = nil
         membershipState = .left(eventName: eventName)
         pendingEventSwitch = nil
@@ -344,6 +377,7 @@ final class EventJoinService: ObservableObject {
     // Only an explicit leaveEvent() call does that.
 
     func enterDormant() {
+        guard isCheckedIn else { return }
         guard let name = currentEventName else { return }
 
         // Generate post-event summary while encounter data is still available
@@ -390,6 +424,7 @@ final class EventJoinService: ObservableObject {
         }
 
         membershipState = .inEvent(eventName: name)
+        isCheckedIn = true
         backgroundEnteredAt = nil
 
         // Restart heartbeat — this writes status="joined" + fresh last_seen_at
@@ -421,7 +456,7 @@ final class EventJoinService: ObservableObject {
 
     /// Called when the app enters background.
     func handleAppBackground() {
-        guard isEventJoined, let name = currentEventName else { return }
+        guard isCheckedIn, let name = currentEventName else { return }
 
         backgroundEnteredAt = Date()
         membershipState = .inactive(eventName: name)
@@ -466,7 +501,7 @@ final class EventJoinService: ObservableObject {
         } else if elapsed > dormancyThreshold && inBeaconZone {
             // Exceeded threshold but beacon confirms physical presence.
             // Restore active session — user is clearly still at the event.
-            if isEventJoined, let name = currentEventName {
+            if isCheckedIn, let name = currentEventName {
                 membershipState = .inEvent(eventName: name)
 
                 #if DEBUG
@@ -483,7 +518,7 @@ final class EventJoinService: ObservableObject {
                 // Not joined — beacon alone doesn't create a join.
                 enterDormant()
             }
-        } else if isEventJoined, let name = currentEventName {
+        } else if isCheckedIn, let name = currentEventName {
             // Within grace window → restore active membership immediately.
             membershipState = .inEvent(eventName: name)
 
@@ -527,7 +562,9 @@ final class EventJoinService: ObservableObject {
 
         currentEventID = nil
         currentEventName = nil
+        joinedProfileId = nil
         isEventJoined = false
+        isCheckedIn = false
         joinError = nil
         backgroundEnteredAt = nil
         membershipState = .notInEvent
