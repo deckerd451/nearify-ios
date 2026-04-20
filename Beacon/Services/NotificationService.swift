@@ -35,8 +35,8 @@ final class NotificationService {
     /// Tracks last notification time per dedupe key (type:profileId).
     private var lastNotified: [String: Date] = [:]
 
-    /// Profile ID of the conversation currently being viewed (suppress message notifications).
-    var activeConversationProfileId: UUID?
+    /// Conversation currently being viewed (suppress redundant system notifications).
+    var activeConversationId: UUID?
 
     private init() {
         requestPermission()
@@ -54,27 +54,9 @@ final class NotificationService {
 
     // MARK: - Public API
 
-    /// Evaluate feed items after a refresh. Only notifies for IMMEDIATE/LIVE messages.
+    /// Evaluate feed items after a refresh. Message notifications are handled by MessageNotificationCoordinator.
     func evaluateFeedItems(_ items: [FeedItem]) {
-        guard let myId = AuthService.shared.currentUser?.id else { return }
-
-        for item in items where item.feedType == .message {
-            guard let actorId = item.actorProfileId, actorId != myId else { continue }
-            guard let ts = item.createdAt else { continue }
-            let age = Date().timeIntervalSince(ts)
-
-            // Temporal gate: only notify for recent messages (IMMEDIATE/LIVE window)
-            guard age < Threshold.maxNotificationAge else { continue }
-
-            let name = item.metadata?.actorName ?? "Someone"
-            let preview = item.metadata?.messagePreview
-
-            onMessageReceived(
-                fromProfileId: actorId,
-                fromName: name,
-                preview: preview
-            )
-        }
+        _ = items
     }
 
     /// Evaluate event intelligence results. Only notify for high-urgency decisions.
@@ -138,30 +120,13 @@ final class NotificationService {
         }
     }
 
-    /// Called when a message is received (or detected in feed).
-    func onMessageReceived(fromProfileId: UUID, fromName: String, preview: String?) {
-        // Don't notify if user is currently viewing this conversation
-        if activeConversationProfileId == fromProfileId {
-            #if DEBUG
-            print("[Notify] Message skip (active conversation): \(fromName)")
-            #endif
-            return
-        }
+    /// Sends one deterministic local notification for a message when app is not active.
+    func sendMessageNotification(messageId: UUID, fromName: String, preview: String?) {
+        let key = "message:\(messageId)"
 
-        let key = "message:\(fromProfileId)"
-        guard !isCoolingDown(key: key, cooldown: Cooldown.message) else {
-            #if DEBUG
-            print("[Notify] Message skip (cooldown): \(fromName)")
-            #endif
-            return
-        }
-
-        markNotified(key: key)
-
-        // Action-oriented language: "Reply to Doug"
         let firstName = fromName.components(separatedBy: " ").first ?? fromName
         let body: String
-        if let preview = preview, !preview.isEmpty {
+        if let preview, !preview.isEmpty {
             body = "Reply to \(firstName) — \(String(preview.prefix(60)))"
         } else {
             body = "Reply to \(firstName)"
@@ -240,7 +205,7 @@ final class NotificationService {
     /// Clears all cooldown state (e.g., when leaving an event).
     func reset() {
         lastNotified.removeAll()
-        activeConversationProfileId = nil
+        activeConversationId = nil
     }
 
     // MARK: - Cooldown Logic

@@ -127,12 +127,12 @@ struct ConversationView: View {
                 }
             }
             .task {
-                NotificationService.shared.activeConversationProfileId = targetProfileId
                 await loadConversation()
                 requestScrollToBottom(animated: false, delay: 0.1)
             }
             .onDisappear {
-                NotificationService.shared.activeConversationProfileId = nil
+                MessagingService.shared.activeConversationId = nil
+                NotificationService.shared.activeConversationId = nil
             }
         }
     }
@@ -201,11 +201,14 @@ struct ConversationView: View {
         if let preloaded = preloadedConversation {
             print("[Conversation] ⚡ Using preloaded conversation: \(preloaded.id)")
             conversation = preloaded
+            MessagingService.shared.activeConversationId = preloaded.id
+            NotificationService.shared.activeConversationId = preloaded.id
             targetName = preloadedName ?? "..."
             isLoading = false
 
             // Messages may already be loaded by the caller, but refresh to be safe
             await messaging.fetchMessages(conversationId: preloaded.id)
+            messaging.markConversationViewed(conversationId: preloaded.id)
             print("[Conversation] ✅ Messages refreshed for preloaded conversation")
             return
         }
@@ -231,7 +234,10 @@ struct ConversationView: View {
                 eventName: eventName
             )
             conversation = convo
+            MessagingService.shared.activeConversationId = convo.id
+            NotificationService.shared.activeConversationId = convo.id
             await messaging.fetchMessages(conversationId: convo.id)
+            messaging.markConversationViewed(conversationId: convo.id)
             isLoading = false
             print("[Conversation] ✅ Lazy load complete: \(convo.id)")
         } catch {
