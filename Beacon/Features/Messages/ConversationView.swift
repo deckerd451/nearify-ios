@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Lightweight messaging view between connected users.
 /// Text only. No attachments. No reactions.
@@ -20,6 +21,8 @@ struct ConversationView: View {
     @State private var isLoading = true
     @State private var targetName = "..."
     @State private var errorMessage: String?
+    @State private var isPinnedToBottom = true
+    @State private var scrollCommand: ScrollCommand?
 
     private var myId: UUID? {
         AuthService.shared.currentUser?.id
@@ -70,17 +73,43 @@ struct ConversationView: View {
                                 LazyVStack(spacing: 8) {
                                     ForEach(messaging.currentMessages) { msg in
                                         messageBubble(msg)
+                                            .onAppear {
+                                                if msg.id == messaging.currentMessages.last?.id {
+                                                    isPinnedToBottom = true
+                                                }
+                                            }
+                                            .onDisappear {
+                                                if msg.id == messaging.currentMessages.last?.id {
+                                                    isPinnedToBottom = false
+                                                }
+                                            }
                                             .id(msg.id)
                                     }
                                 }
                                 .padding()
                             }
-                            .onChange(of: messaging.currentMessages.count) { _, _ in
-                                if let last = messaging.currentMessages.last {
-                                    withAnimation {
-                                        proxy.scrollTo(last.id, anchor: .bottom)
-                                    }
+                            .onChange(of: messaging.currentMessages.count) { oldCount, newCount in
+                                guard newCount > 0 else { return }
+
+                                // Initial load + explicit send should always land on latest.
+                                // Reloads keep bottom pinned only when user is already near the bottom.
+                                if oldCount == 0 || newCount > oldCount || isPinnedToBottom {
+                                    requestScrollToBottom(animated: true)
                                 }
+                            }
+                            .onChange(of: scrollCommand) { _, command in
+                                guard let command else { return }
+                                if command.animated {
+                                    withAnimation {
+                                        proxy.scrollTo(command.messageId, anchor: .bottom)
+                                    }
+                                } else {
+                                    proxy.scrollTo(command.messageId, anchor: .bottom)
+                                }
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { _ in
+                                guard isPinnedToBottom else { return }
+                                requestScrollToBottom(animated: true, delay: 0.05)
                             }
                         }
 
@@ -100,6 +129,7 @@ struct ConversationView: View {
             .task {
                 NotificationService.shared.activeConversationProfileId = targetProfileId
                 await loadConversation()
+                requestScrollToBottom(animated: false, delay: 0.1)
             }
             .onDisappear {
                 NotificationService.shared.activeConversationProfileId = nil
@@ -215,6 +245,7 @@ struct ConversationView: View {
         guard let convo = conversation else { return }
         let text = messageText
         messageText = ""
+        isPinnedToBottom = true
 
         Task {
             do {
@@ -231,4 +262,26 @@ struct ConversationView: View {
             }
         }
     }
+
+    private func requestScrollToBottom(animated: Bool, delay: TimeInterval = 0) {
+        guard let lastId = messaging.currentMessages.last?.id else { return }
+
+        let command = ScrollCommand(messageId: lastId, animated: animated)
+        if delay <= 0 {
+            scrollCommand = command
+        } else {
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    scrollCommand = command
+                }
+            }
+        }
+    }
+}
+
+private struct ScrollCommand: Equatable {
+    let messageId: UUID
+    let animated: Bool
 }
