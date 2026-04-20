@@ -76,13 +76,23 @@ enum PostEventSummaryBuilder {
 
         // ── Gather event-scoped data ──
         let eventRelationships = relationships.filter { rel in
-            let hasSessionEncounter = sessionEncounters[rel.profileId] != nil || localSignals[rel.profileId] != nil
-            let touchedDuringSession = relationshipTouchedDuringSession(rel, sessionStart: inferredSessionStart)
-            let hasEventContext = rel.eventContexts.contains(eventName)
-            rel.profileId != myId && (
-                hasSessionEncounter
-                || (hasEventContext && touchedDuringSession)
+            let hasSessionEncounter =
+                sessionEncounters[rel.profileId] != nil ||
+                localSignals[rel.profileId] != nil
+
+            let touchedDuringSession = relationshipTouchedDuringSession(
+                rel,
+                sessionStart: inferredSessionStart
             )
+
+            let hasEventContext = rel.eventContexts.contains(eventName)
+
+            return rel.profileId != myId &&
+                (
+                    hasSessionEncounter ||
+                    touchedDuringSession ||
+                    hasEventContext
+                )
         }
 
         // Recent connections made during this event
