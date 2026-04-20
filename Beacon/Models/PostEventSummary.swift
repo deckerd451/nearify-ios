@@ -8,17 +8,43 @@ import Foundation
 struct PostEventSummary {
     let eventName: String
     let totalPeopleMet: Int
+    let snapshot: EventSnapshot
+    let keyPeople: [KeyPerson]
     let strongestInteraction: ProfileSnapshot?
     let recentConnections: [ProfileSnapshot]
     let missedConnections: [ProfileSnapshot]
     let followUpSuggestions: [FollowUpSuggestion]
+    let narrativeWrapUp: String
 
     var isEmpty: Bool {
         totalPeopleMet == 0
+        && keyPeople.isEmpty
         && strongestInteraction == nil
         && recentConnections.isEmpty
         && missedConnections.isEmpty
         && followUpSuggestions.isEmpty
+        && narrativeWrapUp.isEmpty
+    }
+}
+
+// MARK: - Snapshot + Key People
+
+struct EventSnapshot {
+    let attendedMinutes: Int?
+    let meaningfulPeopleCount: Int
+    let activityLine: String
+}
+
+struct KeyPerson: Identifiable {
+    let id: UUID
+    let profile: ProfileSnapshot
+    let reason: String
+    let signalTier: SignalTier
+
+    enum SignalTier {
+        case high
+        case medium
+        case low
     }
 }
 
