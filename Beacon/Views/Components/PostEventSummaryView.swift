@@ -25,6 +25,26 @@ struct PostEventSummaryView: View {
                 }
             }
 
+            summarySection(
+                title: "Event Snapshot",
+                icon: "clock.badge.checkmark",
+                color: .cyan
+            ) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let attended = summary.snapshot.attendedMinutes {
+                        Text("Attended for \(attended) min")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.85))
+                    }
+                    Text("\(summary.snapshot.meaningfulPeopleCount) meaningful \(summary.snapshot.meaningfulPeopleCount == 1 ? "contact" : "contacts")")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.85))
+                    Text(summary.snapshot.activityLine)
+                        .font(.caption2)
+                        .foregroundColor(.cyan.opacity(0.9))
+                }
+            }
+
             // ── Strongest Connection ──
             if let strongest = summary.strongestInteraction {
                 summarySection(
@@ -45,6 +65,19 @@ struct PostEventSummaryView: View {
                 ) {
                     ForEach(summary.recentConnections) { profile in
                         profileRow(profile, accentColor: .green, showActions: true)
+                    }
+                }
+            }
+
+            // ── Key People ──
+            if !summary.keyPeople.isEmpty {
+                summarySection(
+                    title: "Key People",
+                    icon: "person.3.fill",
+                    color: .mint
+                ) {
+                    ForEach(summary.keyPeople) { person in
+                        keyPersonRow(person)
                     }
                 }
             }
@@ -72,6 +105,19 @@ struct PostEventSummaryView: View {
                     ForEach(summary.followUpSuggestions) { suggestion in
                         suggestionRow(suggestion)
                     }
+                }
+            }
+
+            if !summary.narrativeWrapUp.isEmpty {
+                summarySection(
+                    title: "Wrap-Up",
+                    icon: "text.quote",
+                    color: .white
+                ) {
+                    Text(summary.narrativeWrapUp)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.82))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -214,6 +260,47 @@ struct PostEventSummaryView: View {
         }
     }
 
+    // MARK: - Key People Row
+
+    private func keyPersonRow(_ person: KeyPerson) -> some View {
+        HStack(spacing: 10) {
+            AvatarView(
+                imageUrl: person.profile.avatarUrl,
+                name: person.profile.name,
+                size: 32,
+                placeholderColor: keyTierColor(person.signalTier)
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(person.profile.name)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+
+                Text(person.reason)
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.75))
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button {
+                onViewProfile(person.profile.id)
+            } label: {
+                Text("Profile")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(keyTierColor(person.signalTier))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(keyTierColor(person.signalTier).opacity(0.12))
+                    .cornerRadius(6)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func suggestionColor(_ type: FollowUpSuggestion.SuggestionType) -> Color {
@@ -229,6 +316,14 @@ struct PostEventSummaryView: View {
         case .followUp:     return "Follow up"
         case .message:      return "Message"
         case .meetNextTime: return "Remember"
+        }
+    }
+
+    private func keyTierColor(_ tier: KeyPerson.SignalTier) -> Color {
+        switch tier {
+        case .high: return .orange
+        case .medium: return .mint
+        case .low: return .gray
         }
     }
 }
