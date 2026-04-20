@@ -25,6 +25,7 @@ struct ExploreView: View {
 
     @State private var joinState: ExploreJoinState = .idle
     @State private var expandedEventId: UUID?
+    @State private var selectedPastEvent: ExploreEvent?
 
     var body: some View {
         NavigationStack {
@@ -56,6 +57,16 @@ struct ExploreView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Your connections and messages will be kept.")
+            }
+            .sheet(item: $selectedPastEvent) { event in
+                PastEventRecapView(
+                    event: event,
+                    summary: summaryForPastEvent(event),
+                    canRejoin: canRejoinPastEvent(event)
+                ) {
+                    selectedPastEvent = nil
+                    performJoin(eventId: event.id.uuidString)
+                }
             }
         }
     }
@@ -409,6 +420,8 @@ struct ExploreView: View {
 
     private func eventCard(_ event: ExploreEvent, role: SectionRole) -> some View {
         let isExpanded = expandedEventId == event.id
+        let preview = role == .rejoin ? pastEventPreview(for: event) : nil
+        let canRejoin = role == .rejoin && canRejoinPastEvent(event)
 
         return VStack(alignment: .leading, spacing: 10) {
             Text(event.name)
@@ -449,8 +462,27 @@ struct ExploreView: View {
                 .font(.caption).foregroundColor(.green.opacity(0.8))
             }
 
+            if let preview {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange.opacity(0.9))
+                    Text(preview.line)
+                        .font(.caption)
+                        .foregroundColor(.orange.opacity(0.9))
+                        .lineLimit(1)
+                }
+
+                if let snippet = preview.snippet {
+                    Text(snippet)
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.5))
+                        .lineLimit(2)
+                }
+            }
+
             // ── PRE-EVENT BRIEF (expanded only) ──
-            if isExpanded {
+            if isExpanded && role != .rejoin {
                 let brief = PreEventBriefBuilder.build(
                     eventId: event.id,
                     eventName: event.name
@@ -474,7 +506,9 @@ struct ExploreView: View {
                 case .happeningNow, .upcoming:
                     joinButton(eventId: event.id.uuidString)
                 case .rejoin:
-                    rejoinButton(eventId: event.id.uuidString)
+                    if canRejoin {
+                        rejoinButton(eventId: event.id.uuidString)
+                    }
                 }
             }
             .padding(.top, 2)
@@ -494,10 +528,49 @@ struct ExploreView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.25)) {
-                expandedEventId = isExpanded ? nil : event.id
+            if role == .rejoin {
+                selectedPastEvent = event
+            } else {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    expandedEventId = isExpanded ? nil : event.id
+                }
             }
         }
+    }
+
+    // MARK: - Past Event Preview
+
+    private struct PastEventPreview {
+        let line: String
+        let snippet: String?
+    }
+
+    private func summaryForPastEvent(_ event: ExploreEvent) -> PostEventSummary? {
+        guard let summary = eventJoin.postEventSummary else { return nil }
+        return summary.eventName == event.name ? summary : nil
+    }
+
+    private func canRejoinPastEvent(_ event: ExploreEvent) -> Bool {
+        eventJoin.reconnectContext?.eventId == event.id.uuidString
+    }
+
+    private func pastEventPreview(for event: ExploreEvent) -> PastEventPreview {
+        guard let summary = summaryForPastEvent(event) else {
+            return PastEventPreview(line: "Summary pending", snippet: nil)
+        }
+
+        let primaryLine: String
+        if let strongest = summary.strongestInteraction {
+            primaryLine = "Strongest: \(strongest.name)"
+        } else if summary.snapshot.meaningfulPeopleCount == 0 {
+            primaryLine = "No meaningful contacts"
+        } else {
+            let count = summary.snapshot.meaningfulPeopleCount
+            primaryLine = "\(count) meaningful \(count == 1 ? "contact" : "contacts")"
+        }
+
+        let snippet = summary.followUpSuggestions.first?.reason ?? summary.snapshot.activityLine
+        return PastEventPreview(line: primaryLine, snippet: snippet)
     }
 
     // MARK: - CTAs
@@ -751,5 +824,87 @@ struct ExploreView: View {
                 .font(.caption).foregroundColor(.gray).multilineTextAlignment(.center)
         }
         .padding(.vertical, 16)
+    }
+}
+
+private struct PastEventRecapView: View {
+    let event: ExploreEvent
+    let summary: PostEventSummary?
+    let canRejoin: Bool
+    let onRejoin: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(event.name)
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+
+                        HStack(spacing: 12) {
+                            if let date = event.dateDisplay {
+                                Label(date, systemImage: "clock")
+                            }
+                            if let location = event.location, !location.isEmpty {
+                                Label(location, systemImage: "mappin")
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundColor(.gray)
+
+                        if let summary {
+                            PostEventSummaryView(summary: summary)
+                                .padding(.top, 4)
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Summary not ready yet")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                Text("We’ll show event reflection here once a post-event summary is available.")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            .padding(14)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.06))
+                            )
+                        }
+
+                        if canRejoin {
+                            Button {
+                                onRejoin()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                                    Text("Rejoin Event")
+                                        .fontWeight(.semibold)
+                                }
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(Color.orange)
+                                .cornerRadius(10)
+                            }
+                            .padding(.top, 6)
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Event Recap")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
     }
 }
