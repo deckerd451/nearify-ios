@@ -408,7 +408,6 @@ struct ExploreView: View {
     // MARK: - Event Card
 
     private func eventCard(_ event: ExploreEvent, role: SectionRole) -> some View {
-        let relevance = (role != .rejoin) ? EventRelevanceScorer.score(event: event) : nil
         let isExpanded = expandedEventId == event.id
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -440,18 +439,6 @@ struct ExploreView: View {
                 Text(desc)
                     .font(.caption).foregroundColor(.white.opacity(0.6))
                     .lineLimit(isExpanded ? nil : 2)
-            }
-
-            // Relevance reason
-            if let rel = relevance {
-                HStack(spacing: 5) {
-                    Image(systemName: rel.mode == .reinforcement ? "person.2" : "sparkles")
-                        .font(.system(size: 10))
-                    Text(rel.reason)
-                        .font(.caption)
-                        .lineLimit(isExpanded ? nil : 1)
-                }
-                .foregroundColor(rel.mode == .reinforcement ? .orange.opacity(0.8) : .cyan.opacity(0.8))
             }
 
             if event.activeAttendeeCount > 0 {
