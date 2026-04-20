@@ -70,10 +70,17 @@ final class LocalEncounterStore {
     private var cancellable: AnyCancellable?
     private var saveTask: Task<Void, Never>?
     private var isCapturing = false
+    private var fragmentUploadCapability: FragmentUploadCapability = .unknown
 
     private let fileName = "local_encounters.json"
     private let maxEncounters = 200
     private let pruneAge: TimeInterval = 7 * 24 * 3600  // 7 days
+
+    private enum FragmentUploadCapability {
+        case unknown
+        case available
+        case unavailable
+    }
 
     private init() {
         loadFromDisk()
@@ -363,6 +370,12 @@ final class LocalEncounterStore {
             var successCount = 0
             var failCount = 0
 
+            let canUpload = await self.ensureFragmentUploadAvailable(supabase: supabase)
+            guard canUpload else {
+                self.isUploading = false
+                return
+            }
+
             for fragment in pending {
                 let payload = FragmentUploadPayload(
                     uploader_profile_id: myProfileId.uuidString,
@@ -397,6 +410,15 @@ final class LocalEncounterStore {
                         enc.uploadStatus = .failed
                         self.encounters[fragment.peerEphemeralId] = enc
                     }
+
+                    if Self.isMissingEncounterFragmentsTable(error) {
+                        self.fragmentUploadCapability = .unavailable
+                        #if DEBUG
+                        print("[Release] encounter_fragments table unavailable — disabling fragment uploads for this run")
+                        #endif
+                        break
+                    }
+
                     failCount += 1
                     #if DEBUG
                     print("[Release] fragment upload failed: \(fragment.peerEphemeralId) — \(error.localizedDescription)")
@@ -417,6 +439,49 @@ final class LocalEncounterStore {
             }
         }
     }
+
+    private func ensureFragmentUploadAvailable(supabase: SupabaseClient) async -> Bool {
+        switch fragmentUploadCapability {
+        case .available:
+            return true
+        case .unavailable:
+            #if DEBUG
+            print("[Release] upload skipped — encounter_fragments unavailable in backend schema cache")
+            #endif
+            return false
+        case .unknown:
+            do {
+                let _: [FragmentProbeRow] = try await supabase
+                    .from("encounter_fragments")
+                    .select("id")
+                    .limit(1)
+                    .execute()
+                    .value
+                fragmentUploadCapability = .available
+                return true
+            } catch {
+                if Self.isMissingEncounterFragmentsTable(error) {
+                    fragmentUploadCapability = .unavailable
+                    #if DEBUG
+                    print("[Release] encounter_fragments missing in schema cache — suppressing fragment uploads")
+                    #endif
+                    return false
+                }
+                // Treat transient/non-schema errors as retryable.
+                fragmentUploadCapability = .unknown
+                #if DEBUG
+                print("[Release] upload capability probe failed (will retry): \(error.localizedDescription)")
+                #endif
+                return false
+            }
+        }
+    }
+
+    private static func isMissingEncounterFragmentsTable(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("encounter_fragments")
+            && (message.contains("schema cache") || message.contains("could not find the table"))
+    }
 }
 
 // MARK: - Upload Payload
@@ -432,4 +497,8 @@ private struct FragmentUploadPayload: Encodable {
     let duration_seconds: Int
     let avg_rssi: Double
     let confidence_score: Double
+}
+
+private struct FragmentProbeRow: Decodable {
+    let id: UUID?
 }
