@@ -16,6 +16,8 @@ struct BeaconApp: App {
     @State private var showPostAuthTransition = true
     @State private var showReconnectionToast = false
     @State private var syncedEncounterCount = 0
+    @StateObject private var messageCoordinator = MessageNotificationCoordinator.shared
+    @State private var activeBannerConversation: BannerConversationDestination?
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -31,6 +33,7 @@ struct BeaconApp: App {
         _ = EncounterService.shared
         _ = MessagingService.shared
         _ = NotificationService.shared
+        _ = MessageNotificationCoordinator.shared
     }
 
     var body: some Scene {
@@ -63,6 +66,27 @@ struct BeaconApp: App {
                                         ReconnectionToastView(syncedCount: syncedEncounterCount)
                                             .padding(.top, 4)
                                             .transition(.move(edge: .top).combined(with: .opacity))
+                                    }
+
+                                    if let banner = messageCoordinator.banner {
+                                        IncomingMessageBannerView(banner: banner) {
+                                            messageCoordinator.dismissBanner()
+                                            Task {
+                                                let convo = await MessagingService.shared.fetchConversationsSnapshot().first(where: { $0.id == banner.conversationId })
+                                                if let convo {
+                                                    await MessagingService.shared.fetchMessages(conversationId: convo.id)
+                                                    activeBannerConversation = BannerConversationDestination(
+                                                        targetProfileId: banner.senderProfileId,
+                                                        targetName: banner.senderName,
+                                                        conversation: convo
+                                                    )
+                                                }
+                                            }
+                                        } onDismiss: {
+                                            messageCoordinator.dismissBanner()
+                                        }
+                                        .padding(.top, showReconnectionToast ? 56 : 4)
+                                        .transition(.move(edge: .top).combined(with: .opacity))
                                     }
                                 }
                                 .animation(.easeInOut(duration: 0.3), value: authService.isOfflineMode)
@@ -121,12 +145,26 @@ struct BeaconApp: App {
                     LoginView()
                 }
             }
+            .onAppear {
+                if authService.isAuthenticated {
+                    MessageNotificationCoordinator.shared.markForegroundActive()
+                }
+            }
+            .sheet(item: $activeBannerConversation) { destination in
+                ConversationView(
+                    targetProfileId: destination.targetProfileId,
+                    preloadedConversation: destination.conversation,
+                    preloadedName: destination.targetName
+                )
+            }
             .onChange(of: authService.isAuthenticated) { _, isAuthenticated in
                 if isAuthenticated {
                     showPostAuthTransition = true
+                    MessageNotificationCoordinator.shared.markForegroundActive()
                 } else {
                     showPostAuthTransition = true
                     selectedTab = .event
+                    MessageNotificationCoordinator.shared.stop()
                 }
             }
             .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -209,6 +247,7 @@ struct BeaconApp: App {
             print("[Lifecycle] 🌙 App → background")
             #endif
             EventJoinService.shared.handleAppBackground()
+            MessageNotificationCoordinator.shared.stop()
             // Persist local encounter data before backgrounding
             LocalEncounterStore.shared.stopCapture()
 
@@ -219,6 +258,7 @@ struct BeaconApp: App {
             Task {
                 await EventJoinService.shared.handleAppForeground()
             }
+            MessageNotificationCoordinator.shared.markForegroundActive()
             // Resume local encounter capture if in an event or Nearby Mode
             if EventJoinService.shared.isEventJoined || AuthService.shared.isOfflineMode {
                 LocalEncounterStore.shared.startCapture()
@@ -235,6 +275,50 @@ struct BeaconApp: App {
             break
         }
     }
+
+    private struct BannerConversationDestination: Identifiable {
+        let id = UUID()
+        let targetProfileId: UUID
+        let targetName: String
+        let conversation: Conversation
+    }
+
+    private struct IncomingMessageBannerView: View {
+        let banner: MessageNotificationCoordinator.InAppBanner
+        let onTap: () -> Void
+        let onDismiss: () -> Void
+
+        var body: some View {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(banner.senderName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                    Text(banner.preview)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.white.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.12), lineWidth: 1))
+            .padding(.horizontal, 12)
+            .onTapGesture(perform: onTap)
+        }
+    }
+
     // MARK: - Nearby Mode Banner
 
     private var nearbyModeBanner: some View {
