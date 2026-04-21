@@ -180,11 +180,36 @@ final class EventAttendeesService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     private var refreshTask: Task<Void, Never>?
+    private var presenceState: PresenceFSMState = .idle(reason: .presenceNotReady)
 
     private let refreshInterval: TimeInterval = 15.0
     private let activeWindow: TimeInterval = 300.0
 
     private var lastFetchSignature: String = ""
+
+    // MARK: - Presence FSM
+
+    private enum PresenceIdleReason: String {
+        case presenceNotReady
+        case eventUnavailable
+    }
+
+    private enum PresenceFSMState: Equatable {
+        case idle(reason: PresenceIdleReason)
+        case preparing(eventId: UUID, profileId: UUID, source: String)
+        case active(eventId: UUID, profileId: UUID, source: String)
+    }
+
+    private struct PresenceReadiness: Equatable {
+        let eventName: String?
+        let isEventJoined: Bool
+        let contextId: UUID?
+        let profileId: UUID?
+        let isOnline: Bool
+
+        var source: String { isEventJoined ? "QR join" : "beacon" }
+        var hasRequiredContext: Bool { contextId != nil && profileId != nil }
+    }
 
     private init() {
         observePresenceState()
@@ -202,42 +227,25 @@ final class EventAttendeesService: ObservableObject {
         .sink { [weak self] event, _, isJoined in
             guard let self else { return }
 
-            let hasContext = self.presence.currentContextId != nil
-            let hasUser = self.presence.currentCommunityId != nil
-            let hasEvent = event != nil || isJoined
+            let readiness = PresenceReadiness(
+                eventName: event,
+                isEventJoined: isJoined,
+                contextId: self.presence.currentContextId,
+                profileId: self.presence.currentCommunityId,
+                isOnline: NetworkMonitor.shared.isOnline
+            )
 
             #if DEBUG
             print("[Attendees] observePresenceState")
             print("[Attendees]   currentEvent: \(event ?? "nil")")
             print("[Attendees]   isEventJoined: \(isJoined)")
-            print("[Attendees]   hasContext: \(hasContext)")
-            print("[Attendees]   hasUser: \(hasUser)")
+            print("[Attendees]   hasContext: \(readiness.contextId != nil)")
+            print("[Attendees]   hasUser: \(readiness.profileId != nil)")
             print("[Attendees]   currentContextId: \(self.presence.currentContextId?.uuidString ?? "nil")")
             print("[Attendees]   currentProfileId: \(self.presence.currentCommunityId?.uuidString ?? "nil")")
             #endif
 
-            if hasEvent && hasContext && hasUser {
-                #if DEBUG
-                let source = self.presence.isQRJoinActive ? "QR join" : "beacon"
-                print("[Attendees] 🟢 Presence ready via \(source) — starting refresh")
-                #endif
-                self.startRefreshing()
-            } else {
-                // Offline guard: when network is unavailable, preserve existing
-                // attendees and allow BLE + cached data to drive the UI.
-                if !NetworkMonitor.shared.isOnline {
-                    #if DEBUG
-                    print("[NearbyMode] preventing attendee clear — network offline, preserving cached state")
-                    #endif
-                    // Don't stop refresh or clear attendees; let BLE fallback fill the gap
-                    self.injectBLEFallbackAttendees()
-                } else {
-                    #if DEBUG
-                    print("[Attendees] 🔴 Presence not ready — stopping refresh")
-                    #endif
-                    self.stopRefreshing()
-                }
-            }
+            self.transitionPresenceFSM(using: readiness)
         }
         .store(in: &cancellables)
     }
@@ -294,6 +302,89 @@ final class EventAttendeesService: ObservableObject {
         #if DEBUG
         print("[Attendees] Refresh stopped and attendee list cleared")
         #endif
+    }
+
+    private func transitionPresenceFSM(using readiness: PresenceReadiness) {
+        let next = reduce(from: presenceState, readiness: readiness)
+        guard next != presenceState else { return }
+
+        #if DEBUG
+        print("[AttendeesFSM] \(describe(presenceState)) -> \(describe(next))")
+        #endif
+
+        presenceState = next
+
+        switch next {
+        case .idle:
+            if !readiness.isOnline {
+                #if DEBUG
+                print("[NearbyMode] preventing attendee clear — network offline, preserving cached state")
+                #endif
+                injectBLEFallbackAttendees()
+            } else {
+                #if DEBUG
+                print("[Attendees] 🔴 Presence not ready — stopping refresh")
+                #endif
+                stopRefreshing()
+            }
+
+        case .preparing(let eventId, let profileId, let source):
+            #if DEBUG
+            print("[Attendees] 🟡 Presence preparing via \(source) (eventId=\(eventId), profileId=\(profileId))")
+            #endif
+            // Promote to active immediately after a stable readiness snapshot.
+            transitionPresenceFSM(
+                using: PresenceReadiness(
+                    eventName: readiness.eventName,
+                    isEventJoined: readiness.isEventJoined,
+                    contextId: eventId,
+                    profileId: profileId,
+                    isOnline: readiness.isOnline
+                )
+            )
+
+        case .active(_, _, let source):
+            #if DEBUG
+            print("[Attendees] 🟢 Presence ready via \(source) — starting refresh")
+            #endif
+            startRefreshing()
+        }
+    }
+
+    private func reduce(from old: PresenceFSMState, readiness: PresenceReadiness) -> PresenceFSMState {
+        guard readiness.isEventJoined || readiness.eventName != nil else {
+            return .idle(reason: .eventUnavailable)
+        }
+
+        guard let eventId = readiness.contextId, let profileId = readiness.profileId else {
+            return .idle(reason: .presenceNotReady)
+        }
+
+        switch old {
+        case .active(let oldEventId, let oldProfileId, let source):
+            if oldEventId == eventId && oldProfileId == profileId {
+                return .active(eventId: eventId, profileId: profileId, source: source)
+            }
+            return .preparing(eventId: eventId, profileId: profileId, source: readiness.source)
+        case .preparing(let oldEventId, let oldProfileId, _):
+            if oldEventId == eventId && oldProfileId == profileId {
+                return .active(eventId: eventId, profileId: profileId, source: readiness.source)
+            }
+            return .preparing(eventId: eventId, profileId: profileId, source: readiness.source)
+        case .idle:
+            return .preparing(eventId: eventId, profileId: profileId, source: readiness.source)
+        }
+    }
+
+    private func describe(_ state: PresenceFSMState) -> String {
+        switch state {
+        case .idle(let reason):
+            return "idle(\(reason.rawValue))"
+        case .preparing(let eventId, let profileId, let source):
+            return "preparing(event:\(eventId.uuidString.prefix(8)), profile:\(profileId.uuidString.prefix(8)), source:\(source))"
+        case .active(let eventId, let profileId, let source):
+            return "active(event:\(eventId.uuidString.prefix(8)), profile:\(profileId.uuidString.prefix(8)), source:\(source))"
+        }
     }
 
     // MARK: - Offline BLE Fallback
