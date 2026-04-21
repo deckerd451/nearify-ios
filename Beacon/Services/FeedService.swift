@@ -24,8 +24,10 @@ final class FeedService: ObservableObject {
     // MARK: - Refresh Coalescing
 
     private var isRefreshing = false
-    private var pendingRefreshReason: String?
+    private var pendingRefreshReasons = Set<String>()
     private var refreshTask: Task<Void, Never>?
+    private var debounceTask: Task<Void, Never>?
+    private let debounceInterval: TimeInterval = 0.35
 
     private init() {}
 
@@ -35,37 +37,76 @@ final class FeedService: ObservableObject {
     /// Coalesces overlapping requests — if a refresh is already running,
     /// marks one pending refresh instead of spawning parallel work.
     func requestRefresh(reason: String) {
+        pendingRefreshReasons.insert(reason)
+
+        if isImmediateTrigger(reason: reason) {
+            debounceTask?.cancel()
+            runRefreshLoopIfNeeded()
+            return
+        }
+
+        debounceTask?.cancel()
+        debounceTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: UInt64(self.debounceInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self.runRefreshLoopIfNeeded()
+            }
+        }
+    }
+
+    private func runRefreshLoopIfNeeded() {
+        guard !pendingRefreshReasons.isEmpty else { return }
+
         if isRefreshing {
-            pendingRefreshReason = reason
             #if DEBUG
-            print("[Feed] 🔄 Refresh already running — coalescing (\(reason))")
+            print("[Feed] 🔄 Refresh already running — coalescing (\(pendingRefreshReasons.sorted().joined(separator: ",")))")
             #endif
             return
         }
 
         #if DEBUG
-        print("[Feed] 🔄 Refresh requested: \(reason)")
+        print("[Feed] 🔄 Refresh requested: \(pendingRefreshReasons.sorted().joined(separator: ","))")
         #endif
 
         isRefreshing = true
         refreshTask?.cancel()
         refreshTask = Task {
-            await performFullRefresh()
+            while true {
+                let reasons = await MainActor.run { () -> [String] in
+                    let merged = self.pendingRefreshReasons.sorted()
+                    self.pendingRefreshReasons.removeAll()
+                    return merged
+                }
+                guard !reasons.isEmpty else { break }
 
-            // If a pending request came in while we were refreshing, do one more
-            if let pending = pendingRefreshReason {
-                pendingRefreshReason = nil
                 #if DEBUG
-                print("[Feed] 🔄 Running coalesced refresh: \(pending)")
+                let runSummary = reasons.joined(separator: ",")
+                print("[Feed] 🧠 Running refresh for reasons: \(runSummary)")
                 #endif
+
                 await performFullRefresh()
+
+                let hasMorePending = await MainActor.run { !self.pendingRefreshReasons.isEmpty }
+                guard hasMorePending else { break }
+
+                #if DEBUG
+                print("[Feed] 🔄 Running coalesced refresh")
+                #endif
             }
 
-            isRefreshing = false
-            #if DEBUG
-            print("[Feed] ✅ Refresh complete")
-            #endif
+            await MainActor.run {
+                self.isRefreshing = false
+                #if DEBUG
+                print("[Feed] ✅ Refresh complete")
+                #endif
+            }
         }
+    }
+
+    private func isImmediateTrigger(reason: String) -> Bool {
+        reason == "manual" || reason == "app-active"
     }
 
     /// Internal: runs generation + fetch in sequence.
