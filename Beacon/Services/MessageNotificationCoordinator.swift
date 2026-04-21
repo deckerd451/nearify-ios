@@ -22,6 +22,17 @@ final class MessageNotificationCoordinator: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var lastProcessedAt: Date?
     private var isPolling = false
+    private var processedMessageIds: Set<UUID> = []
+    private var processedMessageOrder: [UUID] = []
+
+    private let maxProcessedMessageIds = 2_000
+
+    private static let cursorDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter
+    }()
 
     private init() {}
 
@@ -79,7 +90,21 @@ final class MessageNotificationCoordinator: ObservableObject {
                 return
             }
 
+            var newestSeenAt = lastProcessedAt
+
             for row in rows {
+                if let newestSeenAt {
+                    if row.createdAt > newestSeenAt {
+                        newestSeenAt = row.createdAt
+                    }
+                } else {
+                    newestSeenAt = row.createdAt
+                }
+
+                guard markMessageProcessedIfNeeded(row.id) else {
+                    continue
+                }
+
                 let conversation = conversations.first { $0.id == row.conversationId }
 
                 await handleIncoming(
@@ -93,7 +118,7 @@ final class MessageNotificationCoordinator: ObservableObject {
                 )
             }
 
-            if let newest = rows.last?.createdAt {
+            if let newest = newestSeenAt {
                 lastProcessedAt = newest
             }
         } catch {
@@ -114,7 +139,7 @@ final class MessageNotificationCoordinator: ObservableObject {
             .neq("sender_profile_id", value: myId.uuidString)
 
         if let lastProcessedAt {
-            let iso = ISO8601DateFormatter().string(from: lastProcessedAt)
+            let iso = Self.cursorDateFormatter.string(from: lastProcessedAt)
 
             return try await base
                 .gt("created_at", value: iso)
@@ -129,6 +154,25 @@ final class MessageNotificationCoordinator: ObservableObject {
                 .execute()
                 .value
         }
+    }
+
+    private func markMessageProcessedIfNeeded(_ messageId: UUID) -> Bool {
+        if processedMessageIds.contains(messageId) {
+            return false
+        }
+
+        processedMessageIds.insert(messageId)
+        processedMessageOrder.append(messageId)
+
+        if processedMessageOrder.count > maxProcessedMessageIds {
+            let overflow = processedMessageOrder.count - maxProcessedMessageIds
+            for _ in 0..<overflow {
+                let removed = processedMessageOrder.removeFirst()
+                processedMessageIds.remove(removed)
+            }
+        }
+
+        return true
     }
 
     private func resolveName(for profileId: UUID) async -> String {
