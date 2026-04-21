@@ -21,6 +21,15 @@ final class MessageNotificationCoordinator: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var lastProcessedAt: Date?
     private var isPolling = false
+    private var processedMessageIds = Set<UUID>()
+    private var processedMessageOrder: [UUID] = []
+
+    private let processedMessageIdLimit = 500
+    private let boundaryFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private init() {}
 
@@ -90,7 +99,7 @@ final class MessageNotificationCoordinator: ObservableObject {
 
             let rows: [IncomingMessageRow]
             if let lastProcessedAt {
-                let iso = ISO8601DateFormatter().string(from: lastProcessedAt)
+                let iso = boundaryFormatter.string(from: lastProcessedAt)
                 rows = try await request
                     .gt("created_at", value: iso)
                     .execute()
@@ -104,7 +113,11 @@ final class MessageNotificationCoordinator: ObservableObject {
                 return
             }
 
-            for row in rows {
+            let newRows = rows.filter { !processedMessageIds.contains($0.id) }
+            guard !newRows.isEmpty else { return }
+
+            for row in newRows {
+                rememberProcessed(messageId: row.id)
                 let convo = conversations.first { $0.id == row.conversationId }
                 await handleIncoming(
                     messageId: row.id,
@@ -117,11 +130,21 @@ final class MessageNotificationCoordinator: ObservableObject {
                 )
             }
 
-            if let newest = rows.last?.createdAt {
+            if let newest = newRows.last?.createdAt {
                 lastProcessedAt = newest
             }
         } catch {
             print("[MessageCoordinator] ❌ Poll failed: \(error)")
+        }
+    }
+
+    private func rememberProcessed(messageId: UUID) {
+        guard processedMessageIds.insert(messageId).inserted else { return }
+        processedMessageOrder.append(messageId)
+
+        while processedMessageOrder.count > processedMessageIdLimit {
+            let oldest = processedMessageOrder.removeFirst()
+            processedMessageIds.remove(oldest)
         }
     }
 
