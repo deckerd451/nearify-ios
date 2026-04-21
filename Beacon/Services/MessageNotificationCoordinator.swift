@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Supabase
 import UIKit
+import Combine
 
 @MainActor
 final class MessageNotificationCoordinator: ObservableObject {
@@ -21,20 +22,12 @@ final class MessageNotificationCoordinator: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var lastProcessedAt: Date?
     private var isPolling = false
-    private var processedMessageIds = Set<UUID>()
-    private var processedMessageOrder: [UUID] = []
-
-    private let processedMessageIdLimit = 500
-    private let boundaryFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
 
     private init() {}
 
     func start() {
         guard pollTask == nil else { return }
+
         pollTask = Task { [weak self] in
             await self?.monitorLoop()
         }
@@ -72,40 +65,13 @@ final class MessageNotificationCoordinator: ObservableObject {
         let conversationIds = conversations.map(\.id)
         guard !conversationIds.isEmpty else { return }
 
-        struct IncomingMessageRow: Decodable {
-            let id: UUID
-            let conversationId: UUID
-            let senderProfileId: UUID
-            let content: String
-            let createdAt: Date
-
-            enum CodingKeys: String, CodingKey {
-                case id
-                case conversationId = "conversation_id"
-                case senderProfileId = "sender_profile_id"
-                case content
-                case createdAt = "created_at"
-            }
-        }
-
         do {
-            let request = supabase
-                .from("messages")
-                .select("id,conversation_id,sender_profile_id,content,created_at")
-                .in("conversation_id", values: conversationIds.map(\.uuidString))
-                .neq("sender_profile_id", value: myId.uuidString)
-                .order("created_at", ascending: true)
-                .limit(50)
+            let rows = try await fetchIncomingRows(
+                conversationIds: conversationIds,
+                excludingSenderId: myId
+            )
 
-            let rows: [IncomingMessageRow]
-            if let lastProcessedAt {
-                let iso = boundaryFormatter.string(from: lastProcessedAt)
-                rows = try await request
-                    .gt("created_at", value: iso)
-                    .execute()
-                    .value
-            } else {
-                rows = try await request.execute().value
+            if lastProcessedAt == nil {
                 if let newest = rows.last?.createdAt {
                     // Bootstrap baseline so we don't notify historical messages.
                     lastProcessedAt = newest
@@ -113,12 +79,9 @@ final class MessageNotificationCoordinator: ObservableObject {
                 return
             }
 
-            let newRows = rows.filter { !processedMessageIds.contains($0.id) }
-            guard !newRows.isEmpty else { return }
+            for row in rows {
+                let conversation = conversations.first { $0.id == row.conversationId }
 
-            for row in newRows {
-                rememberProcessed(messageId: row.id)
-                let convo = conversations.first { $0.id == row.conversationId }
                 await handleIncoming(
                     messageId: row.id,
                     conversationId: row.conversationId,
@@ -126,11 +89,11 @@ final class MessageNotificationCoordinator: ObservableObject {
                     senderName: await resolveName(for: row.senderProfileId),
                     preview: row.content,
                     createdAt: row.createdAt,
-                    conversation: convo
+                    conversation: conversation
                 )
             }
 
-            if let newest = newRows.last?.createdAt {
+            if let newest = rows.last?.createdAt {
                 lastProcessedAt = newest
             }
         } catch {
@@ -138,13 +101,33 @@ final class MessageNotificationCoordinator: ObservableObject {
         }
     }
 
-    private func rememberProcessed(messageId: UUID) {
-        guard processedMessageIds.insert(messageId).inserted else { return }
-        processedMessageOrder.append(messageId)
+    private func fetchIncomingRows(
+        conversationIds: [UUID],
+        excludingSenderId myId: UUID
+    ) async throws -> [IncomingMessageRow] {
+        let conversationIdStrings = conversationIds.map(\.uuidString)
 
-        while processedMessageOrder.count > processedMessageIdLimit {
-            let oldest = processedMessageOrder.removeFirst()
-            processedMessageIds.remove(oldest)
+        let base = supabase
+            .from("messages")
+            .select("id,conversation_id,sender_profile_id,content,created_at")
+            .in("conversation_id", values: conversationIdStrings)
+            .neq("sender_profile_id", value: myId.uuidString)
+
+        if let lastProcessedAt {
+            let iso = ISO8601DateFormatter().string(from: lastProcessedAt)
+
+            return try await base
+                .gt("created_at", value: iso)
+                .order("created_at", ascending: true)
+                .limit(50)
+                .execute()
+                .value
+        } else {
+            return try await base
+                .order("created_at", ascending: true)
+                .limit(50)
+                .execute()
+                .value
         }
     }
 
@@ -171,6 +154,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         conversation: Conversation?
     ) async {
         let appState = UIApplication.shared.applicationState
+
         await MessagingService.shared.handleIncomingMessage(
             id: messageId,
             conversationId: conversationId,
@@ -183,7 +167,11 @@ final class MessageNotificationCoordinator: ObservableObject {
         let isActiveConversation = MessagingService.shared.activeConversationId == conversationId
 
         if appState == .active {
-            guard !isActiveConversation else { return }
+            guard !isActiveConversation else {
+                FeedService.shared.requestRefresh(reason: "incoming-message")
+                return
+            }
+
             banner = InAppBanner(
                 id: messageId,
                 conversationId: conversationId,
@@ -191,9 +179,14 @@ final class MessageNotificationCoordinator: ObservableObject {
                 senderName: senderName,
                 preview: String(preview.prefix(72))
             )
+
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
-            guard !isActiveConversation else { return }
+            guard !isActiveConversation else {
+                FeedService.shared.requestRefresh(reason: "incoming-message")
+                return
+            }
+
             NotificationService.shared.sendMessageNotification(
                 messageId: messageId,
                 fromName: senderName,
@@ -202,5 +195,21 @@ final class MessageNotificationCoordinator: ObservableObject {
         }
 
         FeedService.shared.requestRefresh(reason: "incoming-message")
+    }
+}
+
+private struct IncomingMessageRow: Decodable {
+    let id: UUID
+    let conversationId: UUID
+    let senderProfileId: UUID
+    let content: String
+    let createdAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case conversationId = "conversation_id"
+        case senderProfileId = "sender_profile_id"
+        case content
+        case createdAt = "created_at"
     }
 }
