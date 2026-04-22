@@ -8,6 +8,7 @@ struct ExploreView: View {
     @ObservedObject private var modeState = EventModeState.shared
     @ObservedObject private var attendeesService = EventAttendeesService.shared
     @ObservedObject private var advertiser = BLEAdvertiserService.shared
+    @ObservedObject private var authService = AuthService.shared
 
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
@@ -175,7 +176,8 @@ struct ExploreView: View {
                 },
                 onDisableAnchor: {
                     advertiser.disableHostAnchorMode()
-                }
+                },
+                currentUserProfileId: authService.currentUser?.id
             )
         }
     }
@@ -592,6 +594,7 @@ private struct CurrentEventCardView: View {
     let onSayGoodbye: () -> Void
     let onEnableAnchor: () -> Void
     let onDisableAnchor: () -> Void
+    let currentUserProfileId: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -729,6 +732,21 @@ private struct CurrentEventCardView: View {
                 }
                 .padding(.top, 4)
             }
+
+            Divider()
+                .background(Color.white.opacity(0.1))
+
+            EventJoinQRCard(
+                eventId: event.id,
+                eventName: event.name
+            )
+
+            PersonalConnectQRCard(
+                title: "Connect with me",
+                subtitle: "Let anyone here connect with you instantly — even without the app.",
+                eventId: event.id,
+                profileId: currentUserProfileId
+            )
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

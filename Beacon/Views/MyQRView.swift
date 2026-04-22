@@ -4,7 +4,6 @@ import PhotosUI
 
 struct MyQRView: View {
     let currentUser: User
-    @State private var qrImage: UIImage?
     @State private var showingSignOutConfirmation = false
     @State private var showingEditProfile = false
     @State private var showingPhotoOptions = false
@@ -17,6 +16,7 @@ struct MyQRView: View {
     
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var latelyService = DynamicProfileService.shared
+    @ObservedObject private var eventJoin = EventJoinService.shared
 
     @State private var showIntelligenceDebug = false
     @State private var showActivityDetail = false
@@ -80,8 +80,6 @@ struct MyQRView: View {
                 Text("Are you sure you want to sign out?")
             }
             .task {
-                let payload = currentUser.id.uuidString
-                qrImage = QRService.generateQRCode(for: payload)
                 await loadAuthDetails()
                 latelyService.refresh()
             }
@@ -144,17 +142,26 @@ struct MyQRView: View {
     // MARK: - 2. QR Code Section
 
     private var qrCodeSection: some View {
-        VStack(spacing: DesignTokens.elementSpacing) {
-            if let qrImage {
-                Image(uiImage: qrImage)
-                    .interpolation(.none).resizable()
-                    .frame(width: 180, height: 180)
-                    .background(Color.white).cornerRadius(12).shadow(radius: 2)
-            }
-            Text("Share to connect")
-                .font(.caption).foregroundColor(.secondary)
+        PersonalConnectQRCard(
+            title: "Connect with me",
+            subtitle: "Anyone can scan this to connect with you instantly — even without the app.",
+            eventId: resolvedPersonalQREventId,
+            profileId: displayUser.id
+        )
+    }
+
+    private var resolvedPersonalQREventId: UUID? {
+        if let currentEventID = eventJoin.currentEventID,
+           let eventUUID = UUID(uuidString: currentEventID) {
+            return eventUUID
         }
-        .padding(.vertical, 4)
+
+        if let reconnectEventId = eventJoin.reconnectContext?.eventId,
+           let reconnectUUID = UUID(uuidString: reconnectEventId) {
+            return reconnectUUID
+        }
+
+        return nil
     }
 
     // MARK: - 3. Attributes (Skills + Interests)

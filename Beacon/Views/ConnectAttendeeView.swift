@@ -452,8 +452,19 @@ struct ConnectAttendeeView: View {
 
         print("[Connect] 📷 QR fallback scanned: \(code)")
 
-        guard let payload = QRService.parse(from: code),
-              case .profile(let scannedId) = payload else {
+        guard let payload = QRService.parse(from: code) else {
+            connectionState = .error("Not a valid profile QR code")
+            resetScanner()
+            return
+        }
+
+        let scannedId: String
+        switch payload {
+        case .profile(let communityId):
+            scannedId = communityId
+        case .personalConnect(_, let profileId):
+            scannedId = profileId
+        default:
             connectionState = .error("Not a valid profile QR code")
             resetScanner()
             return

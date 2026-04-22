@@ -211,6 +211,35 @@ struct BeaconApp: App {
                     print("[DeepLink] 👤 Profile: \(communityId)")
                     #endif
                     _ = communityId
+
+                case .personalConnect(let eventId, let profileId):
+                    #if DEBUG
+                    print("[DeepLink] 🤝 Personal connect deep link: event=\(eventId), profile=\(profileId)")
+                    #endif
+
+                    Task {
+                        do {
+                            let result = try await ConnectionService.shared.createConnectionIfNeeded(to: profileId)
+                            #if DEBUG
+                            print("[DeepLink] ✅ Personal connect processed: \(result)")
+                            #endif
+
+                            if let currentUser = AuthService.shared.currentUser,
+                               let eventUUID = UUID(uuidString: eventId),
+                               let toProfileId = UUID(uuidString: profileId) {
+                                NearifyIngestionService.shared.ingestQRConfirmedInteraction(
+                                    eventId: eventUUID,
+                                    fromProfileId: currentUser.id,
+                                    toProfileId: toProfileId
+                                )
+                            }
+                        } catch {
+                            #if DEBUG
+                            print("[DeepLink] ❌ Personal connect failed: \(error)")
+                            #endif
+                        }
+                    }
+                    selectedTab = .people
                 }
             }
             // MARK: - Event Switch Confirmation

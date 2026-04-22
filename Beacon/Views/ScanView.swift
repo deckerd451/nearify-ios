@@ -8,6 +8,7 @@ private enum ScanPhase: Equatable {
     case detected(label: String)
     case joining(eventName: String)
     case success(eventName: String)
+    case connected(message: String)
     case failure(message: String)
     case loadingProfile
 }
@@ -111,6 +112,13 @@ struct ScanView: View {
                 statusPill(
                     icon: "checkmark.circle.fill",
                     text: "Joined \(eventName)",
+                    color: .green
+                )
+
+            case .connected(let message):
+                statusPill(
+                    icon: "person.crop.circle.badge.checkmark",
+                    text: message,
                     color: .green
                 )
 
@@ -316,6 +324,9 @@ struct ScanView: View {
 
         case .profile(let communityId):
             handleProfileScan(communityId: communityId)
+
+        case .personalConnect(let eventId, let profileId):
+            handlePersonalConnectScan(eventId: eventId, profileId: profileId)
         }
     }
 
@@ -390,6 +401,43 @@ struct ScanView: View {
             } catch {
                 await MainActor.run {
                     phase = .failure(message: "Profile not found")
+                }
+            }
+        }
+    }
+
+    private func handlePersonalConnectScan(eventId: String, profileId: String) {
+        phase = .detected(label: "connecting…")
+
+        #if DEBUG
+        print("[ScanUI] 🤝 Personal connect QR: event=\(eventId), profile=\(profileId)")
+        #endif
+
+        Task {
+            do {
+                let result = try await ConnectionService.shared.createConnectionIfNeeded(to: profileId)
+
+                await MainActor.run {
+                    switch result {
+                    case .created:
+                        phase = .connected(message: "Connection created")
+                    case .alreadyExists:
+                        phase = .connected(message: "Already connected")
+                    }
+                }
+
+                if let currentUser = AuthService.shared.currentUser,
+                   let toProfileId = UUID(uuidString: profileId),
+                   let eventUUID = UUID(uuidString: eventId) {
+                    NearifyIngestionService.shared.ingestQRConfirmedInteraction(
+                        eventId: eventUUID,
+                        fromProfileId: currentUser.id,
+                        toProfileId: toProfileId
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    phase = .failure(message: "Unable to connect")
                 }
             }
         }
