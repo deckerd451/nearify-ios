@@ -4,15 +4,16 @@ import UIKit
 
 struct QRService {
 
+    private static let nearifyBaseURL = URL(string: "https://nearify.org")!
+
     // MARK: - QR Generation
 
-    /// Generates a QR code for a community profile using the app route format.
-    /// Format: beacon://profile/<community-id>
-    static func generateQRCode(for communityId: String) -> UIImage {
+    /// Generates a QR code image from an arbitrary payload string.
+    /// Displayed QR payloads should use browser-readable HTTPS URLs.
+    static func generateQRCode(from payload: String) -> UIImage {
         let context = CIContext()
         let filter = CIFilter.qrCodeGenerator()
 
-        let payload = "beacon://profile/\(communityId)"
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
 
@@ -30,11 +31,49 @@ struct QRService {
         return UIImage(cgImage: cgImage)
     }
 
+    /// Legacy helper used by internal app flows.
+    /// Format: beacon://profile/<community-id>
+    static func generateQRCode(for communityId: String) -> UIImage {
+        generateQRCode(from: "beacon://profile/\(communityId)")
+    }
+
+    /// Browser-readable event join URL used for displayed event QR payloads.
+    static func makeEventJoinWebURL(eventId: UUID, eventName: String?) -> URL {
+        var components = URLComponents(url: nearifyBaseURL, resolvingAgainstBaseURL: false)!
+        components.path = "/join/"
+
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "event", value: eventId.uuidString)
+        ]
+
+        if let eventName {
+            let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                queryItems.append(URLQueryItem(name: "name", value: trimmed))
+            }
+        }
+
+        components.queryItems = queryItems
+        return components.url!
+    }
+
+    /// Browser-readable personal connect URL used for displayed personal QR payloads.
+    static func makePersonalConnectWebURL(eventId: UUID, profileId: UUID) -> URL {
+        var components = URLComponents(url: nearifyBaseURL, resolvingAgainstBaseURL: false)!
+        components.path = "/join/"
+        components.queryItems = [
+            URLQueryItem(name: "event", value: eventId.uuidString),
+            URLQueryItem(name: "profile", value: profileId.uuidString)
+        ]
+        return components.url!
+    }
+
     // MARK: - Parsing
 
     enum QRPayload: Equatable {
         case profile(communityId: String)
         case event(eventId: String)
+        case personalConnect(eventId: String, profileId: String)
     }
 
     /// Parses a scanned QR string into a typed payload.
@@ -43,6 +82,7 @@ struct QRService {
     /// - beacon://event/<event-id>
     /// - beacon://profile/<community-id>
     /// - https://nearify.org/join/?event=<event-id>&name=<event-name>
+    /// - https://nearify.org/join/?event=<event-id>&profile=<profile-id>
     /// - raw UUID (legacy profile format)
     static func parse(from qrString: String) -> QRPayload? {
         let trimmed = qrString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -158,8 +198,20 @@ struct QRService {
             return nil
         }
 
+        let profileId = components.queryItems?
+            .first(where: { $0.name == "profile" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let profileId, UUID(uuidString: profileId) != nil {
+            #if DEBUG
+            print("[QRService] ✅ Parsed nearify personal connect URL")
+            #endif
+            return .personalConnect(eventId: eventId, profileId: profileId)
+        }
+
         #if DEBUG
-        print("[QRService] ✅ Parsed nearify join URL")
+        print("[QRService] ✅ Parsed nearify event join URL")
         #endif
         return .event(eventId: eventId)
     }

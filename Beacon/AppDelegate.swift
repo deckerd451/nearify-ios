@@ -41,6 +41,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
         case .profile(let communityId):
             print("🚨 AppDelegate profile deep link:", communityId)
+
+        case .personalConnect(let eventId, let profileId):
+            print("🚨 AppDelegate personal connect deep link: event=\(eventId), profile=\(profileId)")
         }
 
         return true

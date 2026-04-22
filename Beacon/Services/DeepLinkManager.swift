@@ -35,6 +35,11 @@ final class DeepLinkManager: ObservableObject {
             #if DEBUG
             print("[DeepLink] 👤 Profile URL received: \(communityId)")
             #endif
+
+        case .personalConnect(let eventId, let profileId):
+            #if DEBUG
+            print("[DeepLink] 🤝 Personal connect URL received: event=\(eventId), profile=\(profileId)")
+            #endif
         }
     }
 
