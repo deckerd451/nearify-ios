@@ -16,7 +16,6 @@ struct MyQRView: View {
     
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var latelyService = DynamicProfileService.shared
-    @ObservedObject private var eventJoin = EventJoinService.shared
 
     @State private var showIntelligenceDebug = false
     @State private var showActivityDetail = false
@@ -142,26 +141,14 @@ struct MyQRView: View {
     // MARK: - 2. QR Code Section
 
     private var qrCodeSection: some View {
+        let personalQREventContext = PersonalQRContextResolver.shared.resolve()
+
         PersonalConnectQRCard(
             title: "Connect with me",
             subtitle: "Anyone can scan this to connect with you instantly — even without the app.",
-            eventId: resolvedPersonalQREventId,
+            eventId: personalQREventContext?.eventId,
             profileId: displayUser.id
         )
-    }
-
-    private var resolvedPersonalQREventId: UUID? {
-        if let currentEventID = eventJoin.currentEventID,
-           let eventUUID = UUID(uuidString: currentEventID) {
-            return eventUUID
-        }
-
-        if let reconnectEventId = eventJoin.reconnectContext?.eventId,
-           let reconnectUUID = UUID(uuidString: reconnectEventId) {
-            return reconnectUUID
-        }
-
-        return nil
     }
 
     // MARK: - 3. Attributes (Skills + Interests)
