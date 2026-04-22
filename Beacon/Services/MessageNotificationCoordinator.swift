@@ -22,9 +22,9 @@ final class MessageNotificationCoordinator: ObservableObject {
     private var pollTask: Task<Void, Never>?
     private var lastProcessedAt: Date?
     private var isPolling = false
+
     private var processedMessageIds: Set<UUID> = []
     private var processedMessageOrder: [UUID] = []
-
     private let maxProcessedMessageIds = 2_000
 
     private static let cursorDateFormatter: ISO8601DateFormatter = {
@@ -93,11 +93,7 @@ final class MessageNotificationCoordinator: ObservableObject {
             var newestSeenAt = lastProcessedAt
 
             for row in rows {
-                if let newestSeenAt {
-                    if row.createdAt > newestSeenAt {
-                        newestSeenAt = row.createdAt
-                    }
-                } else {
+                if newestSeenAt == nil || row.createdAt > newestSeenAt! {
                     newestSeenAt = row.createdAt
                 }
 
@@ -118,8 +114,8 @@ final class MessageNotificationCoordinator: ObservableObject {
                 )
             }
 
-            if let newest = newestSeenAt {
-                lastProcessedAt = newest
+            if let newestSeenAt {
+                lastProcessedAt = newestSeenAt
             }
         } catch {
             print("[MessageCoordinator] ❌ Poll failed: \(error)")
@@ -176,12 +172,12 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     private func resolveName(for profileId: UUID) async -> String {
-        if let cached = await MessagingService.shared.cachedProfileName(for: profileId) {
+        if let cached = MessagingService.shared.cachedProfileName(for: profileId) {
             return cached
         }
 
         if let profile = try? await ProfileService.shared.fetchProfileById(profileId) {
-            await MessagingService.shared.cacheProfileName(profile.name, for: profileId)
+            MessagingService.shared.cacheProfileName(profile.name, for: profileId)
             return profile.name
         }
 
@@ -199,7 +195,7 @@ final class MessageNotificationCoordinator: ObservableObject {
     ) async {
         let appState = UIApplication.shared.applicationState
 
-        await MessagingService.shared.handleIncomingMessage(
+        MessagingService.shared.handleIncomingMessage(
             id: messageId,
             conversationId: conversationId,
             senderProfileId: senderProfileId,
@@ -212,7 +208,6 @@ final class MessageNotificationCoordinator: ObservableObject {
 
         if appState == .active {
             guard !isActiveConversation else {
-                FeedService.shared.requestRefresh(reason: "incoming-message")
                 return
             }
 
@@ -227,7 +222,6 @@ final class MessageNotificationCoordinator: ObservableObject {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
             guard !isActiveConversation else {
-                FeedService.shared.requestRefresh(reason: "incoming-message")
                 return
             }
 

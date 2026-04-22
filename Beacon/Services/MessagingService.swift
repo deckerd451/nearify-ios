@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import Supabase
 import UIKit
+import UserNotifications
 
 /// Lightweight messaging between connected users.
 /// Only enabled after QR-confirmed or accepted connection.
@@ -193,7 +194,11 @@ final class MessagingService: ObservableObject {
             totalUnreadCount = unreadByConversation.values.reduce(0, +)
         }
 
-        UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
+        if #available(iOS 17.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
+        }
 
         if let conversation, !conversations.contains(where: { $0.id == conversation.id }) {
             conversations.insert(conversation, at: 0)
@@ -209,7 +214,11 @@ final class MessagingService: ObservableObject {
         unreadByConversation[conversationId] = 0
         unreadByConversation = unreadByConversation.filter { $0.value > 0 }
         totalUnreadCount = unreadByConversation.values.reduce(0, +)
-        UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
+        if #available(iOS 17.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
+        }
     }
 
     func cacheProfileName(_ name: String, for profileId: UUID) {
