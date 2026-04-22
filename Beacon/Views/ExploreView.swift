@@ -177,7 +177,8 @@ struct ExploreView: View {
                 onDisableAnchor: {
                     advertiser.disableHostAnchorMode()
                 },
-                currentUserProfileId: authService.currentUser?.id
+                currentUserProfileId: authService.currentUser?.id,
+                personalQREventId: PersonalQRContextResolver.shared.resolve()?.eventId
             )
         }
     }
@@ -595,6 +596,7 @@ private struct CurrentEventCardView: View {
     let onEnableAnchor: () -> Void
     let onDisableAnchor: () -> Void
     let currentUserProfileId: UUID?
+    let personalQREventId: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -744,7 +746,7 @@ private struct CurrentEventCardView: View {
             PersonalConnectQRCard(
                 title: "Connect with me",
                 subtitle: "Let anyone here connect with you instantly — even without the app.",
-                eventId: event.id,
+                eventId: personalQREventId,
                 profileId: currentUserProfileId
             )
         }
