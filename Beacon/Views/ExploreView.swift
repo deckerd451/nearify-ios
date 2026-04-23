@@ -999,6 +999,7 @@ private struct EventCardView: View {
                 isEventJoined: isEventJoined,
                 canRejoin: canRejoin,
                 isJustJoined: isJustJoined,
+                isPostJoinCTAEnabled: isPostJoinCTAEnabled,
                 showStrongPostJoinCTA: showStrongPostJoinCTA,
                 onJoin: onJoin,
                 onCheckInNow: onCheckInNow,
@@ -1104,6 +1105,7 @@ private struct EventCardActionRow: View {
     let isEventJoined: Bool
     let canRejoin: Bool
     let isJustJoined: Bool
+    let isPostJoinCTAEnabled: Bool
     let showStrongPostJoinCTA: Bool
     let onJoin: () -> Void
     let onCheckInNow: () -> Void
