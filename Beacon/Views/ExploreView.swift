@@ -9,6 +9,7 @@ struct ExploreView: View {
     @ObservedObject private var attendeesService = EventAttendeesService.shared
     @ObservedObject private var advertiser = BLEAdvertiserService.shared
     @ObservedObject private var authService = AuthService.shared
+    @ObservedObject private var beaconPresence = BeaconPresenceService.shared
 
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
@@ -23,6 +24,9 @@ struct ExploreView: View {
     }
 
     @State private var joinState: ExploreJoinState = .idle
+    @State private var justJoinedEventExpirations: [String: Date] = [:]
+
+    private let justJoinedDuration: TimeInterval = 15
 
     fileprivate enum SectionRole {
         case upcoming
@@ -216,8 +220,19 @@ struct ExploreView: View {
                     joinState: joinState,
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
+                    justJoinedEventIds: activeJustJoinedEventIds,
+                    shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
+                    },
+                    onCheckInNow: {
+                        Task {
+                            await eventJoin.checkIn()
+                            selectedTab = .home
+                        }
+                    },
+                    onGoToEvent: {
+                        selectedTab = .home
                     },
                     pastEventPreview: { _ in nil },
                     canRejoin: { _ in false },
@@ -236,8 +251,19 @@ struct ExploreView: View {
                     joinState: joinState,
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
+                    justJoinedEventIds: activeJustJoinedEventIds,
+                    shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
+                    },
+                    onCheckInNow: {
+                        Task {
+                            await eventJoin.checkIn()
+                            selectedTab = .home
+                        }
+                    },
+                    onGoToEvent: {
+                        selectedTab = .home
                     },
                     pastEventPreview: { _ in nil },
                     canRejoin: { _ in false },
@@ -256,8 +282,19 @@ struct ExploreView: View {
                     joinState: joinState,
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
+                    justJoinedEventIds: activeJustJoinedEventIds,
+                    shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
+                    },
+                    onCheckInNow: {
+                        Task {
+                            await eventJoin.checkIn()
+                            selectedTab = .home
+                        }
+                    },
+                    onGoToEvent: {
+                        selectedTab = .home
                     },
                     pastEventPreview: { event in
                         pastEventPreview(for: event)
@@ -315,6 +352,30 @@ struct ExploreView: View {
         )
     }
 
+
+
+    private var activeJustJoinedEventIds: Set<String> {
+        let now = Date()
+        return Set(justJoinedEventExpirations.compactMap { eventId, expiration in
+            expiration > now ? eventId : nil
+        })
+    }
+
+    private func markJustJoined(eventId: String) {
+        justJoinedEventExpirations[eventId] = Date().addingTimeInterval(justJoinedDuration)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + justJoinedDuration) {
+            if let expiration = justJoinedEventExpirations[eventId], expiration <= Date() {
+                justJoinedEventExpirations.removeValue(forKey: eventId)
+            }
+        }
+    }
+
+    private func shouldUseStrongPostJoinCTA(for event: ExploreEvent) -> Bool {
+        guard event.isHappeningNow else { return false }
+        return beaconPresence.currentZoneState == .inside
+    }
+
     private func performJoin(eventId: String) {
         guard joinState == .idle else {
             #if DEBUG
@@ -347,6 +408,9 @@ struct ExploreView: View {
                 if eventJoin.isEventJoined {
                     let name = eventJoin.currentEventName ?? "the event"
                     joinState = .joined(eventName: name)
+                    if let joinedEventId = eventJoin.currentEventID {
+                        markJustJoined(eventId: joinedEventId)
+                    }
 
                     #if DEBUG
                     print("[Explore] ✅ Join succeeded — showing confirmation")
@@ -780,8 +844,12 @@ private struct EventSectionView: View {
     let joinState: ExploreView.ExploreJoinState
     let currentJoinedEventId: String?
     let isEventJoined: Bool
+    let justJoinedEventIds: Set<String>
+    let shouldUseStrongPostJoinCTA: (ExploreEvent) -> Bool
 
     let onJoin: (String) -> Void
+    let onCheckInNow: () -> Void
+    let onGoToEvent: () -> Void
     let pastEventPreview: (ExploreEvent) -> PastEventPreview?
     let canRejoin: (ExploreEvent) -> Bool
     let onPastEventTap: (ExploreEvent) -> Void
@@ -811,6 +879,8 @@ private struct EventSectionView: View {
                     joinState: joinState,
                     currentJoinedEventId: currentJoinedEventId,
                     isEventJoined: isEventJoined,
+                    isJustJoined: justJoinedEventIds.contains(event.id.uuidString),
+                    showStrongPostJoinCTA: shouldUseStrongPostJoinCTA(event),
                     onTap: {
                         if role == .rejoin {
                             onPastEventTap(event)
@@ -822,7 +892,9 @@ private struct EventSectionView: View {
                     },
                     onJoin: {
                         onJoin(event.id.uuidString)
-                    }
+                    },
+                    onCheckInNow: onCheckInNow,
+                    onGoToEvent: onGoToEvent
                 )
                 .padding(.horizontal)
             }
@@ -841,9 +913,13 @@ private struct EventCardView: View {
     let joinState: ExploreView.ExploreJoinState
     let currentJoinedEventId: String?
     let isEventJoined: Bool
+    let isJustJoined: Bool
+    let showStrongPostJoinCTA: Bool
 
     let onTap: () -> Void
     let onJoin: () -> Void
+    let onCheckInNow: () -> Void
+    let onGoToEvent: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -906,7 +982,11 @@ private struct EventCardView: View {
                 currentJoinedEventId: currentJoinedEventId,
                 isEventJoined: isEventJoined,
                 canRejoin: canRejoin,
-                onJoin: onJoin
+                isJustJoined: isJustJoined,
+                showStrongPostJoinCTA: showStrongPostJoinCTA,
+                onJoin: onJoin,
+                onCheckInNow: onCheckInNow,
+                onGoToEvent: onGoToEvent
             )
             .padding(.top, 2)
         }
@@ -1007,7 +1087,11 @@ private struct EventCardActionRow: View {
     let currentJoinedEventId: String?
     let isEventJoined: Bool
     let canRejoin: Bool
+    let isJustJoined: Bool
+    let showStrongPostJoinCTA: Bool
     let onJoin: () -> Void
+    let onCheckInNow: () -> Void
+    let onGoToEvent: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1033,7 +1117,7 @@ private struct EventCardActionRow: View {
     private var joinButton: some View {
         Group {
             if isAlreadyJoined {
-                joinedConfirmationButton
+                joinedStateContent
             } else {
                 Button(action: onJoin) {
                     HStack(spacing: 5) {
@@ -1064,7 +1148,7 @@ private struct EventCardActionRow: View {
     private var rejoinButton: some View {
         Group {
             if isAlreadyJoined {
-                joinedConfirmationButton
+                joinedStateContent
             } else {
                 Button(action: onJoin) {
                     HStack(spacing: 5) {
@@ -1089,6 +1173,31 @@ private struct EventCardActionRow: View {
                 }
                 .disabled(joinState != .idle)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var joinedStateContent: some View {
+        if isJustJoined {
+            HStack(spacing: 8) {
+                Label(showStrongPostJoinCTA ? "You're here" : "Joined", systemImage: "checkmark.circle.fill")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.green)
+
+                Button(action: showStrongPostJoinCTA ? onCheckInNow : onGoToEvent) {
+                    Text(showStrongPostJoinCTA ? "Check In" : "Go to event")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.green)
+                        .cornerRadius(7)
+                }
+            }
+        } else {
+            joinedConfirmationButton
         }
     }
 
