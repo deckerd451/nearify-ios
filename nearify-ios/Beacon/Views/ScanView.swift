@@ -314,7 +314,7 @@ struct ScanView: View {
                 phase = .joining(eventName: preJoinLabel)
             }
 
-            await EventJoinService.shared.joinEvent(eventID: eventId)
+            await EventJoinService.shared.joinEvent(eventID: eventId, activationSource: .qr)
 
             await MainActor.run {
                 guard !isTransitioningAfterSuccess else { return }
