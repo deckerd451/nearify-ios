@@ -6,14 +6,16 @@ struct NetworkView: View {
     @ObservedObject private var presence = EventPresenceService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
     @ObservedObject private var modeState = EventModeState.shared
+    @ObservedObject private var peopleController = PeopleIntelligenceController.shared
 
     @State private var showMockAttendees = false
     @State private var showSettings = false
     @State private var showPresenceTestResult = false
     @State private var selectedAttendee: EventAttendee?
     @State private var showLeaveConfirmation = false
+    @State private var activeConversation: NetworkConversationTarget?
+    @State private var profileSheetTarget: NetworkProfileTarget?
 
-    @State private var connectedPeople: [ConnectedPerson] = []
     @State private var guestConnections: [GuestConnection] = []
 
     var body: some View {
@@ -48,6 +50,18 @@ struct NetworkView: View {
             .sheet(item: $selectedAttendee) { attendee in
                 FindAttendeeView(attendee: attendee)
             }
+            .sheet(item: $activeConversation) { target in
+                ConversationView(
+                    targetProfileId: target.profileId,
+                    preloadedConversation: nil,
+                    preloadedName: target.name
+                )
+            }
+            .sheet(item: $profileSheetTarget) { target in
+                NavigationStack {
+                    FeedProfileDetailView(profileId: target.profileId)
+                }
+            }
             .confirmationDialog(
                 "Leave Event",
                 isPresented: $showLeaveConfirmation,
@@ -61,12 +75,15 @@ struct NetworkView: View {
                 Text("Your connections and messages will be kept. You can rejoin by scanning the QR code again.")
             }
             .task {
+                peopleController.forceRebuild(reason: "network-appear")
                 await refreshPeopleSections()
             }
             .onChange(of: attendees.attendees) { _, _ in
+                peopleController.scheduleRebuild(reason: "network-attendees")
                 Task { await refreshPeopleSections() }
             }
             .onChange(of: modeState.membership) { _, _ in
+                peopleController.scheduleRebuild(reason: "network-membership")
                 Task { await refreshPeopleSections() }
             }
             .onAppear {
@@ -375,15 +392,12 @@ struct NetworkView: View {
                 switch section.kind {
                 case .connected(let people):
                     ForEach(people) { person in
-                        connectedRow(person)
+                        personRow(person, section: .connected)
                     }
 
                 case .hereNow(let people):
-                    ForEach(people) { attendee in
-                        Button(action: { selectedAttendee = attendee }) {
-                            AttendeeCardView(attendee: attendee)
-                        }
-                        .buttonStyle(.plain)
+                    ForEach(people) { person in
+                        personRow(person, section: .hereNow)
                     }
 
                 case .guests(let guests):
@@ -395,40 +409,123 @@ struct NetworkView: View {
         }
     }
 
-    private func connectedRow(_ person: ConnectedPerson) -> some View {
-        Button {
-            if let attendee = displayAttendees.first(where: { $0.id == person.id }) {
-                selectedAttendee = attendee
-            }
-        } label: {
+    private func personRow(_ person: PersonIntelligence, section: NetworkPeopleSection.VisualSection) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 AvatarView(imageUrl: person.avatarUrl, name: person.name, size: 42)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(person.name)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
+                    HStack(spacing: 6) {
+                        Text(person.name)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
 
-                    Text(person.contextLine)
+                        if person.connectionStatus == .accepted {
+                            Image(systemName: "link")
+                                .font(.caption2)
+                                .foregroundColor(.green)
+                        }
+
+                        if section == .connected && person.presence == .hereNow {
+                            Text("Here now")
+                                .font(.caption2)
+                                .foregroundColor(.cyan)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.cyan.opacity(0.2)))
+                        }
+                    }
+
+                    Text(person.distilledInsight)
                         .font(.caption)
                         .foregroundColor(.gray)
                         .lineLimit(1)
                 }
 
                 Spacer()
+            }
 
-                if displayAttendees.contains(where: { $0.id == person.id }) {
-                    Image(systemName: "location.fill")
-                        .font(.caption)
-                        .foregroundColor(.cyan)
+            HStack(spacing: 8) {
+                if section == .hereNow {
+                    actionButton(.find, person: person, tint: .cyan)
+                } else {
+                    ForEach(availableActions(for: person, section: section), id: \.label) { action in
+                        actionButton(action, person: person, tint: actionTint(action))
+                    }
                 }
             }
-            .padding(12)
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(12)
         }
         .buttonStyle(.plain)
+        .padding(12)
+        .background(Color.white.opacity(0.05))
+        .cornerRadius(12)
+    }
+
+    private func availableActions(for person: PersonIntelligence, section: NetworkPeopleSection.VisualSection) -> [PersonAction] {
+        let raw = [person.primaryAction, person.secondaryAction].compactMap { $0 }
+        var actions: [PersonAction] = []
+
+        for action in raw where !actions.contains(where: { $0.label == action.label }) {
+            if section == .hereNow && action == .keepWatching {
+                continue
+            }
+            actions.append(action)
+        }
+
+        if section == .hereNow && !actions.contains(where: { $0 == .find }) {
+            actions.insert(.find, at: 0)
+        }
+
+        return actions
+    }
+
+    private func actionTint(_ action: PersonAction) -> Color {
+        switch action {
+        case .find:
+            return .cyan
+        case .message:
+            return .green
+        case .viewProfile:
+            return .white.opacity(0.8)
+        case .keepWatching:
+            return .orange
+        }
+    }
+
+    private func actionButton(_ action: PersonAction, person: PersonIntelligence, tint: Color) -> some View {
+        Button {
+            handleAction(action, person: person)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: action.icon)
+                    .font(.caption2)
+                Text(action.label)
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .foregroundColor(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.12))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func handleAction(_ action: PersonAction, person: PersonIntelligence) {
+        switch action {
+        case .find:
+            if let attendee = displayAttendees.first(where: { $0.id == person.id }) {
+                selectedAttendee = attendee
+            }
+        case .message:
+            activeConversation = NetworkConversationTarget(profileId: person.id, name: person.name)
+        case .viewProfile:
+            profileSheetTarget = NetworkProfileTarget(profileId: person.id)
+        case .keepWatching:
+            break
+        }
     }
 
     private func guestRow(_ guest: GuestConnection) -> some View {
@@ -530,32 +627,50 @@ struct NetworkView: View {
     }
 
     private var peopleSections: [NetworkPeopleSection] {
+        adaptedPeopleSections(
+            oldModel: peopleController.sections,
+            guests: guestConnections
+        )
+    }
+
+    private func adaptedPeopleSections(
+        oldModel: PeopleIntelligenceBuilder.Sections,
+        guests: [GuestConnection]
+    ) -> [NetworkPeopleSection] {
         var sections: [NetworkPeopleSection] = []
+        var usedIds = Set<UUID>()
 
-        if !connectedPeople.isEmpty {
-            sections.append(NetworkPeopleSection(kind: .connected(connectedPeople)))
+        let connectedFromFollowUp = oldModel.followUp
+        let connectedFromNotHere = oldModel.notHere.filter { $0.connectionStatus == .accepted }
+        let connectedMerged = dedupedPeople(connectedFromFollowUp + connectedFromNotHere, usedIds: &usedIds)
+
+        if !connectedMerged.isEmpty {
+            sections.append(NetworkPeopleSection(kind: .connected(connectedMerged)))
         }
 
-        let connectedIds = Set(connectedPeople.map(\.id))
-        let hereNow = displayAttendees.filter { !connectedIds.contains($0.id) }
-
-        if !hereNow.isEmpty {
-            sections.append(NetworkPeopleSection(kind: .hereNow(hereNow)))
+        let hereNowMerged = dedupedPeople(oldModel.hereNow, usedIds: &usedIds)
+        if !hereNowMerged.isEmpty {
+            sections.append(NetworkPeopleSection(kind: .hereNow(hereNowMerged)))
         }
 
-        if !guestConnections.isEmpty {
-            sections.append(NetworkPeopleSection(kind: .guests(guestConnections)))
+        if !guests.isEmpty {
+            sections.append(NetworkPeopleSection(kind: .guests(guests)))
         }
 
         return sections
     }
 
-    private func refreshPeopleSections() async {
-        async let connected = NetworkPeopleService.shared.fetchConnectedPeople(currentEventName: currentEventName)
-        async let guests = NetworkPeopleService.shared.fetchUnclaimedGuests(currentEventName: currentEventName)
+    private func dedupedPeople(_ people: [PersonIntelligence], usedIds: inout Set<UUID>) -> [PersonIntelligence] {
+        var result: [PersonIntelligence] = []
+        for person in people where !usedIds.contains(person.id) {
+            result.append(person)
+            usedIds.insert(person.id)
+        }
+        return result
+    }
 
-        connectedPeople = await connected
-        guestConnections = await guests
+    private func refreshPeopleSections() async {
+        guestConnections = await NetworkPeopleService.shared.fetchUnclaimedGuests(currentEventName: currentEventName)
     }
 
     private var mockAttendees: [EventAttendee] {
@@ -595,9 +710,14 @@ struct NetworkView: View {
 }
 
 private struct NetworkPeopleSection: Identifiable {
+    enum VisualSection {
+        case connected
+        case hereNow
+    }
+
     enum Kind {
-        case connected([ConnectedPerson])
-        case hereNow([EventAttendee])
+        case connected([PersonIntelligence])
+        case hereNow([PersonIntelligence])
         case guests([GuestConnection])
     }
 
@@ -616,11 +736,15 @@ private struct NetworkPeopleSection: Identifiable {
     }
 }
 
-struct ConnectedPerson: Identifiable {
-    let id: UUID
+private struct NetworkConversationTarget: Identifiable {
+    let profileId: UUID
     let name: String
-    let avatarUrl: String?
-    let contextLine: String
+    var id: UUID { profileId }
+}
+
+private struct NetworkProfileTarget: Identifiable {
+    let profileId: UUID
+    var id: UUID { profileId }
 }
 
 struct GuestConnection: Identifiable {
@@ -636,81 +760,6 @@ final class NetworkPeopleService {
     private let supabase = AppEnvironment.shared.supabaseClient
 
     private init() { }
-
-    func fetchConnectedPeople(currentEventName: String?) async -> [ConnectedPerson] {
-        guard let currentProfileId = AuthService.shared.currentUser?.id else {
-            return []
-        }
-
-        var connected: [ConnectedPerson] = []
-        var seen = Set<UUID>()
-
-        do {
-            let connections = try await ConnectionService.shared.fetchConnections()
-
-            for connection in connections {
-                let counterpart = connection.otherUser(for: currentProfileId)
-                guard !seen.contains(counterpart.id) else { continue }
-
-                let profile = try? await ProfileService.shared.fetchProfileById(counterpart.id)
-
-                connected.append(
-                    ConnectedPerson(
-                        id: counterpart.id,
-                        name: profile?.name ?? counterpart.name,
-                        avatarUrl: profile?.imageUrl,
-                        contextLine: connectedContextLine(
-                            createdAt: connection.createdAt ?? Date.distantPast,
-                            eventName: currentEventName
-                        )
-                    )
-                )
-
-                seen.insert(counterpart.id)
-            }
-        } catch {
-            print("[NetworkPeople] Failed to load accepted connections: \(error)")
-        }
-
-        do {
-            let rows: [GhostInteractionRow] = try await supabase
-                .from("interaction_edges")
-                .select("id,from_ghost_id,to_profile_id,claimed_by_profile_id,created_at")
-                .eq("to_profile_id", value: currentProfileId.uuidString)
-                .not("from_ghost_id", operator: .is, value: "null")
-                .not("claimed_by_profile_id", operator: .is, value: "null")
-                .order("created_at", ascending: false)
-                .limit(50)
-                .execute()
-                .value
-
-            for row in rows {
-                guard let claimedProfileId = row.claimedByProfileId else { continue }
-                guard !seen.contains(claimedProfileId) else { continue }
-
-                let profile = try? await ProfileService.shared.fetchProfileById(claimedProfileId)
-                guard let profile else { continue }
-
-                connected.append(
-                    ConnectedPerson(
-                        id: profile.id,
-                        name: profile.name,
-                        avatarUrl: profile.imageUrl,
-                        contextLine: connectedContextLine(
-                            createdAt: row.createdAt,
-                            eventName: currentEventName
-                        )
-                    )
-                )
-
-                seen.insert(profile.id)
-            }
-        } catch {
-            print("[NetworkPeople] Claimed ghost promotion unavailable: \(error)")
-        }
-
-        return connected
-    }
 
     func fetchUnclaimedGuests(currentEventName: String?) async -> [GuestConnection] {
         guard let currentProfileId = AuthService.shared.currentUser?.id else {
@@ -740,18 +789,6 @@ final class NetworkPeopleService {
             print("[NetworkPeople] Failed to load guests: \(error)")
             return []
         }
-    }
-
-    private func connectedContextLine(createdAt: Date, eventName: String?) -> String {
-        if Calendar.current.isDateInToday(createdAt) {
-            return "Met today"
-        }
-
-        if let eventName, !eventName.isEmpty {
-            return "Connected at \(eventName)"
-        }
-
-        return "Connected via QR"
     }
 
     private func guestContextLine(eventName: String?) -> String {
