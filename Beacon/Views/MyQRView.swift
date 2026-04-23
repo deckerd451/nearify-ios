@@ -143,12 +143,14 @@ struct MyQRView: View {
     private var qrCodeSection: some View {
         let personalQREventContext = PersonalQRContextResolver.shared.resolve()
 
-        PersonalConnectQRCard(
-            title: "Connect with me",
-            subtitle: "Anyone can scan this to connect with you instantly — even without the app.",
-            eventId: personalQREventContext?.eventId,
-            profileId: displayUser.id
-        )
+        return Group {
+            PersonalConnectQRCard(
+                title: "Connect with me",
+                subtitle: "Anyone can scan this to connect with you instantly — even without the app.",
+                eventId: personalQREventContext?.eventId,
+                profileId: displayUser.id
+            )
+        }
     }
 
     // MARK: - 3. Attributes (Skills + Interests)
