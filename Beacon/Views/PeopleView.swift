@@ -53,12 +53,12 @@ struct PeopleView: View {
         .navigationBarTitleDisplayMode(.large)
         .refreshable {
             memory.requestRefresh(reason: "people-pull")
-            controller.forceRebuild(reason: "people-pull")
+            PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-pull")
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
         .onAppear {
             memory.requestRefresh(reason: "people-appear")
-            controller.forceRebuild(reason: "people-appear")
+            PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-appear")
         }
         .onChange(of: eventJoin.isEventJoined) { _, isJoined in
             // Clear event context when user leaves the event
