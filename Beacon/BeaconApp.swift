@@ -247,21 +247,22 @@ struct BeaconApp: App {
             // Shown when the user attempts to join a different event while already in one.
             // The system NEVER silently switches events — user must confirm.
             .alert(
-                "Switch events?",
+                "Switch Events?",
                 isPresented: Binding(
                     get: { EventJoinService.shared.pendingEventSwitch != nil },
                     set: { if !$0 { EventJoinService.shared.cancelEventSwitch() } }
                 )
             ) {
-                Button("Leave & Join", role: .destructive) {
+                Button("Switch Events", role: .destructive) {
                     Task { await EventJoinService.shared.confirmEventSwitch() }
                 }
-                Button("Stay", role: .cancel) {
+                Button("Cancel", role: .cancel) {
                     EventJoinService.shared.cancelEventSwitch()
                 }
             } message: {
                 if let pending = EventJoinService.shared.pendingEventSwitch {
-                    Text("You're in \(pending.currentEventName). Leave and join the new event?")
+                    let nextEventName = pending.newEventName ?? "the selected event"
+                    Text("You're currently checked in to \(pending.currentEventName).\n\nLeave this event and join \(nextEventName)?")
                 }
             }
         }

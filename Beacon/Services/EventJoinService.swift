@@ -152,7 +152,7 @@ final class EventJoinService: ObservableObject {
     //   Joining a different event while already in one is BLOCKED.
     //   The caller must use confirmEventSwitch() after the user confirms.
 
-    func joinEvent(eventID: String) async {
+    func joinEvent(eventID: String, eventName: String? = nil) async {
         #if DEBUG
         print("[EventJoin] 🎫 Joining event: \(eventID)")
         #endif
@@ -174,6 +174,12 @@ final class EventJoinService: ObservableObject {
         // GUARD: Already in a DIFFERENT event — block and request confirmation.
         // The system NEVER silently switches events.
         if isEventJoined, let currentName = currentEventName, currentEventID != eventID {
+            if let pending = pendingEventSwitch, pending.newEventId == eventID {
+                #if DEBUG
+                print("[EventJoin] ⏳ Switch confirmation already pending for \(eventID) — ignoring duplicate join tap")
+                #endif
+                return
+            }
             #if DEBUG
             print("[EventJoin] ⛔ Already in \(currentName) — blocking join to \(eventID)")
             print("[EventJoin]    User must confirm event switch via UI")
@@ -181,7 +187,7 @@ final class EventJoinService: ObservableObject {
             pendingEventSwitch = PendingEventSwitch(
                 currentEventName: currentName,
                 newEventId: eventID,
-                newEventName: nil  // Will be resolved if user confirms
+                newEventName: eventName
             )
             return
         }
@@ -194,6 +200,7 @@ final class EventJoinService: ObservableObject {
     func confirmEventSwitch() async {
         guard let pending = pendingEventSwitch else { return }
         let newEventId = pending.newEventId
+        let newEventName = pending.newEventName
         pendingEventSwitch = nil
 
         #if DEBUG
@@ -201,11 +208,14 @@ final class EventJoinService: ObservableObject {
         #endif
 
         // Leave current event first
-        await leaveEvent()
-
-        // Acknowledge the left state immediately so it doesn't block the join
-        membershipState = .notInEvent
-        isCheckedIn = false
+        let didLeaveCurrent = await leaveEvent(source: "switch-confirmation")
+        guard didLeaveCurrent else {
+            joinError = "Couldn't leave \(pending.currentEventName). Please try again."
+            #if DEBUG
+            print("[EventJoin] ❌ Event switch aborted — failed to leave current event")
+            #endif
+            return
+        }
 
         // Now join the new event
         guard let eventUUID = UUID(uuidString: newEventId) else {
@@ -213,6 +223,9 @@ final class EventJoinService: ObservableObject {
             return
         }
         await performJoin(eventUUID: eventUUID)
+        if !isEventJoined, joinError == nil {
+            joinError = "Couldn't join \(newEventName ?? "the new event"). Please try again."
+        }
     }
 
     /// Called by UI when user cancels the event switch dialog.
@@ -315,12 +328,13 @@ final class EventJoinService: ObservableObject {
         }
     }
 
-    func leaveEvent() async {
+    @discardableResult
+    func leaveEvent(source: String = "user") async -> Bool {
         guard !isLeaveInProgress else {
             #if DEBUG
             print("[LeaveEvent] duplicate leave ignored — already in progress")
             #endif
-            return
+            return false
         }
         isLeaveInProgress = true
         defer { isLeaveInProgress = false }
@@ -332,7 +346,7 @@ final class EventJoinService: ObservableObject {
         let encounterSnapshot = EncounterService.shared.activeEncounters
 
         #if DEBUG
-        print("[LeaveEvent] started for \(eventName)")
+        print("[LeaveEvent] started for \(eventName) (source: \(source))")
         #endif
 
         // Persist for reconnect recovery before clearing state
@@ -340,12 +354,23 @@ final class EventJoinService: ObservableObject {
             saveLastEventContext(eventId: eventId, eventName: eventName)
         }
 
+        let didMarkLeft: Bool
         // Write status="left" to DB before clearing local state
         if isCheckedIn {
-            await presence.leaveCurrentEvent()
+            didMarkLeft = await presence.leaveCurrentEvent()
         } else if let eventUUID = currentEventID.flatMap(UUID.init(uuidString:)),
                   let profileId = joinedProfileId {
-            await presence.markLeftWithoutActiveSession(eventId: eventUUID, profileId: profileId)
+            didMarkLeft = await presence.markLeftWithoutActiveSession(eventId: eventUUID, profileId: profileId)
+        } else {
+            didMarkLeft = true
+        }
+
+        guard didMarkLeft else {
+            joinError = "Couldn't leave \(eventName). Check your connection and try again."
+            #if DEBUG
+            print("[LeaveEvent] ❌ Aborting local clear because backend leave failed")
+            #endif
+            return false
         }
 
         BLEAdvertiserService.shared.stopEventAdvertising()
@@ -393,6 +418,7 @@ final class EventJoinService: ObservableObject {
         #if DEBUG
         print("[LeaveEvent] state cleared — isEventJoined=false, membership=left")
         #endif
+        return true
     }
 
     // MARK: - Dormant State (inactivity without leaving)

@@ -366,6 +366,10 @@ struct ExploreView: View {
         })
     }
 
+    private var allEvents: [ExploreEvent] {
+        explore.happeningNow + explore.upcoming + explore.recent
+    }
+
     private func markJustJoined(eventId: String) {
         let now = Date()
         justJoinedEventExpirations[eventId] = now.addingTimeInterval(justJoinedDuration)
@@ -405,9 +409,10 @@ struct ExploreView: View {
         }
 
         joinState = .joining(eventId: eventId)
+        let targetEventName = allEvents.first(where: { $0.id.uuidString == eventId })?.name
 
         Task {
-            await eventJoin.joinEvent(eventID: eventId)
+            await eventJoin.joinEvent(eventID: eventId, eventName: targetEventName)
 
             await MainActor.run {
                 if eventJoin.pendingEventSwitch != nil {
