@@ -292,7 +292,7 @@ final class EventJoinService: ObservableObject {
                 joinedProfileId = profileId
             }
 
-            presence.activateFromQRJoin(
+            presence.activateFromCheckIn(
                 eventName: eventName,
                 contextId: eventId,
                 communityId: profileId
@@ -462,7 +462,7 @@ final class EventJoinService: ObservableObject {
         backgroundEnteredAt = nil
 
         // Restart heartbeat — this writes status="joined" + fresh last_seen_at
-        presence.activateFromQRJoin(
+        presence.activateFromCheckIn(
             eventName: name,
             contextId: eventId,
             communityId: profileId
