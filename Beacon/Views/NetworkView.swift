@@ -75,15 +75,15 @@ struct NetworkView: View {
                 Text("Your connections and messages will be kept. You can rejoin by scanning the QR code again.")
             }
             .task {
-                peopleController.forceRebuild(reason: "network-appear")
+                PeopleRefreshCoordinator.shared.requestRefresh(reason: "network-appear")
                 await refreshPeopleSections()
             }
             .onChange(of: attendees.attendees) { _, _ in
-                peopleController.scheduleRebuild(reason: "network-attendees")
+                PeopleRefreshCoordinator.shared.requestRefresh(reason: "network-attendees")
                 Task { await refreshPeopleSections() }
             }
             .onChange(of: modeState.membership) { _, _ in
-                peopleController.scheduleRebuild(reason: "network-membership")
+                PeopleRefreshCoordinator.shared.requestRefresh(reason: "network-membership")
                 Task { await refreshPeopleSections() }
             }
             .onAppear {

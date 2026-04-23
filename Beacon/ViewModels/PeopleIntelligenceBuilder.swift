@@ -54,31 +54,31 @@ final class PeopleIntelligenceController: ObservableObject {
         // Attendee list changes (Supabase refresh, ~15s)
         EventAttendeesService.shared.$attendees
             .removeDuplicates { $0.map(\.id) == $1.map(\.id) }
-            .sink { [weak self] _ in self?.scheduleRebuild(reason: "attendees") }
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "attendees") }
             .store(in: &cancellables)
 
         // Relationship memory changes
         RelationshipMemoryService.shared.$relationships
             .removeDuplicates { $0.map(\.profileId) == $1.map(\.profileId) }
-            .sink { [weak self] _ in self?.scheduleRebuild(reason: "relationships") }
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "relationships") }
             .store(in: &cancellables)
 
         // Connection set changes
         AttendeeStateResolver.shared.$connectedIds
             .removeDuplicates()
-            .sink { [weak self] _ in self?.scheduleRebuild(reason: "connections") }
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "connections") }
             .store(in: &cancellables)
 
         // Event join state changes
         EventJoinService.shared.$isEventJoined
             .removeDuplicates()
-            .sink { [weak self] _ in self?.scheduleRebuild(reason: "event-join") }
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "event-join") }
             .store(in: &cancellables)
 
         // Navigation event context changes
         NavigationState.shared.$eventContext
             .removeDuplicates()
-            .sink { [weak self] _ in self?.scheduleRebuild(reason: "event-context") }
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "event-context") }
             .store(in: &cancellables)
 
         // Periodic BLE prefix check — every 3s, only triggers rebuild if prefix set changed.
@@ -96,7 +96,7 @@ final class PeopleIntelligenceController: ObservableObject {
         let currentPrefixes = Self.currentBLEPrefixes()
         let lastPrefixes = lastSignature?.blePrefixes ?? []
         if currentPrefixes != lastPrefixes {
-            scheduleRebuild(reason: "ble-prefix-change")
+            PeopleRefreshCoordinator.shared.requestRefresh(reason: "ble-prefix-change")
         }
     }
 
