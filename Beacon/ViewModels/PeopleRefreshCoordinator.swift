@@ -35,7 +35,7 @@ final class PeopleRefreshCoordinator {
             let sleepNs = UInt64(requestedDelay * 1_000_000_000)
             try? await Task.sleep(nanoseconds: sleepNs)
             guard !Task.isCancelled else { return }
-            await self?.fire()
+            self?.fire()
         }
     }
 
