@@ -158,24 +158,27 @@ final class EventPresenceService: ObservableObject {
 
     /// Writes status="left" to DB and stops heartbeat.
     /// Called by EventJoinService.leaveEvent() and timeoutEvent().
-    func leaveCurrentEvent() async {
+    func leaveCurrentEvent() async -> Bool {
         guard let eventId = _currentEventId, let profileId = _currentProfileId else {
             debugStatus = "No active event to leave"
-            return
+            return false
         }
 
-        await setAttendanceStatus(
+        let didSetLeft = await setAttendanceStatus(
             eventId: eventId,
             profileId: profileId,
             status: "left"
         )
 
-        stopHeartbeat(clearContext: true)
+        if didSetLeft {
+            stopHeartbeat(clearContext: true)
+        }
+        return didSetLeft
     }
 
     /// Marks a joined attendee as left even when no active heartbeat context exists.
     /// Used for "joined but not checked in" exits.
-    func markLeftWithoutActiveSession(eventId: UUID, profileId: UUID) async {
+    func markLeftWithoutActiveSession(eventId: UUID, profileId: UUID) async -> Bool {
         await setAttendanceStatus(
             eventId: eventId,
             profileId: profileId,
@@ -413,7 +416,7 @@ final class EventPresenceService: ObservableObject {
         await MainActor.run { isWritingPresence = false }
     }
 
-    private func setAttendanceStatus(eventId: UUID, profileId: UUID, status: String) async {
+    private func setAttendanceStatus(eventId: UUID, profileId: UUID, status: String) async -> Bool {
         await MainActor.run {
             isWritingPresence = true
             debugStatus = "Updating attendance status..."
@@ -440,14 +443,16 @@ final class EventPresenceService: ObservableObject {
             #if DEBUG
             print("[Presence] ✅ Attendance status updated to \(status)")
             #endif
+            await MainActor.run { isWritingPresence = false }
+            return true
         } catch {
             #if DEBUG
             print("[Presence] ❌ Failed to set attendance status: \(error.localizedDescription)")
             #endif
             await MainActor.run { debugStatus = "FAILED status update: \(error.localizedDescription)" }
+            await MainActor.run { isWritingPresence = false }
+            return false
         }
-
-        await MainActor.run { isWritingPresence = false }
     }
 
     // MARK: - Helpers
