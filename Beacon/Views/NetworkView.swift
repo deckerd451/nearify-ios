@@ -20,6 +20,7 @@ struct NetworkView: View {
         NavigationView {
             ZStack {
                 Color.black.ignoresSafeArea()
+
                 switch modeState.membership {
                 case .notInEvent, .joined:
                     inactiveState
@@ -41,11 +42,17 @@ struct NetworkView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showSettings) { settingsSheet }
+            .sheet(isPresented: $showSettings) {
+                settingsSheet
+            }
             .sheet(item: $selectedAttendee) { attendee in
                 FindAttendeeView(attendee: attendee)
             }
-            .confirmationDialog("Leave Event", isPresented: $showLeaveConfirmation, titleVisibility: .visible) {
+            .confirmationDialog(
+                "Leave Event",
+                isPresented: $showLeaveConfirmation,
+                titleVisibility: .visible
+            ) {
                 Button("Leave Event", role: .destructive) {
                     Task { await eventJoin.leaveEvent() }
                 }
@@ -56,10 +63,10 @@ struct NetworkView: View {
             .task {
                 await refreshPeopleSections()
             }
-            .onChange(of: attendees.attendees) {
+            .onChange(of: attendees.attendees) { _, _ in
                 Task { await refreshPeopleSections() }
             }
-            .onChange(of: modeState.membership) {
+            .onChange(of: modeState.membership) { _, _ in
                 Task { await refreshPeopleSections() }
             }
             .onAppear {
@@ -73,10 +80,12 @@ struct NetworkView: View {
 
     private var stateBanner: some View {
         let state = modeState.membership
+
         return HStack(spacing: 8) {
             Image(systemName: state.iconName)
                 .foregroundColor(state.displayColor)
                 .font(.system(size: 12))
+
             Text(state.displayLabel)
                 .font(.caption)
                 .fontWeight(.medium)
@@ -101,6 +110,7 @@ struct NetworkView: View {
                             .font(.subheadline)
                             .fontWeight(.medium)
                             .foregroundColor(.white)
+
                         Text("You were at this event recently")
                             .font(.caption)
                             .foregroundColor(.gray)
@@ -352,7 +362,7 @@ struct NetworkView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func peopleSectionView(_ section: PeopleSection) -> some View {
+    private func peopleSectionView(_ section: NetworkPeopleSection) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(section.title)
                 .font(.caption)
@@ -367,6 +377,7 @@ struct NetworkView: View {
                     ForEach(people) { person in
                         connectedRow(person)
                     }
+
                 case .hereNow(let people):
                     ForEach(people) { attendee in
                         Button(action: { selectedAttendee = attendee }) {
@@ -374,6 +385,7 @@ struct NetworkView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
                 case .guests(let guests):
                     ForEach(guests) { guest in
                         guestRow(guest)
@@ -461,12 +473,14 @@ struct NetworkView: View {
                         Text(eventJoin.currentEventName ?? presence.currentEvent ?? "None")
                             .foregroundColor(.secondary)
                     }
+
                     HStack {
                         Text("State")
                         Spacer()
                         Text(modeState.membership.displayLabel)
                             .foregroundColor(.secondary)
                     }
+
                     HStack {
                         Text("Nearby Attendees")
                         Spacer()
@@ -491,7 +505,7 @@ struct NetworkView: View {
                         }
                     }
                     .alert("Presence Test Result", isPresented: $showPresenceTestResult) {
-                        Button("OK", role: .cancel) {}
+                        Button("OK", role: .cancel) { }
                     } message: {
                         Text(presence.debugStatus)
                     }
@@ -515,21 +529,22 @@ struct NetworkView: View {
         eventJoin.currentEventName ?? presence.currentEvent
     }
 
-    private var peopleSections: [PeopleSection] {
-        var sections: [PeopleSection] = []
+    private var peopleSections: [NetworkPeopleSection] {
+        var sections: [NetworkPeopleSection] = []
 
         if !connectedPeople.isEmpty {
-            sections.append(PeopleSection(kind: .connected(connectedPeople)))
+            sections.append(NetworkPeopleSection(kind: .connected(connectedPeople)))
         }
 
         let connectedIds = Set(connectedPeople.map(\.id))
         let hereNow = displayAttendees.filter { !connectedIds.contains($0.id) }
+
         if !hereNow.isEmpty {
-            sections.append(PeopleSection(kind: .hereNow(hereNow)))
+            sections.append(NetworkPeopleSection(kind: .hereNow(hereNow)))
         }
 
         if !guestConnections.isEmpty {
-            sections.append(PeopleSection(kind: .guests(guestConnections)))
+            sections.append(NetworkPeopleSection(kind: .guests(guestConnections)))
         }
 
         return sections
@@ -545,14 +560,41 @@ struct NetworkView: View {
 
     private var mockAttendees: [EventAttendee] {
         [
-            EventAttendee(id: UUID(), name: "Alice Johnson", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.8, lastSeen: Date().addingTimeInterval(-10)),
-            EventAttendee(id: UUID(), name: "Bob Smith", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.6, lastSeen: Date().addingTimeInterval(-45)),
-            EventAttendee(id: UUID(), name: "Carol Davis", avatarUrl: nil, bio: nil, skills: [], interests: [], energy: 0.4, lastSeen: Date().addingTimeInterval(-120))
+            EventAttendee(
+                id: UUID(),
+                name: "Alice Johnson",
+                avatarUrl: nil,
+                bio: nil,
+                skills: [],
+                interests: [],
+                energy: 0.8,
+                lastSeen: Date().addingTimeInterval(-10)
+            ),
+            EventAttendee(
+                id: UUID(),
+                name: "Bob Smith",
+                avatarUrl: nil,
+                bio: nil,
+                skills: [],
+                interests: [],
+                energy: 0.6,
+                lastSeen: Date().addingTimeInterval(-45)
+            ),
+            EventAttendee(
+                id: UUID(),
+                name: "Carol Davis",
+                avatarUrl: nil,
+                bio: nil,
+                skills: [],
+                interests: [],
+                energy: 0.4,
+                lastSeen: Date().addingTimeInterval(-120)
+            )
         ]
     }
 }
 
-private struct PeopleSection: Identifiable {
+private struct NetworkPeopleSection: Identifiable {
     enum Kind {
         case connected([ConnectedPerson])
         case hereNow([EventAttendee])
@@ -564,9 +606,12 @@ private struct PeopleSection: Identifiable {
 
     var title: String {
         switch kind {
-        case .connected: return "Connected"
-        case .hereNow: return "Here now"
-        case .guests: return "Guests"
+        case .connected:
+            return "Connected"
+        case .hereNow:
+            return "Here now"
+        case .guests:
+            return "Guests"
         }
     }
 }
@@ -590,16 +635,19 @@ final class NetworkPeopleService {
 
     private let supabase = AppEnvironment.shared.supabaseClient
 
-    private init() {}
+    private init() { }
 
     func fetchConnectedPeople(currentEventName: String?) async -> [ConnectedPerson] {
-        guard let currentProfileId = AuthService.shared.currentUser?.id else { return [] }
+        guard let currentProfileId = AuthService.shared.currentUser?.id else {
+            return []
+        }
 
         var connected: [ConnectedPerson] = []
         var seen = Set<UUID>()
 
         do {
             let connections = try await ConnectionService.shared.fetchConnections()
+
             for connection in connections {
                 let counterpart = connection.otherUser(for: currentProfileId)
                 guard !seen.contains(counterpart.id) else { continue }
@@ -611,9 +659,13 @@ final class NetworkPeopleService {
                         id: counterpart.id,
                         name: profile?.name ?? counterpart.name,
                         avatarUrl: profile?.imageUrl,
-                        contextLine: connectedContextLine(createdAt: connection.createdAt, eventName: currentEventName)
+                        contextLine: connectedContextLine(
+                            createdAt: connection.createdAt ?? Date.distantPast,
+                            eventName: currentEventName
+                        )
                     )
                 )
+
                 seen.insert(counterpart.id)
             }
         } catch {
@@ -644,9 +696,13 @@ final class NetworkPeopleService {
                         id: profile.id,
                         name: profile.name,
                         avatarUrl: profile.imageUrl,
-                        contextLine: connectedContextLine(createdAt: row.createdAt, eventName: currentEventName)
+                        contextLine: connectedContextLine(
+                            createdAt: row.createdAt,
+                            eventName: currentEventName
+                        )
                     )
                 )
+
                 seen.insert(profile.id)
             }
         } catch {
@@ -657,7 +713,9 @@ final class NetworkPeopleService {
     }
 
     func fetchUnclaimedGuests(currentEventName: String?) async -> [GuestConnection] {
-        guard let currentProfileId = AuthService.shared.currentUser?.id else { return [] }
+        guard let currentProfileId = AuthService.shared.currentUser?.id else {
+            return []
+        }
 
         do {
             let rows: [GhostInteractionRow] = try await supabase
@@ -688,9 +746,11 @@ final class NetworkPeopleService {
         if Calendar.current.isDateInToday(createdAt) {
             return "Met today"
         }
+
         if let eventName, !eventName.isEmpty {
             return "Connected at \(eventName)"
         }
+
         return "Connected via QR"
     }
 
@@ -698,6 +758,7 @@ final class NetworkPeopleService {
         if let eventName, !eventName.isEmpty {
             return "Connected with you at \(eventName)"
         }
+
         return "Unclaimed connection"
     }
 }
