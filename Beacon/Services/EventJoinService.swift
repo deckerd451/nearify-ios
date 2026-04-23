@@ -33,7 +33,7 @@ final class EventJoinService: ObservableObject {
     // the join is blocked and this state is set so the UI can show a confirmation.
     // The user must explicitly confirm "Leave & Join" or cancel.
 
-    struct PendingEventSwitch {
+    struct PendingEventSwitch: Equatable {
         let currentEventName: String
         let newEventId: String
         let newEventName: String?
@@ -203,7 +203,6 @@ final class EventJoinService: ObservableObject {
         isSwitchingEvent = true
         defer { isSwitchingEvent = false }
         let newEventId = pending.newEventId
-        let newEventName = pending.newEventName
         pendingEventSwitch = nil
 
         #if DEBUG
