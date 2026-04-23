@@ -16,6 +16,9 @@ struct NetworkView: View {
     @State private var connectedPeople: [ConnectedPerson] = []
     @State private var guestConnections: [GuestConnection] = []
 
+    @State private var activeConversation: NetworkConversationTarget?
+    @State private var isOpeningConversation = false
+
     var body: some View {
         NavigationView {
             ZStack {
@@ -44,6 +47,13 @@ struct NetworkView: View {
             .sheet(isPresented: $showSettings) { settingsSheet }
             .sheet(item: $selectedAttendee) { attendee in
                 FindAttendeeView(attendee: attendee)
+            }
+            .sheet(item: $activeConversation) { target in
+                ConversationView(
+                    recipientId: target.profileId,
+                    recipientName: target.name,
+                    preloadedConversation: target.conversation
+                )
             }
             .confirmationDialog("Leave Event", isPresented: $showLeaveConfirmation, titleVisibility: .visible) {
                 Button("Leave Event", role: .destructive) {
@@ -352,7 +362,7 @@ struct NetworkView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func peopleSectionView(_ section: PeopleSection) -> some View {
+    private func peopleSectionView(_ section: NetworkPeopleSection) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(section.title)
                 .font(.caption)
@@ -365,14 +375,11 @@ struct NetworkView: View {
                 switch section.kind {
                 case .connected(let people):
                     ForEach(people) { person in
-                        connectedRow(person)
+                        connectedCard(person)
                     }
                 case .hereNow(let people):
                     ForEach(people) { attendee in
-                        Button(action: { selectedAttendee = attendee }) {
-                            AttendeeCardView(attendee: attendee)
-                        }
-                        .buttonStyle(.plain)
+                        hereNowCard(attendee)
                     }
                 case .guests(let guests):
                     ForEach(guests) { guest in
@@ -383,20 +390,28 @@ struct NetworkView: View {
         }
     }
 
-    private func connectedRow(_ person: ConnectedPerson) -> some View {
-        Button {
-            if let attendee = displayAttendees.first(where: { $0.id == person.id }) {
-                selectedAttendee = attendee
-            }
-        } label: {
+    private func connectedCard(_ person: ConnectedPerson) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                AvatarView(imageUrl: person.avatarUrl, name: person.name, size: 42)
+                AvatarView(imageUrl: person.avatarUrl, name: person.name, size: 44)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(person.name)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
+                    HStack(spacing: 6) {
+                        Text(person.name)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+
+                        if person.isHereNow {
+                            Text("Here now")
+                                .font(.caption2)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.green)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.green.opacity(0.18)))
+                        }
+                    }
 
                     Text(person.contextLine)
                         .font(.caption)
@@ -404,17 +419,93 @@ struct NetworkView: View {
                         .lineLimit(1)
                 }
 
-                Spacer()
+                Spacer(minLength: 0)
+            }
 
-                if displayAttendees.contains(where: { $0.id == person.id }) {
-                    Image(systemName: "location.fill")
+            HStack(spacing: 8) {
+                if let attendee = attendeeForPerson(person), person.isHereNow {
+                    Button {
+                        selectedAttendee = attendee
+                    } label: {
+                        Label("Find", systemImage: "location.fill")
+                    }
+                    .buttonStyle(NetworkActionButtonStyle(accent: .cyan))
+                }
+
+                Button {
+                    openConversation(profileId: person.id, name: person.name)
+                } label: {
+                    if isOpeningConversation {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                    } else {
+                        Label("Message", systemImage: "message.fill")
+                    }
+                }
+                .buttonStyle(NetworkActionButtonStyle(accent: .blue))
+                .disabled(isOpeningConversation)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(0.06))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
+        )
+    }
+
+    private func hereNowCard(_ attendee: EventAttendee) -> some View {
+        Button {
+            selectedAttendee = attendee
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    AvatarView(imageUrl: attendee.avatarUrl, name: attendee.name, size: 44)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(attendee.name)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+
+                        Text("Nearby right now")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "dot.radiowaves.left.and.right")
                         .font(.caption)
+                        .foregroundColor(.mint)
+                }
+
+                HStack(spacing: 8) {
+                    Label("Find", systemImage: "location.fill")
+                        .font(.caption)
+                        .fontWeight(.semibold)
                         .foregroundColor(.cyan)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.cyan.opacity(0.15)))
+
+                    Spacer()
                 }
             }
             .padding(12)
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                    )
+            )
         }
         .buttonStyle(.plain)
     }
@@ -515,24 +606,66 @@ struct NetworkView: View {
         eventJoin.currentEventName ?? presence.currentEvent
     }
 
-    private var peopleSections: [PeopleSection] {
-        var sections: [PeopleSection] = []
+    private var peopleSections: [NetworkPeopleSection] {
+        var sections: [NetworkPeopleSection] = []
+        let liveMap = Dictionary(uniqueKeysWithValues: displayAttendees.map { ($0.id, $0) })
 
-        if !connectedPeople.isEmpty {
-            sections.append(PeopleSection(kind: .connected(connectedPeople)))
+        let connected = connectedPeople.map {
+            ConnectedPerson(
+                id: $0.id,
+                name: $0.name,
+                avatarUrl: $0.avatarUrl,
+                contextLine: $0.contextLine,
+                isHereNow: liveMap[$0.id] != nil
+            )
         }
 
-        let connectedIds = Set(connectedPeople.map(\.id))
+        if !connected.isEmpty {
+            sections.append(NetworkPeopleSection(kind: .connected(connected)))
+        }
+
+        let connectedIds = Set(connected.map(\.id))
         let hereNow = displayAttendees.filter { !connectedIds.contains($0.id) }
         if !hereNow.isEmpty {
-            sections.append(PeopleSection(kind: .hereNow(hereNow)))
+            sections.append(NetworkPeopleSection(kind: .hereNow(hereNow)))
         }
 
         if !guestConnections.isEmpty {
-            sections.append(PeopleSection(kind: .guests(guestConnections)))
+            sections.append(NetworkPeopleSection(kind: .guests(guestConnections)))
         }
 
         return sections
+    }
+
+    private func attendeeForPerson(_ person: ConnectedPerson) -> EventAttendee? {
+        displayAttendees.first(where: { $0.id == person.id })
+    }
+
+    private func openConversation(profileId: UUID, name: String) {
+        guard !isOpeningConversation else { return }
+        isOpeningConversation = true
+
+        Task {
+            do {
+                let convo = try await MessagingService.shared.getOrCreateConversation(with: profileId)
+                await MessagingService.shared.fetchMessages(conversationId: convo.id)
+                await MainActor.run {
+                    activeConversation = NetworkConversationTarget(
+                        profileId: profileId,
+                        name: name,
+                        conversation: convo
+                    )
+                    isOpeningConversation = false
+                }
+            } catch {
+                await MainActor.run {
+                    isOpeningConversation = false
+                    #if DEBUG
+                    print("[Network] ⚠️ Conversation open failed: \(error)")
+                    #endif
+                }
+            }
+        }
     }
 
     private func refreshPeopleSections() async {
@@ -552,7 +685,7 @@ struct NetworkView: View {
     }
 }
 
-private struct PeopleSection: Identifiable {
+private struct NetworkPeopleSection: Identifiable {
     enum Kind {
         case connected([ConnectedPerson])
         case hereNow([EventAttendee])
@@ -571,11 +704,42 @@ private struct PeopleSection: Identifiable {
     }
 }
 
+private struct NetworkActionButtonStyle: ButtonStyle {
+    let accent: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundColor(accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8).fill(accent.opacity(configuration.isPressed ? 0.22 : 0.14)))
+    }
+}
+
+private struct NetworkConversationTarget: Identifiable {
+    let profileId: UUID
+    let name: String
+    let conversation: Conversation
+
+    var id: UUID { profileId }
+}
+
 struct ConnectedPerson: Identifiable {
     let id: UUID
     let name: String
     let avatarUrl: String?
     let contextLine: String
+    let isHereNow: Bool
+
+    init(id: UUID, name: String, avatarUrl: String?, contextLine: String, isHereNow: Bool = false) {
+        self.id = id
+        self.name = name
+        self.avatarUrl = avatarUrl
+        self.contextLine = contextLine
+        self.isHereNow = isHereNow
+    }
 }
 
 struct GuestConnection: Identifiable {
