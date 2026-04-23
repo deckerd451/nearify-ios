@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ExploreView: View {
     @Binding var selectedTab: AppTab
@@ -19,11 +20,13 @@ struct ExploreView: View {
     enum ExploreJoinState: Equatable {
         case idle
         case joining(eventId: String)
+        case awaitingSwitchConfirmation(eventId: String)
         case joined(eventName: String)
         case failed(message: String)
     }
 
     @State private var joinState: ExploreJoinState = .idle
+    @State private var lastJoinedEventID: String?
     @State private var justJoinedEventExpirations: [String: Date] = [:]
     @State private var postJoinCTAUnlockTimes: [String: Date] = [:]
 
@@ -64,6 +67,24 @@ struct ExploreView: View {
             }
             .onAppear {
                 explore.refresh()
+                lastJoinedEventID = eventJoin.currentEventID
+            }
+            .onChange(of: eventJoin.pendingEventSwitch) { pending in
+                if pending == nil,
+                   case .awaitingSwitchConfirmation = joinState {
+                    joinState = .idle
+                }
+            }
+            .onChange(of: eventJoin.currentEventID) { newEventID in
+                guard eventJoin.isEventJoined else {
+                    lastJoinedEventID = newEventID
+                    return
+                }
+                guard newEventID != lastJoinedEventID else { return }
+                lastJoinedEventID = newEventID
+                guard let joinedEventID = newEventID else { return }
+                markJustJoined(eventId: joinedEventID)
+                showJoinedBanner(eventName: eventJoin.currentEventName ?? "the event")
             }
             .fullScreenCover(isPresented: $showScanner) {
                 ScanView(
@@ -116,6 +137,13 @@ struct ExploreView: View {
             }
             .padding(.top, DesignTokens.titleToContent)
             .padding(.bottom, DesignTokens.scrollBottomPadding)
+        }
+        .overlay(alignment: .top) {
+            if eventJoin.isSwitchingEvent {
+                switchingOverlay
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
         }
     }
 
@@ -197,6 +225,7 @@ struct ExploreView: View {
                     eventName: ctx.eventName,
                     eventId: ctx.eventId,
                     joinState: joinState,
+                    isInteractionLocked: isInteractionLocked,
                     onRejoin: {
                         performJoin(eventId: ctx.eventId)
                     },
@@ -220,6 +249,7 @@ struct ExploreView: View {
                     role: .upcoming,
                     expandedEventId: $expandedEventId,
                     joinState: joinState,
+                    isInteractionLocked: isInteractionLocked,
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
                     justJoinedEventIds: activeJustJoinedEventIds,
@@ -252,6 +282,7 @@ struct ExploreView: View {
                     role: .happeningNow,
                     expandedEventId: $expandedEventId,
                     joinState: joinState,
+                    isInteractionLocked: isInteractionLocked,
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
                     justJoinedEventIds: activeJustJoinedEventIds,
@@ -284,6 +315,7 @@ struct ExploreView: View {
                     role: .rejoin,
                     expandedEventId: $expandedEventId,
                     joinState: joinState,
+                    isInteractionLocked: isInteractionLocked,
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
                     justJoinedEventIds: activeJustJoinedEventIds,
@@ -370,6 +402,13 @@ struct ExploreView: View {
         explore.happeningNow + explore.upcoming + explore.recent
     }
 
+    private var isInteractionLocked: Bool {
+        if eventJoin.pendingEventSwitch != nil || eventJoin.isSwitchingEvent {
+            return true
+        }
+        return joinState != .idle
+    }
+
     private func markJustJoined(eventId: String) {
         let now = Date()
         justJoinedEventExpirations[eventId] = now.addingTimeInterval(justJoinedDuration)
@@ -416,28 +455,18 @@ struct ExploreView: View {
 
             await MainActor.run {
                 if eventJoin.pendingEventSwitch != nil {
-                    joinState = .idle
+                    joinState = .awaitingSwitchConfirmation(eventId: eventId)
                     #if DEBUG
-                    print("[Explore] ℹ️ Event switch confirmation required — resetting join state")
+                    print("[Explore] ℹ️ Event switch confirmation required")
                     #endif
                     return
                 }
 
                 if eventJoin.isEventJoined {
-                    let name = eventJoin.currentEventName ?? "the event"
-                    joinState = .joined(eventName: name)
-                    if let joinedEventId = eventJoin.currentEventID {
-                        markJustJoined(eventId: joinedEventId)
-                    }
-
-                    #if DEBUG
-                    print("[Explore] ✅ Join succeeded — showing confirmation")
-                    #endif
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                        if case .joined = joinState {
-                            joinState = .idle
-                        }
+                    if eventJoin.currentEventID == lastJoinedEventID {
+                        showJoinedBanner(eventName: eventJoin.currentEventName ?? "the event")
+                    } else {
+                        joinState = .idle
                     }
                 } else {
                     let error = eventJoin.joinError ?? "Something went wrong"
@@ -453,6 +482,20 @@ struct ExploreView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private func showJoinedBanner(eventName: String) {
+        joinState = .joined(eventName: eventName)
+
+        #if DEBUG
+        print("[Explore] ✅ Join succeeded — showing confirmation")
+        #endif
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            if case .joined = joinState {
+                joinState = .idle
             }
         }
     }
@@ -606,6 +649,28 @@ struct ExploreView: View {
                 .font(.subheadline)
                 .foregroundColor(.gray)
         }
+    }
+
+    private var switchingOverlay: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+            Text("Switching events…")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.12))
+                .overlay(
+                    Capsule()
+                        .stroke(Color.blue.opacity(0.35), lineWidth: 1)
+                )
+        )
     }
 
     private func errorBanner(_ error: String) -> some View {
@@ -860,6 +925,7 @@ private struct EventSectionView: View {
     @Binding var expandedEventId: UUID?
 
     let joinState: ExploreView.ExploreJoinState
+    let isInteractionLocked: Bool
     let currentJoinedEventId: String?
     let isEventJoined: Bool
     let justJoinedEventIds: Set<String>
@@ -896,6 +962,7 @@ private struct EventSectionView: View {
                     preview: pastEventPreview(event),
                     canRejoin: canRejoin(event),
                     joinState: joinState,
+                    isInteractionLocked: isInteractionLocked,
                     currentJoinedEventId: currentJoinedEventId,
                     isEventJoined: isEventJoined,
                     isJustJoined: justJoinedEventIds.contains(event.id.uuidString),
@@ -919,6 +986,7 @@ private struct EventSectionView: View {
                 .padding(.horizontal)
             }
         }
+        .disabled(isInteractionLocked)
     }
 }
 
@@ -931,6 +999,7 @@ private struct EventCardView: View {
     let preview: PastEventPreview?
     let canRejoin: Bool
     let joinState: ExploreView.ExploreJoinState
+    let isInteractionLocked: Bool
     let currentJoinedEventId: String?
     let isEventJoined: Bool
     let isJustJoined: Bool
@@ -1000,6 +1069,7 @@ private struct EventCardView: View {
                 role: role,
                 eventId: event.id.uuidString,
                 joinState: joinState,
+                isInteractionLocked: isInteractionLocked,
                 currentJoinedEventId: currentJoinedEventId,
                 isEventJoined: isEventJoined,
                 canRejoin: canRejoin,
@@ -1106,6 +1176,7 @@ private struct EventCardActionRow: View {
     let role: ExploreView.SectionRole
     let eventId: String
     let joinState: ExploreView.ExploreJoinState
+    let isInteractionLocked: Bool
     let currentJoinedEventId: String?
     let isEventJoined: Bool
     let canRejoin: Bool
@@ -1115,6 +1186,7 @@ private struct EventCardActionRow: View {
     let onJoin: () -> Void
     let onCheckInNow: () -> Void
     let onGoToEvent: () -> Void
+    @State private var isJoinPressed = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1163,7 +1235,16 @@ private struct EventCardActionRow: View {
                     .foregroundColor(.black)
                     .cornerRadius(8)
                 }
-                .disabled(joinState != .idle)
+                .scaleEffect(isJoinPressed ? 0.96 : 1.0)
+                .animation(.easeOut(duration: 0.12), value: isJoinPressed)
+                .simultaneousGesture(TapGesture().onEnded {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    isJoinPressed = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        isJoinPressed = false
+                    }
+                })
+                .disabled(isInteractionLocked)
             }
         }
     }
@@ -1194,7 +1275,16 @@ private struct EventCardActionRow: View {
                     .foregroundColor(.black)
                     .cornerRadius(8)
                 }
-                .disabled(joinState != .idle)
+                .scaleEffect(isJoinPressed ? 0.96 : 1.0)
+                .animation(.easeOut(duration: 0.12), value: isJoinPressed)
+                .simultaneousGesture(TapGesture().onEnded {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    isJoinPressed = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        isJoinPressed = false
+                    }
+                })
+                .disabled(isInteractionLocked)
             }
         }
     }
@@ -1249,6 +1339,7 @@ private struct ReconnectBannerView: View {
     let eventName: String
     let eventId: String
     let joinState: ExploreView.ExploreJoinState
+    let isInteractionLocked: Bool
     let onRejoin: () -> Void
     let onDismiss: () -> Void
 
@@ -1292,7 +1383,7 @@ private struct ReconnectBannerView: View {
                     .background(Color.orange)
                     .cornerRadius(10)
                 }
-                .disabled(joinState != .idle)
+                .disabled(isInteractionLocked)
 
                 Button(action: onDismiss) {
                     Text("Dismiss")
@@ -1305,6 +1396,7 @@ private struct ReconnectBannerView: View {
                 }
             }
         }
+        .disabled(isInteractionLocked)
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 14)
