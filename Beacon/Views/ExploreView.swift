@@ -234,7 +234,9 @@ struct ExploreView: View {
                             selectedTab = .home
                         }
                     },
-                    onGoToEvent: {},
+                    onGoToEvent: {
+                        selectedTab = .home
+                    },
                     pastEventPreview: { _ in nil },
                     canRejoin: { _ in false },
                     onPastEventTap: { _ in }
@@ -264,7 +266,9 @@ struct ExploreView: View {
                             selectedTab = .home
                         }
                     },
-                    onGoToEvent: {},
+                    onGoToEvent: {
+                        selectedTab = .home
+                    },
                     pastEventPreview: { _ in nil },
                     canRejoin: { _ in false },
                     onPastEventTap: { _ in }
@@ -294,7 +298,9 @@ struct ExploreView: View {
                             selectedTab = .home
                         }
                     },
-                    onGoToEvent: {},
+                    onGoToEvent: {
+                        selectedTab = .home
+                    },
                     pastEventPreview: { event in
                         pastEventPreview(for: event)
                     },

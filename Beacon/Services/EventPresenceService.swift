@@ -47,6 +47,12 @@ struct NearifyProfileRow: Decodable {
 @MainActor
 final class EventPresenceService: ObservableObject {
 
+    enum PresenceActivationSource: String {
+        case none
+        case checkIn
+        case qr
+    }
+
     static let shared = EventPresenceService()
 
     @Published private(set) var currentEvent: String?
@@ -78,6 +84,7 @@ final class EventPresenceService: ObservableObject {
 
     /// True when context was established via QR join.
     private(set) var isQRJoinActive = false
+    private(set) var activationSource: PresenceActivationSource = .none
 
     private init() {}
 
@@ -99,6 +106,7 @@ final class EventPresenceService: ObservableObject {
     /// Called by explicit QR/deep-link flows.
     /// Starts the heartbeat for QR-activated sessions.
     func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+        activationSource = .qr
         activate(
             eventName: eventName,
             eventId: eventId,
@@ -111,6 +119,7 @@ final class EventPresenceService: ObservableObject {
     /// Called by explicit Check In action from the app UI.
     /// Starts the heartbeat for manual check-in sessions.
     func activateFromCheckIn(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+        activationSource = .checkIn
         activate(
             eventName: eventName,
             eventId: eventId,
@@ -127,6 +136,11 @@ final class EventPresenceService: ObservableObject {
         sourceLabel: String,
         statusPrefix: String
     ) {
+        guard activationSource == .checkIn || activationSource == .qr else {
+            print("[Presence] 🚫 Blocked — no explicit activation source")
+            return
+        }
+
         #if DEBUG
         print("[Presence] 🎫 Activating from \(sourceLabel) — \(eventName)")
         #endif
@@ -139,6 +153,7 @@ final class EventPresenceService: ObservableObject {
         lastPresenceWrite = Date()
 
         startHeartbeat()
+        activationSource = .none
     }
 
     /// Writes status="left" to DB and stops heartbeat.
