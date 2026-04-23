@@ -246,24 +246,21 @@ struct BeaconApp: App {
             //
             // Shown when the user attempts to join a different event while already in one.
             // The system NEVER silently switches events — user must confirm.
-            .alert(
-                "Switch Events?",
+            .sheet(
                 isPresented: Binding(
                     get: { EventJoinService.shared.pendingEventSwitch != nil },
                     set: { if !$0 { EventJoinService.shared.cancelEventSwitch() } }
                 )
             ) {
-                Button("Switch Events", role: .destructive) {
-                    Task { await EventJoinService.shared.confirmEventSwitch() }
-                }
-                Button("Cancel", role: .cancel) {
-                    EventJoinService.shared.cancelEventSwitch()
-                }
-            } message: {
-                if let pending = EventJoinService.shared.pendingEventSwitch {
-                    let nextEventName = pending.newEventName ?? "the selected event"
-                    Text("You're currently checked in to \(pending.currentEventName).\n\nLeave this event and join \(nextEventName)?")
-                }
+                EventSwitchConfirmationSheet(
+                    pending: EventJoinService.shared.pendingEventSwitch,
+                    onCancel: {
+                        EventJoinService.shared.cancelEventSwitch()
+                    },
+                    onConfirm: {
+                        Task { await EventJoinService.shared.confirmEventSwitch() }
+                    }
+                )
             }
         }
     }
@@ -311,6 +308,85 @@ struct BeaconApp: App {
         let targetProfileId: UUID
         let targetName: String
         let conversation: Conversation
+    }
+
+    private struct EventSwitchConfirmationSheet: View {
+        let pending: EventJoinService.PendingEventSwitch?
+        let onCancel: () -> Void
+        let onConfirm: () -> Void
+
+        var body: some View {
+            NavigationStack {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Switch Events?")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+
+                        if let pending {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("You’re currently checked in to:")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+
+                                Text(pending.currentEventName)
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+
+                                Text("Leave this event and join:")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                                    .padding(.top, 2)
+
+                                Text(pending.newEventName ?? "Selected event")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                            }
+                        }
+
+                        HStack(spacing: 12) {
+                            Button(action: onCancel) {
+                                Text("Cancel")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.white.opacity(0.12))
+                                    .cornerRadius(12)
+                            }
+
+                            Button(action: onConfirm) {
+                                Text("Switch Events")
+                                    .font(.subheadline)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.blue)
+                                    .cornerRadius(12)
+                            }
+                        }
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color.white.opacity(0.08))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                            )
+                    )
+                    .padding(.horizontal)
+                }
+            }
+            .presentationDetents([.height(340)])
+            .presentationDragIndicator(.visible)
+            .interactiveDismissDisabled()
+        }
     }
 
     private struct IncomingMessageBannerView: View {

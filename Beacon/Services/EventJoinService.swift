@@ -14,6 +14,7 @@ final class EventJoinService: ObservableObject {
     @Published private(set) var isEventJoined: Bool = false
     @Published private(set) var isCheckedIn: Bool = false
     @Published private(set) var joinError: String?
+    @Published private(set) var isSwitchingEvent: Bool = false
 
     /// Canonical membership state — the single source of truth for the UI.
     @Published private(set) var membershipState: EventMembershipState = .notInEvent
@@ -199,6 +200,8 @@ final class EventJoinService: ObservableObject {
     /// Called by UI after user confirms "Leave & Join" in the event switch dialog.
     func confirmEventSwitch() async {
         guard let pending = pendingEventSwitch else { return }
+        isSwitchingEvent = true
+        defer { isSwitchingEvent = false }
         let newEventId = pending.newEventId
         let newEventName = pending.newEventName
         pendingEventSwitch = nil
@@ -210,7 +213,7 @@ final class EventJoinService: ObservableObject {
         // Leave current event first
         let didLeaveCurrent = await leaveEvent(source: "switch-confirmation")
         guard didLeaveCurrent else {
-            joinError = "Couldn't leave \(pending.currentEventName). Please try again."
+            joinError = "Couldn't leave current event. Please try again."
             #if DEBUG
             print("[EventJoin] ❌ Event switch aborted — failed to leave current event")
             #endif
@@ -224,7 +227,7 @@ final class EventJoinService: ObservableObject {
         }
         await performJoin(eventUUID: eventUUID)
         if !isEventJoined, joinError == nil {
-            joinError = "Couldn't join \(newEventName ?? "the new event"). Please try again."
+            joinError = "Couldn't join new event."
         }
     }
 
