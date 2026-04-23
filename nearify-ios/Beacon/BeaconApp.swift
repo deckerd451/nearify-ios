@@ -100,7 +100,7 @@ struct BeaconApp: App {
                         #if DEBUG
                         print("[DeepLink] 🎫 Routing to EventJoinService")
                         #endif
-                        await EventJoinService.shared.joinEvent(eventID: eventId)
+                        await EventJoinService.shared.joinEvent(eventID: eventId, activationSource: .qr)
                         #if DEBUG
                         if EventJoinService.shared.isEventJoined {
                             print("[DeepLink] ✅ Join succeeded: '\(eventId)'")

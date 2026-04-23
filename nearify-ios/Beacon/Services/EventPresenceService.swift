@@ -37,6 +37,12 @@ struct NearifyProfileRow: Decodable {
 @MainActor
 final class EventPresenceService: ObservableObject {
 
+    enum PresenceActivationSource: String {
+        case none
+        case checkIn
+        case qr
+    }
+
     static let shared = EventPresenceService()
 
     @Published private(set) var currentEvent: String?
@@ -58,6 +64,7 @@ final class EventPresenceService: ObservableObject {
 
     /// True when context was established via QR join.
     private(set) var isQRJoinActive = false
+    private(set) var activationSource: PresenceActivationSource = .none
 
     private init() {}
 
@@ -77,21 +84,54 @@ final class EventPresenceService: ObservableObject {
         stopHeartbeat(clearContext: true)
     }
 
-    /// Called by EventJoinService when a user joins an event.
-    /// This activates presence state and starts the heartbeat loop.
-    func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+    /// Presence activation is allowed only from explicit user-intent sources.
+    private func canActivatePresence() -> Bool {
+        let allowed = activationSource == .checkIn || activationSource == .qr
+        if !allowed {
+            #if DEBUG
+            print("[Presence] Activation blocked (no explicit source)")
+            #endif
+        } else {
+            #if DEBUG
+            print("[Presence] Activation allowed (source: \(activationSource.rawValue))")
+            #endif
+        }
+        return allowed
+    }
+
+    private func activatePresence(
+        eventName: String,
+        eventId: UUID,
+        profileId: UUID
+    ) {
+        guard canActivatePresence() else {
+            activationSource = .none
+            return
+        }
+
         #if DEBUG
-        print("[Presence] 🎫 Activating from QR join — \(eventName)")
+        print("[Presence] 🎫 Activating presence — \(eventName)")
         #endif
 
-        isQRJoinActive = true
+        isQRJoinActive = activationSource == .qr
         _currentEventId = eventId
         _currentProfileId = profileId
         currentEvent = eventName
-        debugStatus = "QR join active: \(eventName)"
+        debugStatus = "Presence active: \(eventName)"
         lastPresenceWrite = Date()
 
         startHeartbeat()
+        activationSource = .none
+    }
+
+    func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+        activationSource = .qr
+        activatePresence(eventName: eventName, eventId: eventId, profileId: profileId)
+    }
+
+    func activateFromCheckIn(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+        activationSource = .checkIn
+        activatePresence(eventName: eventName, eventId: eventId, profileId: profileId)
     }
 
     func leaveCurrentEvent() async {

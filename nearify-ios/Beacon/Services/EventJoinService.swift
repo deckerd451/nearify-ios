@@ -19,9 +19,15 @@ final class EventJoinService: ObservableObject {
 
     private init() {}
 
+    enum JoinActivationSource {
+        case none
+        case checkIn
+        case qr
+    }
+
     // MARK: - Join Event
 
-    func joinEvent(eventID: String) async {
+    func joinEvent(eventID: String, activationSource: JoinActivationSource = .none) async {
         #if DEBUG
         print("[EventJoin] 🎫 Joining event: \(eventID)")
         #endif
@@ -42,11 +48,25 @@ final class EventJoinService: ObservableObject {
             currentEventName = event.name
             isEventJoined = true
 
-            presence.activateFromQRJoin(
-                eventName: event.name,
-                contextId: event.id,
-                communityId: profile.id
-            )
+            switch activationSource {
+            case .checkIn:
+                presence.activateFromCheckIn(
+                    eventName: event.name,
+                    contextId: event.id,
+                    communityId: profile.id
+                )
+            case .qr:
+                presence.activateFromQRJoin(
+                    eventName: event.name,
+                    contextId: event.id,
+                    communityId: profile.id
+                )
+            case .none:
+                #if DEBUG
+                print("[Presence] Activation blocked (no explicit source)")
+                #endif
+                break
+            }
 
             BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profile.id)
             BLEScannerService.shared.startScanning()

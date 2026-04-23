@@ -95,7 +95,7 @@ struct MainTabView: View {
         selectedTab = .network
 
         Task {
-            await EventJoinService.shared.joinEvent(eventID: eventId)
+            await EventJoinService.shared.joinEvent(eventID: eventId, activationSource: .qr)
 
             await MainActor.run {
                 self.isConsumingPendingEvent = false

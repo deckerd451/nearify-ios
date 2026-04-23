@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         case .event(let eventId):
             print("🚨 AppDelegate event deep link:", eventId)
             Task {
-                await EventJoinService.shared.joinEvent(eventID: eventId)
+                await EventJoinService.shared.joinEvent(eventID: eventId, activationSource: .qr)
             }
 
         case .profile(let communityId):
