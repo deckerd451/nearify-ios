@@ -96,18 +96,46 @@ final class EventPresenceService: ObservableObject {
         stopHeartbeat(clearContext: true)
     }
 
-    /// Called by EventJoinService when a user joins an event.
-    /// This is the ONLY place the heartbeat starts.
+    /// Called by explicit QR/deep-link flows.
+    /// Starts the heartbeat for QR-activated sessions.
     func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+        activate(
+            eventName: eventName,
+            eventId: eventId,
+            profileId: profileId,
+            sourceLabel: "QR join",
+            statusPrefix: "QR join active"
+        )
+    }
+
+    /// Called by explicit Check In action from the app UI.
+    /// Starts the heartbeat for manual check-in sessions.
+    func activateFromCheckIn(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
+        activate(
+            eventName: eventName,
+            eventId: eventId,
+            profileId: profileId,
+            sourceLabel: "check-in",
+            statusPrefix: "Checked in"
+        )
+    }
+
+    private func activate(
+        eventName: String,
+        eventId: UUID,
+        profileId: UUID,
+        sourceLabel: String,
+        statusPrefix: String
+    ) {
         #if DEBUG
-        print("[Presence] 🎫 Activating from QR join — \(eventName)")
+        print("[Presence] 🎫 Activating from \(sourceLabel) — \(eventName)")
         #endif
 
         isQRJoinActive = true
         _currentEventId = eventId
         _currentProfileId = profileId
         currentEvent = eventName
-        debugStatus = "QR join active: \(eventName)"
+        debugStatus = "\(statusPrefix): \(eventName)"
         lastPresenceWrite = Date()
 
         startHeartbeat()
