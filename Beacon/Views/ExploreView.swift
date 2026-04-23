@@ -25,8 +25,10 @@ struct ExploreView: View {
 
     @State private var joinState: ExploreJoinState = .idle
     @State private var justJoinedEventExpirations: [String: Date] = [:]
+    @State private var postJoinCTAUnlockTimes: [String: Date] = [:]
 
     private let justJoinedDuration: TimeInterval = 15
+    private let postJoinCTAUnlockDelay: TimeInterval = 0.75
 
     fileprivate enum SectionRole {
         case upcoming
@@ -221,6 +223,7 @@ struct ExploreView: View {
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
                     justJoinedEventIds: activeJustJoinedEventIds,
+                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(for:),
                     shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
@@ -252,6 +255,7 @@ struct ExploreView: View {
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
                     justJoinedEventIds: activeJustJoinedEventIds,
+                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(for:),
                     shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
@@ -283,6 +287,7 @@ struct ExploreView: View {
                     currentJoinedEventId: eventJoin.currentEventID,
                     isEventJoined: eventJoin.isEventJoined,
                     justJoinedEventIds: activeJustJoinedEventIds,
+                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(for:),
                     shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
@@ -362,13 +367,21 @@ struct ExploreView: View {
     }
 
     private func markJustJoined(eventId: String) {
-        justJoinedEventExpirations[eventId] = Date().addingTimeInterval(justJoinedDuration)
+        let now = Date()
+        justJoinedEventExpirations[eventId] = now.addingTimeInterval(justJoinedDuration)
+        postJoinCTAUnlockTimes[eventId] = now.addingTimeInterval(postJoinCTAUnlockDelay)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + justJoinedDuration) {
             if let expiration = justJoinedEventExpirations[eventId], expiration <= Date() {
                 justJoinedEventExpirations.removeValue(forKey: eventId)
+                postJoinCTAUnlockTimes.removeValue(forKey: eventId)
             }
         }
+    }
+
+    private func isPostJoinCTAEnabled(for eventId: String) -> Bool {
+        guard let unlockTime = postJoinCTAUnlockTimes[eventId] else { return true }
+        return Date() >= unlockTime
     }
 
     private func shouldUseStrongPostJoinCTA(for event: ExploreEvent) -> Bool {
@@ -845,6 +858,7 @@ private struct EventSectionView: View {
     let currentJoinedEventId: String?
     let isEventJoined: Bool
     let justJoinedEventIds: Set<String>
+    let isPostJoinCTAEnabled: (String) -> Bool
     let shouldUseStrongPostJoinCTA: (ExploreEvent) -> Bool
 
     let onJoin: (String) -> Void
@@ -880,6 +894,7 @@ private struct EventSectionView: View {
                     currentJoinedEventId: currentJoinedEventId,
                     isEventJoined: isEventJoined,
                     isJustJoined: justJoinedEventIds.contains(event.id.uuidString),
+                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(event.id.uuidString),
                     showStrongPostJoinCTA: shouldUseStrongPostJoinCTA(event),
                     onTap: {
                         if role == .rejoin {
@@ -914,6 +929,7 @@ private struct EventCardView: View {
     let currentJoinedEventId: String?
     let isEventJoined: Bool
     let isJustJoined: Bool
+    let isPostJoinCTAEnabled: Bool
     let showStrongPostJoinCTA: Bool
 
     let onTap: () -> Void
@@ -1195,6 +1211,8 @@ private struct EventCardActionRow: View {
                         .background(Color.green)
                         .cornerRadius(7)
                 }
+                .disabled(!isPostJoinCTAEnabled)
+                .opacity(isPostJoinCTAEnabled ? 1 : 0.6)
             }
         } else {
             joinedConfirmationButton
