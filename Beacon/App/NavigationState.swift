@@ -40,6 +40,15 @@ final class NavigationState: ObservableObject {
             return false
         }
 
+        if target == .event {
+            guard EventJoinService.shared.consumeNavigationIntent() else {
+                #if DEBUG
+                print("[TAB-WRITE BLOCKED] missing navigateToEvent intent: \(current) → \(target)")
+                #endif
+                return false
+            }
+        }
+
         binding = target
         return true
     }

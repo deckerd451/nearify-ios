@@ -117,6 +117,9 @@ struct MainTabView: View {
     }
 
     private func switchTab(to target: AppTab, source: TabChangeSource) {
+        if source == .user, target == .event {
+            EventJoinService.shared.setIntent(.navigateToEvent)
+        }
         _ = NavigationState.shared.requestTabChange(
             from: selectedTab,
             to: target,

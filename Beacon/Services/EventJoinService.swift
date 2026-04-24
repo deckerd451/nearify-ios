@@ -26,6 +26,14 @@ final class EventJoinService: ObservableObject {
     /// Local timestamp for the currently active check-in session.
     /// Used to scope post-event summaries to the session that just ended.
     @Published private(set) var activeSessionStartedAt: Date?
+    @Published private(set) var userIntent: UserIntent = .none
+
+    enum UserIntent: Equatable {
+        case none
+        case navigateToEvent
+        case checkIn
+        case qrEntry
+    }
 
     // MARK: - Event Switch Confirmation
     //
@@ -110,6 +118,26 @@ final class EventJoinService: ObservableObject {
 
     private init() {
         startBeaconRecoveryObservation()
+    }
+
+    // MARK: - Intent
+
+    func setIntent(_ intent: UserIntent) {
+        userIntent = intent
+    }
+
+    @discardableResult
+    func consumeNavigationIntent() -> Bool {
+        guard userIntent == .navigateToEvent else { return false }
+        userIntent = .none
+        return true
+    }
+
+    @discardableResult
+    func consumePresenceIntent() -> Bool {
+        guard userIntent == .checkIn || userIntent == .qrEntry else { return false }
+        userIntent = .none
+        return true
     }
 
     // MARK: - Beacon Soft Recovery
@@ -291,6 +319,12 @@ final class EventJoinService: ObservableObject {
 
     func checkIn() async {
         guard isEventJoined, !isCheckedIn else { return }
+        guard consumePresenceIntent() else {
+            #if DEBUG
+            print("[EventJoin] 🚫 Check-in blocked — explicit intent required")
+            #endif
+            return
+        }
         guard let eventIdString = currentEventID,
               let eventId = UUID(uuidString: eventIdString),
               let eventName = currentEventName else {
