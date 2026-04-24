@@ -94,7 +94,7 @@ struct PreEventBriefView: View {
         .onAppear {
             logRecommendationIfNeeded()
         }
-        .onChange(of: recommendationLogState) { _ in
+        .onChange(of: recommendationLogState) { _, _ in
             logRecommendationIfNeeded()
         }
     }
