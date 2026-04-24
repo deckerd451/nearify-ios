@@ -183,6 +183,7 @@ struct HomeView: View {
                 .foregroundColor(.secondary)
 
             Button {
+                eventJoin.setIntent(.checkIn)
                 Task { await eventJoin.checkIn() }
             } label: {
                 Text("Check In")
@@ -367,6 +368,9 @@ struct HomeView: View {
     }
 
     private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
+        if source == .user, target == .event {
+            eventJoin.setIntent(.navigateToEvent)
+        }
         _ = NavigationState.shared.requestTabChange(
             from: selectedTab,
             to: target,
