@@ -47,8 +47,8 @@ final class MessagingService: ObservableObject {
 
         repeat {
             pendingConversationReload = false
-            let task = Task { [weak self] in
-                guard let self else { return [] }
+            let task = Task<[Conversation], Never> { [weak self] in
+                guard let self else { return [Conversation]() }
                 return await self.performConversationSnapshotFetch()
             }
             conversationLoadTask = task
