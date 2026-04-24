@@ -8,6 +8,7 @@ enum TabChangeSource {
 
 /// Lightweight shared navigation state for contextual cross-tab transitions.
 /// Used to pass focus targets between tabs without coupling view models.
+@MainActor
 final class NavigationState: ObservableObject {
     static let shared = NavigationState()
 
