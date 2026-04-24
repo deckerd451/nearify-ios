@@ -1,44 +1,23 @@
 import SwiftUI
-import UIKit
 
 struct ExploreView: View {
     @Binding var selectedTab: AppTab
 
     @ObservedObject private var explore = ExploreEventsService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
-    @ObservedObject private var modeState = EventModeState.shared
-    @ObservedObject private var attendeesService = EventAttendeesService.shared
-    @ObservedObject private var advertiser = BLEAdvertiserService.shared
-    @ObservedObject private var authService = AuthService.shared
-    @ObservedObject private var beaconPresence = BeaconPresenceService.shared
 
-    @State private var showScanner = false
-    @State private var showLeaveConfirmation = false
-    @State private var expandedEventId: UUID?
     @State private var selectedPastEvent: ExploreEvent?
+    @State private var showSwitchConfirmation = false
+    @State private var joinInFlightEventID: String?
 
     enum ExploreJoinState: Equatable {
         case idle
-        case joining(eventId: String)
-        case awaitingSwitchConfirmation(eventId: String)
         case joined(eventName: String)
         case failed(message: String)
     }
 
     @State private var joinState: ExploreJoinState = .idle
     @State private var lastJoinedEventID: String?
-    @State private var justJoinedEventExpirations: [String: Date] = [:]
-    @State private var postJoinCTAUnlockTimes: [String: Date] = [:]
-    @State private var showSwitchConfirmation = false
-
-    private let justJoinedDuration: TimeInterval = 15
-    private let postJoinCTAUnlockDelay: TimeInterval = 0.75
-
-    fileprivate enum SectionRole {
-        case upcoming
-        case happeningNow
-        case rejoin
-    }
 
     private var noSections: Bool {
         explore.currentEvent == nil &&
@@ -72,9 +51,8 @@ struct ExploreView: View {
             }
             .onChange(of: eventJoin.pendingEventSwitch) { _, pending in
                 showSwitchConfirmation = pending != nil
-                if pending == nil,
-                   case .awaitingSwitchConfirmation = joinState {
-                    joinState = .idle
+                if pending == nil {
+                    joinInFlightEventID = nil
                 }
             }
             .onChange(of: eventJoin.currentEventID) { _, newEventID in
@@ -82,35 +60,13 @@ struct ExploreView: View {
                     lastJoinedEventID = newEventID
                     return
                 }
+
                 guard newEventID != lastJoinedEventID else { return }
                 lastJoinedEventID = newEventID
-                guard let joinedEventID = newEventID else { return }
-                markJustJoined(eventId: joinedEventID)
+
+                guard newEventID != nil else { return }
+                joinInFlightEventID = nil
                 showJoinedBanner(eventName: eventJoin.currentEventName ?? "the event")
-            }
-            .fullScreenCover(isPresented: $showScanner) {
-                ScanView(
-                    selectedTab: $selectedTab,
-                    onSuccess: { _ in
-                        showScanner = false
-                        explore.refresh()
-                    },
-                    onCancel: {
-                        showScanner = false
-                    }
-                )
-            }
-            .confirmationDialog(
-                "Leave Event",
-                isPresented: $showLeaveConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Leave Event", role: .destructive) {
-                    Task { await eventJoin.leaveEvent() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Your connections and messages will be kept.")
             }
             .confirmationDialog(
                 "Switch Events?",
@@ -124,6 +80,7 @@ struct ExploreView: View {
                 }
                 Button("Cancel", role: .cancel) {
                     eventJoin.cancelEventSwitch()
+                    joinInFlightEventID = nil
                 }
             } message: {
                 if let pending = eventJoin.pendingEventSwitch {
@@ -149,11 +106,9 @@ struct ExploreView: View {
             VStack(spacing: DesignTokens.sectionSpacing) {
                 joinFeedbackSection
                 statusBannerSection
-                currentEventSection
-                reconnectSection
+                activeEventSection
                 eventListsSection
                 emptyStateSection
-                scanFallback
             }
             .padding(.top, DesignTokens.titleToContent)
             .padding(.bottom, DesignTokens.scrollBottomPadding)
@@ -178,173 +133,114 @@ struct ExploreView: View {
             EmptyView()
         }
     }
+
     @ViewBuilder
     private var statusBannerSection: some View {
-        if case .left = modeState.membership {
-            exitedBanner
-        }
-
         if let error = explore.loadError, noSections {
             errorBanner(error)
         }
     }
 
     @ViewBuilder
-    private var currentEventSection: some View {
+    private var activeEventSection: some View {
         if let current = explore.currentEvent {
-            CurrentEventCardView(
-                event: current,
-                isExpanded: expandedEventId == current.id,
-                attendeeCount: attendeesService.attendeeCount,
-                isJoined: {
-                    if case .joined = modeState.membership { return true }
-                    return false
-                }(),
-                isInEvent: {
-                    if case .inEvent = modeState.membership { return true }
-                    return false
-                }(),
-                liveIndicatorText: modeState.membership.isParticipating
-                    ? UserPresenceStateResolver.exploreLiveIndicator
-                    : "Joined · Ready to check in",
-                liveIndicatorColor: modeState.membership.isParticipating
-                    ? UserPresenceStateResolver.statusColor
-                : Color.blue,
-                isHostAnchorMode: advertiser.isHostAnchorMode,
-                onToggleExpand: {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        expandedEventId = expandedEventId == current.id ? nil : current.id
-                    }
-                },
-                onCheckIn: {
-                    Task {
-                        await eventJoin.checkIn()
-                        switchTab(to: .home)
-                    }
-                },
-                onSayGoodbye: {
-                    showLeaveConfirmation = true
-                },
-                onEnableAnchor: {
-                    advertiser.enableHostAnchorMode()
-                },
-                onDisableAnchor: {
-                    advertiser.disableHostAnchorMode()
-                },
-                currentUserProfileId: authService.currentUser?.id,
-                personalQREventId: PersonalQRContextResolver.shared.resolve()?.eventId
+            EventFocusCardView(
+                title: current.name,
+                statusText: eventJoin.isEventJoined ? "Live / Joined" : "Live",
+                actionTitle: "Go to event",
+                isPrimary: true,
+                isActionDisabled: false,
+                onAction: {
+                    switchTab(to: .home)
+                }
             )
-        }
-    }
-
-    private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
-        _ = NavigationState.shared.requestTabChange(
-            from: selectedTab,
-            to: target,
-            source: source,
-            binding: &selectedTab
-        )
-    }
-
-    @ViewBuilder
-    private var reconnectSection: some View {
-        if explore.currentEvent == nil && !modeState.membership.isParticipating {
-            if let ctx = eventJoin.reconnectContext {
-                ReconnectBannerView(
-                    eventName: ctx.eventName,
-                    eventId: ctx.eventId,
-                    joinState: joinState,
-                    isInteractionLocked: isInteractionLocked,
-                    onRejoin: {
-                        performJoin(eventId: ctx.eventId)
-                    },
-                    onDismiss: {
-                        eventJoin.dismissReconnect()
-                    }
-                )
-                .padding(.horizontal)
-            }
+            .padding(.horizontal)
         }
     }
 
     private var eventListsSection: some View {
         VStack(spacing: DesignTokens.sectionSpacing) {
-            if !explore.upcoming.isEmpty {
-                EventSectionView(
-                    title: "Upcoming",
-                    icon: "calendar",
-                    iconColor: .blue,
-                    events: explore.upcoming,
-                    role: .upcoming,
-                    expandedEventId: $expandedEventId,
-                    joinState: joinState,
-                    isInteractionLocked: isInteractionLocked,
-                    currentJoinedEventId: eventJoin.currentEventID,
-                    isEventJoined: eventJoin.isEventJoined,
-                    justJoinedEventIds: activeJustJoinedEventIds,
-                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(for:),
-                    shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
-                    onJoin: { eventId in
-                        performJoin(eventId: eventId)
-                    },
-                    pastEventPreview: { _ in nil },
-                    canRejoin: { _ in false },
-                    onPastEventTap: { _ in }
-                )
-            }
-
             if !explore.happeningNow.isEmpty {
-                EventSectionView(
+                eventSection(
                     title: "Live Now",
                     icon: "circle.fill",
                     iconColor: .green,
                     events: explore.happeningNow,
-                    role: .happeningNow,
-                    expandedEventId: $expandedEventId,
-                    joinState: joinState,
-                    isInteractionLocked: isInteractionLocked,
-                    currentJoinedEventId: eventJoin.currentEventID,
-                    isEventJoined: eventJoin.isEventJoined,
-                    justJoinedEventIds: activeJustJoinedEventIds,
-                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(for:),
-                    shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
-                    onJoin: { eventId in
-                        performJoin(eventId: eventId)
-                    },
-                    pastEventPreview: { _ in nil },
-                    canRejoin: { _ in false },
-                    onPastEventTap: { _ in }
+                    role: .happeningNow
+                )
+            }
+
+            if !explore.upcoming.isEmpty {
+                eventSection(
+                    title: "Upcoming Events",
+                    icon: "calendar",
+                    iconColor: .blue,
+                    events: explore.upcoming,
+                    role: .upcoming
                 )
             }
 
             if !explore.recent.isEmpty {
-                EventSectionView(
+                eventSection(
                     title: "Past Events",
                     icon: "arrow.counterclockwise",
                     iconColor: .orange,
                     events: explore.recent,
-                    role: .rejoin,
-                    expandedEventId: $expandedEventId,
-                    joinState: joinState,
-                    isInteractionLocked: isInteractionLocked,
-                    currentJoinedEventId: eventJoin.currentEventID,
-                    isEventJoined: eventJoin.isEventJoined,
-                    justJoinedEventIds: activeJustJoinedEventIds,
-                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(for:),
-                    shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
-                    onJoin: { eventId in
-                        performJoin(eventId: eventId)
+                    role: .rejoin
+                )
+            }
+        }
+    }
+
+    enum SectionRole {
+        case upcoming
+        case happeningNow
+        case rejoin
+    }
+
+    private func eventSection(
+        title: String,
+        icon: String,
+        iconColor: Color,
+        events: [ExploreEvent],
+        role: SectionRole
+    ) -> some View {
+        VStack(alignment: .leading, spacing: DesignTokens.elementSpacing) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundColor(iconColor)
+
+                Text(title.uppercased())
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(iconColor)
+                    .tracking(1.2)
+            }
+            .padding(.horizontal)
+
+            ForEach(events) { event in
+                SimpleEventCardView(
+                    event: event,
+                    role: role,
+                    isJoined: eventJoin.isEventJoined && eventJoin.currentEventID == event.id.uuidString,
+                    isJoining: joinInFlightEventID == event.id.uuidString,
+                    isJoinedElsewhere: eventJoin.isEventJoined && eventJoin.currentEventID != event.id.uuidString,
+                    onJoin: {
+                        if role == .rejoin {
+                            selectedPastEvent = event
+                        } else {
+                            performJoin(eventId: event.id.uuidString)
+                        }
                     },
-                    pastEventPreview: { event in
-                        pastEventPreview(for: event)
+                    onGoToEvent: {
+                        switchTab(to: .home)
                     },
-                    canRejoin: { event in
-                        canRejoinPastEvent(event)
-                    },
-                    onPastEventTap: { event in
+                    onOpenPastEvent: {
                         selectedPastEvent = event
                     }
                 )
+                .padding(.horizontal)
             }
         }
     }
@@ -365,91 +261,15 @@ struct ExploreView: View {
         eventJoin.reconnectContext?.eventId == event.id.uuidString
     }
 
-    private func pastEventPreview(for event: ExploreEvent) -> PastEventPreview? {
-        guard let summary = summaryForPastEvent(event) else {
-            return PastEventPreview(
-                line: "Summary available soon",
-                snippet: nil
-            )
-        }
-
-        let line: String
-        if let strongest = summary.strongestInteraction {
-            line = "Strongest: \(strongest.name)"
-        } else if summary.snapshot.meaningfulPeopleCount == 0 {
-            line = "No meaningful contacts"
-        } else {
-            let count = summary.snapshot.meaningfulPeopleCount
-            line = "\(count) meaningful \(count == 1 ? "contact" : "contacts")"
-        }
-
-        let snippet = summary.followUpSuggestions.first?.reason ?? summary.snapshot.activityLine
-
-        return PastEventPreview(
-            line: line,
-            snippet: snippet
-        )
-    }
-
-
-
-    private var activeJustJoinedEventIds: Set<String> {
-        let now = Date()
-        return Set(justJoinedEventExpirations.compactMap { eventId, expiration in
-            expiration > now ? eventId : nil
-        })
-    }
-
-    private var allEvents: [ExploreEvent] {
-        explore.happeningNow + explore.upcoming + explore.recent
-    }
-
-    private var isInteractionLocked: Bool {
-        if eventJoin.pendingEventSwitch != nil || eventJoin.isSwitchingEvent {
-            return true
-        }
-        return joinState != .idle
-    }
-
-    private func markJustJoined(eventId: String) {
-        let now = Date()
-        justJoinedEventExpirations[eventId] = now.addingTimeInterval(justJoinedDuration)
-        postJoinCTAUnlockTimes[eventId] = now.addingTimeInterval(postJoinCTAUnlockDelay)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + justJoinedDuration) {
-            if let expiration = justJoinedEventExpirations[eventId], expiration <= Date() {
-                justJoinedEventExpirations.removeValue(forKey: eventId)
-                postJoinCTAUnlockTimes.removeValue(forKey: eventId)
-            }
-        }
-    }
-
-    private func isPostJoinCTAEnabled(for eventId: String) -> Bool {
-        guard let unlockTime = postJoinCTAUnlockTimes[eventId] else { return true }
-        return Date() >= unlockTime
-    }
-
-    private func shouldUseStrongPostJoinCTA(for event: ExploreEvent) -> Bool {
-        guard event.isHappeningNow else { return false }
-        return beaconPresence.currentZoneState == .inside
-    }
-
     private func performJoin(eventId: String) {
-        guard joinState == .idle else {
-            #if DEBUG
-            print("[Explore] ⛔ Join blocked — already in state: \(joinState)")
-            #endif
-            return
-        }
+        guard joinInFlightEventID == nil else { return }
 
         if eventJoin.isEventJoined && eventJoin.currentEventID == eventId {
-            #if DEBUG
-            print("[Explore] ⛔ Already joined event \(eventId) — skipping")
-            #endif
             return
         }
 
-        joinState = .joining(eventId: eventId)
+        joinInFlightEventID = eventId
+
         let targetEventName = allEvents.first(where: { $0.id.uuidString == eventId })?.name
 
         Task {
@@ -457,26 +277,17 @@ struct ExploreView: View {
 
             await MainActor.run {
                 if eventJoin.pendingEventSwitch != nil {
-                    joinState = .awaitingSwitchConfirmation(eventId: eventId)
-                    #if DEBUG
-                    print("[Explore] ℹ️ Event switch confirmation required")
-                    #endif
                     return
                 }
 
                 if eventJoin.isEventJoined {
                     if eventJoin.currentEventID == lastJoinedEventID {
                         showJoinedBanner(eventName: eventJoin.currentEventName ?? "the event")
-                    } else {
-                        joinState = .idle
                     }
                 } else {
                     let error = eventJoin.joinError ?? "Something went wrong"
                     joinState = .failed(message: error)
-
-                    #if DEBUG
-                    print("[Explore] ❌ Join failed: \(error)")
-                    #endif
+                    joinInFlightEventID = nil
 
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                         if case .failed = joinState {
@@ -488,18 +299,27 @@ struct ExploreView: View {
         }
     }
 
+    private var allEvents: [ExploreEvent] {
+        explore.happeningNow + explore.upcoming + explore.recent
+    }
+
     private func showJoinedBanner(eventName: String) {
         joinState = .joined(eventName: eventName)
-
-        #if DEBUG
-        print("[Explore] ✅ Join succeeded — showing confirmation")
-        #endif
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             if case .joined = joinState {
                 joinState = .idle
             }
         }
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 
     private func joinSuccessBanner(eventName: String) -> some View {
@@ -509,21 +329,27 @@ struct ExploreView: View {
                 .foregroundColor(.green)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("You're in")
+                Text("✓ Joined")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
 
-                Text("Joined \(eventName)")
+                Text(eventName)
                     .font(.caption)
                     .foregroundColor(.gray)
-
-                Text("Check in when you arrive")
-                    .font(.caption2)
-                    .foregroundColor(.gray.opacity(0.8))
             }
 
             Spacer()
+
+            Button("Go to event") {
+                switchTab(to: .home)
+            }
+            .font(.caption)
+            .fontWeight(.semibold)
+            .foregroundColor(.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.green))
         }
         .padding()
         .background(
@@ -569,77 +395,6 @@ struct ExploreView: View {
         )
         .padding(.horizontal)
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    private var exitedBanner: some View {
-        let state = modeState.membership
-
-        return VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: state.iconName)
-                    .foregroundColor(state.displayColor)
-
-                Text(state.displayLabel)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(state.displayColor)
-            }
-
-            if let name = state.eventName {
-                Text(name)
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.6))
-            }
-
-            Text("Your connections and messages are still available.")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-
-            Button {
-                eventJoin.acknowledgeExit()
-            } label: {
-                Text("OK")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.white.opacity(0.15)))
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white.opacity(0.04))
-        )
-        .padding(.horizontal)
-    }
-
-    private var scanFallback: some View {
-        VStack(spacing: 10) {
-            Text("Don't see your event?")
-                .font(.caption)
-                .foregroundColor(.gray)
-
-            Button {
-                showScanner = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.caption)
-                    Text("Scan Event QR")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                }
-                .foregroundColor(.white.opacity(0.6))
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.08))
-                .cornerRadius(10)
-            }
-        }
-        .padding(.top, 8)
     }
 
     private var loadingState: some View {
@@ -727,285 +482,61 @@ struct ExploreView: View {
     }
 }
 
-// MARK: - Current Event Card
-
-private struct CurrentEventCardView: View {
-    let event: ExploreEvent
-    let isExpanded: Bool
-    let attendeeCount: Int
-    let isJoined: Bool
-    let isInEvent: Bool
-    let liveIndicatorText: String
-    let liveIndicatorColor: Color
-    let isHostAnchorMode: Bool
-
-    let onToggleExpand: () -> Void
-    let onCheckIn: () -> Void
-    let onSayGoodbye: () -> Void
-    let onEnableAnchor: () -> Void
-    let onDisableAnchor: () -> Void
-    let currentUserProfileId: UUID?
-    let personalQREventId: UUID?
+private struct EventFocusCardView: View {
+    let title: String
+    let statusText: String
+    let actionTitle: String
+    let isPrimary: Bool
+    let isActionDisabled: Bool
+    let onAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(event.name)
+            Text(title)
                 .font(.headline)
                 .foregroundColor(.white)
 
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 Circle()
-                    .fill(liveIndicatorColor)
-                    .frame(width: 6, height: 6)
+                    .fill(isPrimary ? Color.green : Color.blue)
+                    .frame(width: 7, height: 7)
 
-                Text(liveIndicatorText)
-                    .font(.caption2)
-                    .foregroundColor(liveIndicatorColor.opacity(0.8))
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundColor((isPrimary ? Color.green : Color.blue).opacity(0.85))
             }
 
-            EventMetadataRow(
-                dateDisplay: event.dateDisplay,
-                location: event.location,
-                expanded: isExpanded
-            )
-
-            if isExpanded {
-                if let desc = event.eventDescription, !desc.isEmpty {
-                    Text(desc)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
-                }
-
-                let brief = PreEventBriefBuilder.build(
-                    eventId: event.id,
-                    eventName: event.name
-                )
-
-                let hasBriefContent = !brief.hereNow.isEmpty ||
-                    !brief.likelyAttendees.isEmpty ||
-                    !brief.conversationStarters.isEmpty ||
-                    !brief.peopleToMeet.isEmpty
-
-                if hasBriefContent {
-                    Divider()
-                        .background(Color.white.opacity(0.1))
-                        .padding(.vertical, 4)
-
-                    PreEventBriefView(brief: brief)
-                }
-            }
-
-            let attendeeLabel = UserPresenceStateResolver.exploreAttendeeLabel(count: attendeeCount)
-            if !attendeeLabel.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 10))
-                    Text(attendeeLabel)
-                }
-                .font(.caption)
-                .foregroundColor(.green.opacity(0.8))
-            }
-
-            if isInEvent {
-                Divider()
-                    .background(Color.white.opacity(0.1))
-
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Host Anchor Mode")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-
-                        Text(
-                            isHostAnchorMode
-                                ? "Broadcasting as event anchor"
-                                : "Broadcast this phone as the event anchor"
-                        )
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                    }
-
-                    Spacer()
-
-                    Toggle(
-                        "",
-                        isOn: Binding(
-                            get: { isHostAnchorMode },
-                            set: { newValue in
-                                if newValue {
-                                    onEnableAnchor()
-                                } else {
-                                    onDisableAnchor()
-                                }
-                            }
-                        )
-                    )
-                    .labelsHidden()
-                }
-            }
-
-            if isJoined {
-                Button(action: onCheckIn) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 12))
-
-                        Text("Check In")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.green))
-                }
-                .padding(.top, 4)
-            }
-
-            if isInEvent {
-                Button(action: onSayGoodbye) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.right.circle")
-                            .font(.system(size: 12))
-
-                        Text("Say Goodbye")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .foregroundColor(.red.opacity(0.8))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .stroke(Color.red.opacity(0.3), lineWidth: 1)
-                    )
-                }
-                .padding(.top, 4)
-            }
-
-            Divider()
-                .background(Color.white.opacity(0.1))
-
-            EventJoinQRCard(
-                eventId: event.id,
-                eventName: event.name
-            )
-
-            PersonalConnectQRCard(
-                title: "Connect with me",
-                subtitle: "Let anyone here connect with you instantly — even without the app.",
-                eventId: personalQREventId,
-                profileId: currentUserProfileId
-            )
+            Button(actionTitle, action: onAction)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.black)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(isPrimary ? Color.green : Color.blue))
+                .disabled(isActionDisabled)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color.white.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color.green.opacity(0.3), lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onToggleExpand)
-        .padding(.horizontal)
-    }
-}
-
-// MARK: - Event Section
-
-private struct EventSectionView: View {
-    let title: String
-    let icon: String
-    let iconColor: Color
-    let events: [ExploreEvent]
-    let role: ExploreView.SectionRole
-
-    @Binding var expandedEventId: UUID?
-
-    let joinState: ExploreView.ExploreJoinState
-    let isInteractionLocked: Bool
-    let currentJoinedEventId: String?
-    let isEventJoined: Bool
-    let justJoinedEventIds: Set<String>
-    let isPostJoinCTAEnabled: (String) -> Bool
-    let shouldUseStrongPostJoinCTA: (ExploreEvent) -> Bool
-
-    let onJoin: (String) -> Void
-    let pastEventPreview: (ExploreEvent) -> PastEventPreview?
-    let canRejoin: (ExploreEvent) -> Bool
-    let onPastEventTap: (ExploreEvent) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.elementSpacing) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.caption)
-                    .foregroundColor(iconColor)
-
-                Text(title.uppercased())
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(iconColor)
-                    .tracking(1.2)
-            }
-            .padding(.horizontal)
-
-            ForEach(events) { event in
-                EventCardView(
-                    event: event,
-                    role: role,
-                    isExpanded: expandedEventId == event.id,
-                    preview: pastEventPreview(event),
-                    canRejoin: canRejoin(event),
-                    joinState: joinState,
-                    isInteractionLocked: isInteractionLocked,
-                    currentJoinedEventId: currentJoinedEventId,
-                    isEventJoined: isEventJoined,
-                    isJustJoined: justJoinedEventIds.contains(event.id.uuidString),
-                    isPostJoinCTAEnabled: isPostJoinCTAEnabled(event.id.uuidString),
-                    showStrongPostJoinCTA: shouldUseStrongPostJoinCTA(event),
-                    onTap: {
-                        if role == .rejoin {
-                            onPastEventTap(event)
-                        } else {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                expandedEventId = expandedEventId == event.id ? nil : event.id
-                            }
-                        }
-                    },
-                    onJoin: {
-                        onJoin(event.id.uuidString)
-                    }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke((isPrimary ? Color.green : Color.blue).opacity(0.25), lineWidth: 1)
                 )
-                .padding(.horizontal)
-            }
-        }
-        .disabled(isInteractionLocked)
+        )
     }
 }
 
-// MARK: - Event Card
-
-private struct EventCardView: View {
+private struct SimpleEventCardView: View {
     let event: ExploreEvent
     let role: ExploreView.SectionRole
-    let isExpanded: Bool
-    let preview: PastEventPreview?
-    let canRejoin: Bool
-    let joinState: ExploreView.ExploreJoinState
-    let isInteractionLocked: Bool
-    let currentJoinedEventId: String?
-    let isEventJoined: Bool
-    let isJustJoined: Bool
-    let isPostJoinCTAEnabled: Bool
-    let showStrongPostJoinCTA: Bool
-
-    let onTap: () -> Void
+    let isJoined: Bool
+    let isJoining: Bool
+    let isJoinedElsewhere: Bool
     let onJoin: () -> Void
+    let onGoToEvent: () -> Void
+    let onOpenPastEvent: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1016,67 +547,56 @@ private struct EventCardView: View {
 
             EventMetadataRow(
                 dateDisplay: event.dateDisplay,
-                location: event.location,
-                expanded: isExpanded
+                location: event.location
             )
 
             if let desc = event.eventDescription, !desc.isEmpty {
                 Text(desc)
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.6))
-                    .lineLimit(isExpanded ? nil : 2)
+                    .lineLimit(2)
             }
 
-            if event.activeAttendeeCount > 0 && event.isHappeningNow {
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 10))
-                    Text("\(event.activeAttendeeCount) here now")
+            if role == .rejoin {
+                Button("Open recap", action: onOpenPastEvent)
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            } else {
+                if isJoined {
+                    HStack(spacing: 8) {
+                        joinedBadge
+                        Button("Go to event", action: onGoToEvent)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Color.green))
+                    }
+                } else {
+                    Button(action: onJoin) {
+                        HStack(spacing: 6) {
+                            if isJoining {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(.black)
+                            }
+
+                            Text(isJoining ? "Joining…" : (isJoinedElsewhere ? "Switch" : "Join"))
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(role == .happeningNow ? Color.green : Color.blue))
+                    }
+                    .disabled(isJoining)
                 }
-                .font(.caption)
-                .foregroundColor(.green.opacity(0.8))
             }
-
-            if let preview {
-                PastEventPreviewView(preview: preview)
-            }
-
-            if isExpanded && role != .rejoin {
-                let brief = PreEventBriefBuilder.build(
-                    eventId: event.id,
-                    eventName: event.name
-                )
-
-                let hasBriefContent = !brief.hereNow.isEmpty ||
-                    !brief.likelyAttendees.isEmpty ||
-                    !brief.conversationStarters.isEmpty ||
-                    !brief.peopleToMeet.isEmpty
-
-                if hasBriefContent {
-                    Divider()
-                        .background(Color.white.opacity(0.1))
-                        .padding(.vertical, 4)
-
-                    PreEventBriefView(brief: brief)
-                }
-            }
-
-            EventCardActionRow(
-                role: role,
-                eventId: event.id.uuidString,
-                joinState: joinState,
-                isInteractionLocked: isInteractionLocked,
-                currentJoinedEventId: currentJoinedEventId,
-                isEventJoined: isEventJoined,
-                canRejoin: canRejoin,
-                isJustJoined: isJustJoined,
-                isPostJoinCTAEnabled: isPostJoinCTAEnabled,
-                showStrongPostJoinCTA: showStrongPostJoinCTA,
-                onJoin: onJoin
-            )
-            .padding(.top, 2)
         }
         .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color.white.opacity(0.06))
@@ -1085,8 +605,20 @@ private struct EventCardView: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(borderColor, lineWidth: 1)
         )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
+    }
+
+    private var joinedBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+            Text("Joined")
+                .font(.caption)
+                .fontWeight(.semibold)
+        }
+        .foregroundColor(.green)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Capsule().fill(Color.green.opacity(0.12)))
     }
 
     private var borderColor: Color {
@@ -1101,12 +633,9 @@ private struct EventCardView: View {
     }
 }
 
-// MARK: - Shared Bits
-
 private struct EventMetadataRow: View {
     let dateDisplay: String?
     let location: String?
-    let expanded: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -1118,7 +647,6 @@ private struct EventMetadataRow: View {
                 }
                 .font(.caption)
                 .foregroundColor(.gray)
-                .lineLimit(expanded ? nil : 1)
             }
 
             if let location, !location.isEmpty {
@@ -1129,261 +657,10 @@ private struct EventMetadataRow: View {
                 }
                 .font(.caption)
                 .foregroundColor(.gray)
-                .lineLimit(expanded ? nil : 1)
             }
         }
     }
 }
-
-private struct PastEventPreview {
-    let line: String
-    let snippet: String?
-}
-
-private struct PastEventPreviewView: View {
-    let preview: PastEventPreview
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 10))
-                    .foregroundColor(.orange.opacity(0.9))
-
-                Text(preview.line)
-                    .font(.caption)
-                    .foregroundColor(.orange.opacity(0.9))
-                    .lineLimit(1)
-            }
-
-            if let snippet = preview.snippet {
-                Text(snippet)
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.5))
-                    .lineLimit(2)
-            }
-        }
-    }
-}
-
-private struct EventCardActionRow: View {
-    let role: ExploreView.SectionRole
-    let eventId: String
-    let joinState: ExploreView.ExploreJoinState
-    let isInteractionLocked: Bool
-    let currentJoinedEventId: String?
-    let isEventJoined: Bool
-    let canRejoin: Bool
-    let isJustJoined: Bool
-    let isPostJoinCTAEnabled: Bool
-    let showStrongPostJoinCTA: Bool
-    let onJoin: () -> Void
-    @State private var isJoinPressed = false
-
-    var body: some View {
-        HStack(spacing: 10) {
-            switch role {
-            case .upcoming, .happeningNow:
-                joinButton
-            case .rejoin:
-                if canRejoin {
-                    rejoinButton
-                }
-            }
-        }
-    }
-
-    private var isThisJoining: Bool {
-        joinState == .joining(eventId: eventId)
-    }
-
-    private var isAlreadyJoined: Bool {
-        isEventJoined && currentJoinedEventId == eventId
-    }
-
-    private var isJoinedElsewhere: Bool {
-        isEventJoined && currentJoinedEventId != eventId
-    }
-
-    private var joinButton: some View {
-        Group {
-            if isAlreadyJoined {
-                joinedStateContent
-            } else {
-                Button(action: onJoin) {
-                    HStack(spacing: 5) {
-                        if isThisJoining {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.black)
-                        } else {
-                            Image(systemName: "arrow.right.circle.fill")
-                                .font(.caption)
-                        }
-
-                        Text(isThisJoining ? "Joining…" : (isJoinedElsewhere ? "Switch" : "Join"))
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(isThisJoining ? Color.green.opacity(0.6) : Color.green)
-                    .foregroundColor(.black)
-                    .cornerRadius(8)
-                }
-                .scaleEffect(isJoinPressed ? 0.96 : 1.0)
-                .animation(.easeOut(duration: 0.12), value: isJoinPressed)
-                .simultaneousGesture(TapGesture().onEnded {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    isJoinPressed = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                        isJoinPressed = false
-                    }
-                })
-                .disabled(isInteractionLocked)
-            }
-        }
-    }
-
-    private var rejoinButton: some View {
-        Group {
-            if isAlreadyJoined {
-                joinedStateContent
-            } else {
-                Button(action: onJoin) {
-                    HStack(spacing: 5) {
-                        if isThisJoining {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.black)
-                        } else {
-                            Image(systemName: "arrow.counterclockwise.circle.fill")
-                                .font(.caption)
-                        }
-
-                        Text(isThisJoining ? "Joining…" : (isJoinedElsewhere ? "Switch" : "Rejoin"))
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(isThisJoining ? Color.orange.opacity(0.6) : Color.orange)
-                    .foregroundColor(.black)
-                    .cornerRadius(8)
-                }
-                .scaleEffect(isJoinPressed ? 0.96 : 1.0)
-                .animation(.easeOut(duration: 0.12), value: isJoinPressed)
-                .simultaneousGesture(TapGesture().onEnded {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    isJoinPressed = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                        isJoinPressed = false
-                    }
-                })
-                .disabled(isInteractionLocked)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var joinedStateContent: some View {
-        joinedConfirmationButton
-    }
-
-    private var joinedConfirmationButton: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.caption)
-
-            Text("Joined")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color.green.opacity(0.15))
-        .foregroundColor(.green)
-        .cornerRadius(8)
-    }
-}
-
-// MARK: - Reconnect Banner
-
-private struct ReconnectBannerView: View {
-    let eventName: String
-    let eventId: String
-    let joinState: ExploreView.ExploreJoinState
-    let isInteractionLocked: Bool
-    let onRejoin: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "arrow.counterclockwise.circle.fill")
-                    .font(.title3)
-                    .foregroundColor(.orange)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Reconnect to \(eventName)?")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.white)
-
-                    Text("You were at this event recently")
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-
-                Spacer()
-            }
-
-            HStack(spacing: 12) {
-                Button(action: onRejoin) {
-                    HStack(spacing: 5) {
-                        if joinState == .joining(eventId: eventId) {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.white)
-                        }
-
-                        Text(joinState == .joining(eventId: eventId) ? "Joining…" : "Rejoin")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.orange)
-                    .cornerRadius(10)
-                }
-                .disabled(isInteractionLocked)
-
-                Button(action: onDismiss) {
-                    Text("Dismiss")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.08))
-                        .cornerRadius(10)
-                }
-            }
-        }
-        .disabled(isInteractionLocked)
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-                )
-        )
-    }
-}
-
-// MARK: - Past Event Recap Sheet
 
 private struct PastEventRecapView: View {
     let event: ExploreEvent
