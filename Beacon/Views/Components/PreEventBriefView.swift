@@ -98,10 +98,12 @@ struct PreEventBriefView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.white.opacity(0.95))
                     .lineLimit(1)
-                    + Text(person.statusLabel.map { " — \($0)" } ?? "")
+
+                if let status = person.statusLabel {
+                    Text("— \(status)")
                         .font(.subheadline)
-                        .fontWeight(.semibold)
                         .foregroundColor(.white.opacity(0.7))
+                }
 
                 Text(person.reason)
                     .font(.caption)
@@ -109,7 +111,6 @@ struct PreEventBriefView: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
             Spacer()
         }
     }
