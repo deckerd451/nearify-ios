@@ -39,7 +39,9 @@ struct PreEventBriefView: View {
                         }
                     }
                 } else {
-                    Text("No strong matches yet.\nCheck in to see who’s here and get recommendations.")
+                    Text(brief.isLive
+                         ? "No strong matches here yet.\nWe'll keep updating this as attendees appear."
+                         : "No strong matches yet.\nCheck in to see who’s here and get recommendations.")
                         .font(.footnote)
                         .foregroundColor(.white.opacity(0.45))
                 }
@@ -96,6 +98,10 @@ struct PreEventBriefView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.white.opacity(0.95))
                     .lineLimit(1)
+                    + Text(person.statusLabel.map { " — \($0)" } ?? "")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.7))
 
                 Text(person.reason)
                     .font(.caption)

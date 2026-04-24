@@ -130,29 +130,43 @@ struct HomeView: View {
     // MARK: - Joined Card (State B)
 
     private var joinedCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "person.3.fill")
-                .foregroundColor(.green)
-                .font(.title3)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(eventDisplayName)
-                    .font(.headline)
-                Text(joinedSubtitle)
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.3.fill")
                     .foregroundColor(.green)
+                    .font(.title3)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(eventDisplayName)
+                        .font(.headline)
+                    Text(joinedSubtitle)
+                        .font(.caption)
+                        .foregroundColor(.green)
+                }
+
+                Spacer()
+
+                if attendeesService.attendeeCount > 0 {
+                    Text("\(attendeesService.attendeeCount)")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color(.systemGray5)))
+                }
             }
 
-            Spacer()
-
-            if attendeesService.attendeeCount > 0 {
-                Text("\(attendeesService.attendeeCount)")
-                    .font(.caption)
+            Button {
+                showEventBrief = true
+            } label: {
+                Text("View Brief")
+                    .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Capsule().fill(Color(.systemGray5)))
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.blue.opacity(0.12)))
             }
         }
         .padding()
