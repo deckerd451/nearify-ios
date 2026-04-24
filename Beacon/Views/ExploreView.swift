@@ -29,6 +29,7 @@ struct ExploreView: View {
     @State private var lastJoinedEventID: String?
     @State private var justJoinedEventExpirations: [String: Date] = [:]
     @State private var postJoinCTAUnlockTimes: [String: Date] = [:]
+    @State private var showSwitchConfirmation = false
 
     private let justJoinedDuration: TimeInterval = 15
     private let postJoinCTAUnlockDelay: TimeInterval = 0.75
@@ -70,6 +71,7 @@ struct ExploreView: View {
                 lastJoinedEventID = eventJoin.currentEventID
             }
             .onChange(of: eventJoin.pendingEventSwitch) { _, pending in
+                showSwitchConfirmation = pending != nil
                 if pending == nil,
                    case .awaitingSwitchConfirmation = joinState {
                     joinState = .idle
@@ -109,6 +111,24 @@ struct ExploreView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Your connections and messages will be kept.")
+            }
+            .confirmationDialog(
+                "Switch Events?",
+                isPresented: $showSwitchConfirmation,
+                titleVisibility: .visible
+            ) {
+                if let pending = eventJoin.pendingEventSwitch {
+                    Button("Leave \(pending.currentEventName) and Join \(pending.newEventName ?? "new event")", role: .destructive) {
+                        Task { await eventJoin.confirmEventSwitch() }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    eventJoin.cancelEventSwitch()
+                }
+            } message: {
+                if let pending = eventJoin.pendingEventSwitch {
+                    Text("You’re currently in \(pending.currentEventName). Confirm to switch to \(pending.newEventName ?? "the selected event").")
+                }
             }
             .sheet(item: $selectedPastEvent) { event in
                 PastEventRecapView(
@@ -258,15 +278,6 @@ struct ExploreView: View {
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
                     },
-                    onCheckInNow: {
-                        Task {
-                            await eventJoin.checkIn()
-                            selectedTab = .home
-                        }
-                    },
-                    onGoToEvent: {
-                        selectedTab = .home
-                    },
                     pastEventPreview: { _ in nil },
                     canRejoin: { _ in false },
                     onPastEventTap: { _ in }
@@ -291,15 +302,6 @@ struct ExploreView: View {
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
                     },
-                    onCheckInNow: {
-                        Task {
-                            await eventJoin.checkIn()
-                            selectedTab = .home
-                        }
-                    },
-                    onGoToEvent: {
-                        selectedTab = .home
-                    },
                     pastEventPreview: { _ in nil },
                     canRejoin: { _ in false },
                     onPastEventTap: { _ in }
@@ -323,15 +325,6 @@ struct ExploreView: View {
                     shouldUseStrongPostJoinCTA: shouldUseStrongPostJoinCTA(for:),
                     onJoin: { eventId in
                         performJoin(eventId: eventId)
-                    },
-                    onCheckInNow: {
-                        Task {
-                            await eventJoin.checkIn()
-                            selectedTab = .home
-                        }
-                    },
-                    onGoToEvent: {
-                        selectedTab = .home
                     },
                     pastEventPreview: { event in
                         pastEventPreview(for: event)
@@ -933,8 +926,6 @@ private struct EventSectionView: View {
     let shouldUseStrongPostJoinCTA: (ExploreEvent) -> Bool
 
     let onJoin: (String) -> Void
-    let onCheckInNow: () -> Void
-    let onGoToEvent: () -> Void
     let pastEventPreview: (ExploreEvent) -> PastEventPreview?
     let canRejoin: (ExploreEvent) -> Bool
     let onPastEventTap: (ExploreEvent) -> Void
@@ -979,9 +970,7 @@ private struct EventSectionView: View {
                     },
                     onJoin: {
                         onJoin(event.id.uuidString)
-                    },
-                    onCheckInNow: onCheckInNow,
-                    onGoToEvent: onGoToEvent
+                    }
                 )
                 .padding(.horizontal)
             }
@@ -1008,8 +997,6 @@ private struct EventCardView: View {
 
     let onTap: () -> Void
     let onJoin: () -> Void
-    let onCheckInNow: () -> Void
-    let onGoToEvent: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1076,9 +1063,7 @@ private struct EventCardView: View {
                 isJustJoined: isJustJoined,
                 isPostJoinCTAEnabled: isPostJoinCTAEnabled,
                 showStrongPostJoinCTA: showStrongPostJoinCTA,
-                onJoin: onJoin,
-                onCheckInNow: onCheckInNow,
-                onGoToEvent: onGoToEvent
+                onJoin: onJoin
             )
             .padding(.top, 2)
         }
@@ -1184,8 +1169,6 @@ private struct EventCardActionRow: View {
     let isPostJoinCTAEnabled: Bool
     let showStrongPostJoinCTA: Bool
     let onJoin: () -> Void
-    let onCheckInNow: () -> Void
-    let onGoToEvent: () -> Void
     @State private var isJoinPressed = false
 
     var body: some View {
@@ -1209,6 +1192,10 @@ private struct EventCardActionRow: View {
         isEventJoined && currentJoinedEventId == eventId
     }
 
+    private var isJoinedElsewhere: Bool {
+        isEventJoined && currentJoinedEventId != eventId
+    }
+
     private var joinButton: some View {
         Group {
             if isAlreadyJoined {
@@ -1225,7 +1212,7 @@ private struct EventCardActionRow: View {
                                 .font(.caption)
                         }
 
-                        Text(isThisJoining ? "Joining…" : "Join")
+                        Text(isThisJoining ? "Joining…" : (isJoinedElsewhere ? "Switch" : "Join"))
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
@@ -1265,7 +1252,7 @@ private struct EventCardActionRow: View {
                                 .font(.caption)
                         }
 
-                        Text(isThisJoining ? "Joining…" : "Rejoin")
+                        Text(isThisJoining ? "Joining…" : (isJoinedElsewhere ? "Switch" : "Rejoin"))
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
@@ -1291,29 +1278,7 @@ private struct EventCardActionRow: View {
 
     @ViewBuilder
     private var joinedStateContent: some View {
-        if isJustJoined {
-            HStack(spacing: 8) {
-                Label(showStrongPostJoinCTA ? "You're here" : "Joined", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.green)
-
-                Button(action: showStrongPostJoinCTA ? onCheckInNow : onGoToEvent) {
-                    Text(showStrongPostJoinCTA ? "Check In" : "Go to event")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.green)
-                        .cornerRadius(7)
-                }
-                .disabled(!isPostJoinCTAEnabled)
-                .opacity(isPostJoinCTAEnabled ? 1 : 0.6)
-            }
-        } else {
-            joinedConfirmationButton
-        }
+        joinedConfirmationButton
     }
 
     private var joinedConfirmationButton: some View {
