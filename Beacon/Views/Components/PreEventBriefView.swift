@@ -2,7 +2,18 @@ import SwiftUI
 
 struct PreEventBriefView: View {
     let brief: PreEventBriefBuilder.Brief
+    let ctaTitle: String
     let onGoToEvent: () -> Void
+
+    init(
+        brief: PreEventBriefBuilder.Brief,
+        ctaTitle: String = "Go to event",
+        onGoToEvent: @escaping () -> Void
+    ) {
+        self.brief = brief
+        self.ctaTitle = ctaTitle
+        self.onGoToEvent = onGoToEvent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -10,18 +21,22 @@ struct PreEventBriefView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
 
-            sectionTitle("Today’s goal")
+            sectionTitle("Goal")
             Text(brief.goalLine)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
+            sectionTitle("Start with")
             if !brief.priorityPeople.isEmpty {
-                sectionTitle("Start with")
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(brief.priorityPeople) { person in
                         personRow(person)
                     }
                 }
+            } else {
+                Text("No strong matches yet — check in to start building context.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
             }
 
             sectionTitle("Why")
@@ -48,7 +63,7 @@ struct PreEventBriefView: View {
             }
 
             Button(action: onGoToEvent) {
-                Text("Go to event")
+                Text(ctaTitle)
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)

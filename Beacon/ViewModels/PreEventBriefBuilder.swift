@@ -80,7 +80,7 @@ enum PreEventBriefBuilder {
             starters.append("Open with \(sharedTopic) — easy shared ground.")
         }
         starters.append("What brought you to \(eventName)?")
-        starters = Array(starters.prefix(3))
+        starters = Array(starters.prefix(2))
 
         // Optional missed opportunity signal.
         let misses = relationships.filter {
@@ -99,7 +99,7 @@ enum PreEventBriefBuilder {
         }
 
         return Brief(
-            goalLine: "Today’s goal: \(resolvedGoal)",
+            goalLine: resolvedGoal,
             priorityPeople: chosenPeople,
             whyLine: whyLine,
             conversationStarters: starters,

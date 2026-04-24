@@ -22,8 +22,10 @@ struct HomeView: View {
 
                     if attendeesService.isLoading && attendeesService.attendees.isEmpty && eventJoin.isCheckedIn {
                         loadingState.padding(.top, 60)
+                    } else if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
+                        joinedNotCheckedInState
                     } else if !eventJoin.isCheckedIn {
-                        neutralState
+                        notJoinedState
                     } else if attendeesService.attendees.isEmpty {
                         emptyState.padding(.top, 60)
                     } else {
@@ -297,7 +299,18 @@ struct HomeView: View {
 
     // MARK: - Empty / Loading / Neutral
 
-    private var neutralState: some View {
+    private var joinedNotCheckedInState: some View {
+        VStack(spacing: 12) {
+            Text("You’ve joined. Check in when you arrive to become visible.")
+                .font(.headline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.top, 56)
+        .padding(.horizontal, 24)
+    }
+
+    private var notJoinedState: some View {
         VStack(spacing: 12) {
             Text("No live event yet")
                 .font(.headline)
@@ -373,14 +386,11 @@ struct HomeView: View {
             Image(systemName: "person.3")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary.opacity(0.5))
-            Text("You're the first one here")
+            Text("You’re checked in. We’ll show people here as they appear.")
                 .font(.headline)
                 .foregroundColor(.secondary)
-            Text("Other attendees will appear\nas they join the event.")
-                .font(.subheadline)
-                .foregroundColor(.secondary.opacity(0.7))
-                .multilineTextAlignment(.center)
         }
+        .multilineTextAlignment(.center)
     }
 
     private var loadingState: some View {
@@ -414,7 +424,10 @@ struct HomeView: View {
                     eventName: eventDisplayName
                 )
                 ScrollView {
-                    PreEventBriefView(brief: brief) {
+                    PreEventBriefView(
+                        brief: brief,
+                        ctaTitle: "Continue"
+                    ) {
                         showEventBrief = false
                         switchTab(to: .home, source: .user)
                     }
