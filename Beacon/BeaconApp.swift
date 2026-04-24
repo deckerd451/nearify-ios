@@ -48,7 +48,7 @@ struct BeaconApp: App {
                                     .task {
                                         // Lightweight prep only.
                                         ExploreEventsService.shared.refresh()
-                                        selectedTab = .event
+                                        switchTab(to: .event, source: .system)
                                         try? await Task.sleep(nanoseconds: 800_000_000)
                                         showPostAuthTransition = false
                                     }
@@ -165,7 +165,7 @@ struct BeaconApp: App {
                     MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
                 } else {
                     showPostAuthTransition = true
-                    selectedTab = .event
+                    switchTab(to: .event, source: .system)
                     MessageNotificationCoordinator.shared.stop()
                 }
             }
@@ -206,7 +206,7 @@ struct BeaconApp: App {
                     // Deep link event ID is stored in DeepLinkManager (above).
                     // MainTabView.replayPendingEventIfNeeded will join when UI is ready.
                     // DO NOT join here — it causes duplicate joins.
-                    selectedTab = .event
+                    switchTab(to: .event, source: .user)
 
                 case .profile(let communityId):
                     #if DEBUG
@@ -241,7 +241,7 @@ struct BeaconApp: App {
                             #endif
                         }
                     }
-                    selectedTab = .people
+                    switchTab(to: .people, source: .user)
                 }
             }
             // MARK: - Event Switch Confirmation
@@ -304,6 +304,15 @@ struct BeaconApp: App {
         @unknown default:
             break
         }
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 
     private struct BannerConversationDestination: Identifiable {

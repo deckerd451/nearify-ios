@@ -1,6 +1,11 @@
 import SwiftUI
 import Combine
 
+enum TabChangeSource {
+    case user
+    case system
+}
+
 /// Lightweight shared navigation state for contextual cross-tab transitions.
 /// Used to pass focus targets between tabs without coupling view models.
 final class NavigationState: ObservableObject {
@@ -13,39 +18,29 @@ final class NavigationState: ObservableObject {
     /// Cleared automatically when the user leaves the event or navigates away.
     @Published var eventContext: PeopleEventContext?
 
-    // MARK: - Tab Change Cooldown
-
-    /// Minimum interval between programmatic tab changes (prevents thrashing).
-    private let tabCooldown: TimeInterval = 1.0
-    private var lastTabChangeTime: Date = .distantPast
-
     private init() {}
 
-    /// Attempts a programmatic tab change with cooldown guard.
-    /// Returns true if the change was allowed, false if blocked.
+    /// Attempts a tab change with source guard.
+    /// Only user-driven changes are allowed.
     @discardableResult
-    func requestTabChange(from current: AppTab, to target: AppTab, binding: inout AppTab) -> Bool {
+    func requestTabChange(
+        from current: AppTab,
+        to target: AppTab,
+        source: TabChangeSource,
+        binding: inout AppTab
+    ) -> Bool {
         guard current != target else {
+            return false
+        }
+
+        guard source == .user else {
             #if DEBUG
-            print("[Navigation] BLOCKED (already on \(target))")
+            print("[TAB-WRITE BLOCKED] system attempted change: \(current) → \(target)")
             #endif
             return false
         }
 
-        let elapsed = Date().timeIntervalSince(lastTabChangeTime)
-        guard elapsed >= tabCooldown else {
-            #if DEBUG
-            print("[Navigation] BLOCKED (cooldown, \(String(format: "%.1f", elapsed))s < \(tabCooldown)s)")
-            #endif
-            return false
-        }
-
-        lastTabChangeTime = Date()
         binding = target
-
-        #if DEBUG
-        print("[Navigation] \(current) → \(target)")
-        #endif
         return true
     }
 }

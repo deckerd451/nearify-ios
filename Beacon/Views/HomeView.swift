@@ -281,7 +281,7 @@ struct HomeView: View {
                 .foregroundColor(.secondary.opacity(0.8))
                 .multilineTextAlignment(.center)
             Button {
-                selectedTab = .event
+                switchTab(to: .event)
             } label: {
                 Text("Go to Explore")
                     .font(.subheadline)
@@ -364,6 +364,15 @@ struct HomeView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 }
 

@@ -489,7 +489,7 @@ struct ScanView: View {
                         // Use a nil-safe fallback UUID
                         onSuccess(UUID())
                     } else {
-                        selectedTab = .home
+                        switchTab(to: .home)
                         dismiss()
                     }
                 }
@@ -519,6 +519,15 @@ struct ScanView: View {
         #if DEBUG
         print("[ScanUI] 📷 Camera shutdown complete")
         #endif
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 }
 
