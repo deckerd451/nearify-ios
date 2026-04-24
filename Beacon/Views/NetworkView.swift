@@ -271,6 +271,7 @@ struct NetworkView: View {
                         .padding(.horizontal, 32)
 
                     Button {
+                        EventPresenceService.shared.setActivationIntent(.userCheckIn)
                         Task { await eventJoin.resumeFromDormant() }
                     } label: {
                         HStack(spacing: 6) {

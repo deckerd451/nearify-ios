@@ -31,8 +31,6 @@ final class EventJoinService: ObservableObject {
     enum UserIntent: Equatable {
         case none
         case navigateToEvent
-        case checkIn
-        case qrEntry
     }
 
     // MARK: - Event Switch Confirmation
@@ -129,13 +127,6 @@ final class EventJoinService: ObservableObject {
     @discardableResult
     func consumeNavigationIntent() -> Bool {
         guard userIntent == .navigateToEvent else { return false }
-        userIntent = .none
-        return true
-    }
-
-    @discardableResult
-    func consumePresenceIntent() -> Bool {
-        guard userIntent == .checkIn || userIntent == .qrEntry else { return false }
         userIntent = .none
         return true
     }
@@ -319,12 +310,6 @@ final class EventJoinService: ObservableObject {
 
     func checkIn() async {
         guard isEventJoined, !isCheckedIn else { return }
-        guard consumePresenceIntent() else {
-            #if DEBUG
-            print("[EventJoin] 🚫 Check-in blocked — explicit intent required")
-            #endif
-            return
-        }
         guard let eventIdString = currentEventID,
               let eventId = UUID(uuidString: eventIdString),
               let eventName = currentEventName else {
@@ -341,11 +326,12 @@ final class EventJoinService: ObservableObject {
                 joinedProfileId = profileId
             }
 
-            presence.activateFromCheckIn(
+            let didActivate = presence.activateFromCheckIn(
                 eventName: eventName,
                 contextId: eventId,
                 communityId: profileId
             )
+            guard didActivate else { return }
 
             BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
             BLEScannerService.shared.startScanning()
@@ -524,11 +510,12 @@ final class EventJoinService: ObservableObject {
         backgroundEnteredAt = nil
 
         // Restart heartbeat — this writes status="joined" + fresh last_seen_at
-        presence.activateFromCheckIn(
+        let didActivate = presence.activateFromCheckIn(
             eventName: name,
             contextId: eventId,
             communityId: profileId
         )
+        guard didActivate else { return }
 
         // Restart BLE
         BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
