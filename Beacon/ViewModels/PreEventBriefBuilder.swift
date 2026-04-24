@@ -8,9 +8,7 @@ enum PreEventBriefBuilder {
     struct Brief {
         let goalLine: String
         let priorityPeople: [PriorityPerson]
-        let whyLine: String
         let conversationStarters: [String]
-        let missedOpportunityLine: String?
     }
 
     struct PriorityPerson: Identifiable {
@@ -24,7 +22,6 @@ enum PreEventBriefBuilder {
     static func build(eventId: UUID, eventName: String) -> Brief {
         let relationships = RelationshipMemoryService.shared.relationships
         let myId = AuthService.shared.currentUser?.id
-        let myInterests = Set((AuthService.shared.currentUser?.interests ?? []).map { $0.lowercased() })
         let intentPrimary = EventContextService.shared.cachedContext?.intentPrimary?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -62,48 +59,15 @@ enum PreEventBriefBuilder {
             chosenIds.insert(person.id)
         }
 
-        // Lightweight natural-language reasoning based on existing EL-style factors.
-        let whyFactors = [
-            "prior interaction",
-            "shared interests",
-            "repeated overlap"
+        let starters = [
+            "Ask what brought them here",
+            "Ask what they’re working on right now"
         ]
-        let whyLine = "Suggestions are based on \(whyFactors.joined(separator: ", "))."
-
-        // Reuse existing prompt logic style: short, practical starters.
-        var starters: [String] = []
-        if let firstPerson = chosenPeople.first {
-            let firstName = firstPerson.name.components(separatedBy: " ").first ?? firstPerson.name
-            starters.append("Ask \(firstName) what they’re most focused on today.")
-        }
-        if let sharedTopic = myInterests.first {
-            starters.append("Open with \(sharedTopic) — easy shared ground.")
-        }
-        starters.append("What brought you to \(eventName)?")
-        starters = Array(starters.prefix(2))
-
-        // Optional missed opportunity signal.
-        let misses = relationships.filter {
-            $0.profileId != myId
-            && $0.totalOverlapSeconds >= 120
-            && $0.connectionStatus == .none
-        }
-        let missedOpportunityLine: String?
-        if misses.count >= 2 {
-            missedOpportunityLine = "You’ve crossed paths with \(misses.count) people before but never connected."
-        } else if let miss = misses.first {
-            let name = miss.name.components(separatedBy: " ").first ?? miss.name
-            missedOpportunityLine = "You and \(name) have crossed paths before but haven’t connected yet."
-        } else {
-            missedOpportunityLine = nil
-        }
 
         return Brief(
             goalLine: resolvedGoal,
             priorityPeople: chosenPeople,
-            whyLine: whyLine,
-            conversationStarters: starters,
-            missedOpportunityLine: missedOpportunityLine
+            conversationStarters: starters
         )
     }
 
@@ -120,23 +84,23 @@ enum PreEventBriefBuilder {
             let intentAligned = !goalTokens.isDisjoint(with: shared)
 
             if minutes >= 10 {
-                return "strong prior interaction (\(minutes) min together)"
+                return "You’ve had repeated overlap (\(minutes) min)"
             }
             if intentAligned, let topic = relationship.sharedInterests.first {
-                return "high intent alignment around \(topic)"
+                return "Shared interests in \(topic)"
             }
             if relationship.encounterCount >= 3 {
-                return "repeated overlap across recent events"
+                return "You keep showing up at the same events"
             }
             if relationship.eventContexts.contains(eventName) {
-                return "you’ve both shown up at this event before"
+                return "You’ve both shown up at this event before"
             }
         }
 
         if let firstDeep = person.deepInsights.first(where: { $0.category == "Interaction" || $0.category == "Relationship" })?.text {
             return firstDeep.lowercased()
         }
-        return "high potential for a meaningful conversation"
+        return "Likely a strong conversation fit"
     }
 
     private static func tokenize(_ text: String) -> Set<String> {

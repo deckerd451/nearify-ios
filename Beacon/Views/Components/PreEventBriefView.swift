@@ -20,46 +20,43 @@ struct PreEventBriefView: View {
             Text("Event Brief")
                 .font(.title3)
                 .fontWeight(.semibold)
+                .foregroundColor(.white.opacity(0.95))
 
-            sectionTitle("Goal")
-            Text(brief.goalLine)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-
-            sectionTitle("Start with")
-            if !brief.priorityPeople.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(brief.priorityPeople) { person in
-                        personRow(person)
-                    }
-                }
-            } else {
-                Text("No strong matches yet — check in to start building context.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                sectionTitle("Goal")
+                Text(brief.goalLine)
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white.opacity(0.95))
             }
 
-            sectionTitle("Why")
-            Text(brief.whyLine)
-                .font(.footnote)
-                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                sectionTitle("Start with")
+                if !brief.priorityPeople.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(brief.priorityPeople) { person in
+                            personRow(person)
+                        }
+                    }
+                } else {
+                    Text("No strong matches yet.\nCheck in to see who’s here and get recommendations.")
+                        .font(.footnote)
+                        .foregroundColor(.white.opacity(0.45))
+                }
+            }
 
             if !brief.conversationStarters.isEmpty {
-                sectionTitle("Try this")
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(brief.conversationStarters.enumerated()), id: \.offset) { _, line in
-                        Text("• \(line)")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionTitle("Try this")
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(brief.conversationStarters.enumerated()), id: \.offset) { _, line in
+                            Text("• \(line)")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white.opacity(0.92))
+                        }
                     }
                 }
-            }
-
-            if let missed = brief.missedOpportunityLine {
-                Text(missed)
-                    .font(.footnote)
-                    .foregroundColor(.orange.opacity(0.9))
-                    .padding(.top, 2)
             }
 
             Button(action: onGoToEvent) {
@@ -80,7 +77,8 @@ struct PreEventBriefView: View {
         Text(text)
             .font(.caption)
             .fontWeight(.semibold)
-            .foregroundColor(.secondary)
+            .foregroundColor(.white.opacity(0.65))
+            .padding(.bottom, -2)
     }
 
     private func personRow(_ person: PreEventBriefBuilder.PriorityPerson) -> some View {
@@ -96,12 +94,13 @@ struct PreEventBriefView: View {
                 Text(person.name)
                     .font(.subheadline)
                     .fontWeight(.semibold)
+                    .foregroundColor(.white.opacity(0.95))
                     .lineLimit(1)
 
                 Text(person.reason)
                     .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
+                    .foregroundColor(.white.opacity(0.92))
+                    .lineLimit(1)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
