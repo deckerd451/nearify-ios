@@ -15,9 +15,29 @@ enum FindSignalState: Equatable {
     case signalLost
 }
 
+enum FindAttendeeSource {
+    case brief
+    case explore
+}
+
+enum FindAttendeeConnectionMode {
+    case explore(source: FindAttendeeSource = .explore)
+    case briefRecommendation(EventAttendee)
+
+    var source: FindAttendeeSource {
+        switch self {
+        case .briefRecommendation:
+            return .brief
+        case .explore(let source):
+            return source
+        }
+    }
+}
+
 /// Find Attendee screen with identity, status block, chips, radar, and signal details
 struct FindAttendeeView: View {
     let attendee: EventAttendee
+    let connectionMode: FindAttendeeConnectionMode
 
     @ObservedObject private var stateResolver = AttendeeStateResolver.shared
     @ObservedObject private var scanner = BLEScannerService.shared
@@ -31,8 +51,21 @@ struct FindAttendeeView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    init(
+        attendee: EventAttendee,
+        connectionMode: FindAttendeeConnectionMode = .explore()
+    ) {
+        self.attendee = attendee
+        self.connectionMode = connectionMode
+    }
+
     private var presentation: AttendeePresentation {
         stateResolver.resolve(for: attendee)
+    }
+
+    private var isBriefRecommendationMode: Bool {
+        if case .briefRecommendation = connectionMode { return true }
+        return false
     }
 
     /// The single source of truth for what the radar is showing.
@@ -110,7 +143,7 @@ struct FindAttendeeView: View {
                 .padding(.top, 16)
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("Find Attendee")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -172,6 +205,13 @@ struct FindAttendeeView: View {
         }) {
             ConnectAttendeeView(attendee: attendee)
         }
+    }
+
+    private var navigationTitle: String {
+        if isBriefRecommendationMode {
+            return "Connecting with \(attendee.name)"
+        }
+        return "Find Attendee"
     }
 
     // MARK: - Identity Section
@@ -391,6 +431,13 @@ struct FindAttendeeView: View {
 
     private var guidanceCard: some View {
         VStack(spacing: 8) {
+            if isBriefRecommendationMode {
+                Text("Recommended for you")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.cyan.opacity(0.75))
+            }
+
             switch findSignalState {
             case .directSignalLocked(let rssi, let deviceId):
                 let trend = rssiTrend(for: deviceId) ?? 0
@@ -421,12 +468,12 @@ struct FindAttendeeView: View {
                     .font(.title2)
                     .foregroundColor(.yellow)
 
-                Text("Searching for direct signal")
+                Text(isBriefRecommendationMode ? "Connecting now" : "Searching for direct signal")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.yellow)
 
-                Text("Move around slowly — looking for their signal")
+                Text(isBriefRecommendationMode ? "Good time to say hi — they're nearby." : "Move around slowly — looking for their signal")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -437,12 +484,12 @@ struct FindAttendeeView: View {
                     .font(.title2)
                     .foregroundColor(.orange)
 
-                Text("Using event presence")
+                Text(isBriefRecommendationMode ? "They’re nearby" : "Using event presence")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.orange)
 
-                Text("Live BLE signal not locked yet — they're at the event but radar guidance is unavailable")
+                Text(isBriefRecommendationMode ? "Good time to say hi while Nearify keeps locking onto their signal." : "Live BLE signal not locked yet — they're at the event but radar guidance is unavailable")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)

@@ -5,6 +5,13 @@ import SwiftUI
 /// Shows minimal UI when nothing meets timing + signal thresholds.
 /// Reacts immediately when the user takes action.
 struct HomeSurfaceView: View {
+    private struct FindAttendeeDestination: Identifiable {
+        let attendee: EventAttendee
+        let connectionMode: FindAttendeeConnectionMode
+
+        var id: UUID { attendee.id }
+    }
+
     @Binding var selectedTab: AppTab
     @ObservedObject private var surface = HomeSurfaceService.shared
     @ObservedObject private var feedService = FeedService.shared
@@ -22,7 +29,7 @@ struct HomeSurfaceView: View {
     @State private var isOpeningConversation = false
     @State private var isConnecting = false
     @State private var navigationPath = NavigationPath()
-    @State private var findAttendeeTarget: EventAttendee?
+    @State private var findAttendeeDestination: FindAttendeeDestination?
     @State private var showScanner = false
     @State private var showSoloState = false
     @State private var showStaleAttendeeAlert = false
@@ -274,8 +281,11 @@ struct HomeSurfaceView: View {
             } message: {
                 Text("\(staleAttendeeName) is no longer detectable nearby. They may have left or moved out of range.")
             }
-            .sheet(item: $findAttendeeTarget) { attendee in
-                FindAttendeeView(attendee: attendee)
+            .sheet(item: $findAttendeeDestination) { destination in
+                FindAttendeeView(
+                    attendee: destination.attendee,
+                    connectionMode: destination.connectionMode
+                )
             }
             .sheet(isPresented: $showSoloState) {
                 SoloStateView(
@@ -408,8 +418,8 @@ struct HomeSurfaceView: View {
                                 eventName: eventName,
                                 brief: brief,
                                 onTapProfile: { profileId in
-                                    dismissArrivalBrief(reason: "profile tap from brief")
-                                    handleViewProfile(profileId: profileId)
+                                    dismissArrivalBrief(reason: "continue tap from brief")
+                                    handleFindAttendee(profileId: profileId, source: .brief)
                                 },
                                 onDismiss: {
                                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -450,7 +460,7 @@ struct HomeSurfaceView: View {
                                 EventBriefView(
                                     brief: brief,
                                     onTapProfile: { profileId in
-                                        handleViewProfile(profileId: profileId)
+                                        handleFindAttendee(profileId: profileId, source: .brief)
                                     }
                                 )
                             }
@@ -549,7 +559,7 @@ struct HomeSurfaceView: View {
         }
 
         if hasBLE {
-            findAttendeeTarget = attendee
+            presentFindAttendee(attendee: attendee, source: .explore)
         } else {
             staleAttendeeName = encounter.name
             showStaleAttendeeAlert = true
@@ -2641,7 +2651,7 @@ struct HomeSurfaceView: View {
         switchTab(to: .event)
     }
 
-    private func handleFindAttendee(profileId: UUID) {
+    private func handleFindAttendee(profileId: UUID, source: FindAttendeeSource = .explore) {
         let attendees = attendeesService.attendees
         let attendee: EventAttendee
 
@@ -2679,7 +2689,7 @@ struct HomeSurfaceView: View {
         switch findState {
         case .liveSignal, .recentlySeen:
             // Findable — proceed to Find sheet.
-            findAttendeeTarget = attendee
+            presentFindAttendee(attendee: attendee, source: source)
             #if DEBUG
             print("[FindGate] ✅ Navigating to Find: \(attendee.name)")
             #endif
@@ -2704,6 +2714,17 @@ struct HomeSurfaceView: View {
             device.name.hasPrefix("BCN-\(prefix)")
             && now.timeIntervalSince(device.lastSeen) < 15
         }
+    }
+
+    private func presentFindAttendee(attendee: EventAttendee, source: FindAttendeeSource) {
+        let mode: FindAttendeeConnectionMode
+        switch source {
+        case .brief:
+            mode = .briefRecommendation(attendee)
+        case .explore:
+            mode = .explore(source: .explore)
+        }
+        findAttendeeDestination = FindAttendeeDestination(attendee: attendee, connectionMode: mode)
     }
 
     private func handleMessage(profileId: UUID) {
