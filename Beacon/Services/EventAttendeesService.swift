@@ -342,7 +342,7 @@ final class EventAttendeesService: ObservableObject {
             transitionPresenceFSM(
                 using: PresenceReadiness(
                     eventName: readiness.eventName,
-                    isEventJoined: readiness.isEventJoined,
+                    activationIntent: readiness.activationIntent,
                     contextId: eventId,
                     profileId: profileId,
                     isOnline: readiness.isOnline
@@ -358,11 +358,15 @@ final class EventAttendeesService: ObservableObject {
     }
 
     private func reduce(from old: PresenceFSMState, readiness: PresenceReadiness) -> PresenceFSMState {
-        guard readiness.isEventJoined || readiness.eventName != nil else {
+        guard readiness.eventName != nil || readiness.contextId != nil else {
             return .idle(reason: .eventUnavailable)
         }
 
         guard let eventId = readiness.contextId, let profileId = readiness.profileId else {
+            return .idle(reason: .presenceNotReady)
+        }
+
+        guard readiness.activationIntent == .userCheckIn || readiness.activationIntent == .explicitQR else {
             return .idle(reason: .presenceNotReady)
         }
 
