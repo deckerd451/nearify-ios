@@ -104,7 +104,7 @@ enum PreEventBriefBuilder {
             let score = liveMatchScore(relationship: rel, proximity: proximity, isHereNow: attendee.isHereNow, goal: goal)
             return (attendee, rel, proximity, score)
         }
-        .sorted { lhs, rhs in
+        .sorted { (lhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double), rhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double)) in
             if lhs.score == rhs.score {
                 return lhs.attendee.name < rhs.attendee.name
             }
@@ -128,25 +128,25 @@ enum PreEventBriefBuilder {
         isHereNow: Bool,
         goal: String
     ) -> Double {
-        var score = isHereNow ? 100 : 70
+        var score: Double = isHereNow ? 100.0 : 70.0
         switch proximity {
-        case .veryClose: score += 20
-        case .nearby: score += 15
-        case .detected: score += 8
-        case .lost: score += 0
+        case .veryClose: score += 20.0
+        case .nearby: score += 15.0
+        case .detected: score += 8.0
+        case .lost: score += 0.0
         }
 
         if let relationship {
             score += Double(relationship.totalOverlapSeconds) / 120.0
             score += Double(relationship.encounterCount * 2)
             if !relationship.sharedInterests.isEmpty {
-                score += 12
+                score += 12.0
             }
 
             let goalTokens = tokenize(goal)
             let shared = Set(relationship.sharedInterests.map { $0.lowercased() })
             if !goalTokens.isDisjoint(with: shared) {
-                score += 8
+                score += 8.0
             }
         }
 
