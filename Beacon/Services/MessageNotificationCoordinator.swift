@@ -72,7 +72,11 @@ final class MessageNotificationCoordinator: ObservableObject {
         isPolling = true
         defer { isPolling = false }
 
-        let conversations = await MessagingService.shared.fetchConversationsSnapshot()
+        var conversations = MessagingService.shared.conversations
+        if conversations.isEmpty {
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
+            conversations = await MessagingService.shared.fetchConversationsSnapshot()
+        }
         let conversationIds = conversations.map(\.id)
         guard !conversationIds.isEmpty else { return }
 
@@ -203,6 +207,7 @@ final class MessageNotificationCoordinator: ObservableObject {
             createdAt: createdAt,
             conversation: conversation
         )
+        MessagingRefreshCoordinator.shared.requestRefresh(reason: .incomingMessage)
 
         let isActiveConversation = MessagingService.shared.activeConversationId == conversationId
 

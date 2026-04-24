@@ -209,6 +209,7 @@ struct ConversationView: View {
             // Messages may already be loaded by the caller, but refresh to be safe
             await messaging.fetchMessages(conversationId: preloaded.id)
             messaging.markConversationViewed(conversationId: preloaded.id)
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .conversationOpened)
             print("[Conversation] ✅ Messages refreshed for preloaded conversation")
             return
         }
@@ -238,6 +239,7 @@ struct ConversationView: View {
             NotificationService.shared.activeConversationId = convo.id
             await messaging.fetchMessages(conversationId: convo.id)
             messaging.markConversationViewed(conversationId: convo.id)
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .conversationOpened)
             isLoading = false
             print("[Conversation] ✅ Lazy load complete: \(convo.id)")
         } catch {
@@ -260,6 +262,7 @@ struct ConversationView: View {
                 // Serialized feed refresh after send completes
                 print("[Messaging] ✅ Message send complete")
                 print("[Messaging] 📨 Requesting feed refresh after send")
+                MessagingRefreshCoordinator.shared.requestRefresh(reason: .messageSent)
                 FeedService.shared.requestRefresh(reason: "message-sent")
                 print("[Messaging] ✅ Post-send feed refresh scheduled")
             } catch {

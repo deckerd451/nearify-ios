@@ -63,6 +63,7 @@ struct MainTabView: View {
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange)
             #if DEBUG
             print("[TAB-WRITE] \(oldValue) → \(newValue)")
             #endif
