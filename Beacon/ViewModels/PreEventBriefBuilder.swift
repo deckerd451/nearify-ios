@@ -18,6 +18,9 @@ enum PreEventBriefBuilder {
         let avatarUrl: String?
         let statusLabel: String?
         let reason: String
+        let matchScore: Double?
+        let confidence: Double?
+        let isNearby: Bool?
     }
 
     /// Builds a brief for the current joined event state.
@@ -81,7 +84,10 @@ enum PreEventBriefBuilder {
                     name: person.name,
                     avatarUrl: person.avatarUrl,
                     statusLabel: nil,
-                    reason: reason
+                    reason: reason,
+                    matchScore: nil,
+                    confidence: nil,
+                    isNearby: nil
                 )
             )
             chosenIds.insert(person.id)
@@ -111,13 +117,23 @@ enum PreEventBriefBuilder {
             return lhs.score > rhs.score
         }
 
-        return scored.prefix(3).map { attendee, rel, proximity, _ in
+        return scored.prefix(3).map { attendee, rel, proximity, liveScore in
+            let nearby = proximity == .veryClose || proximity == .nearby
+            let confidence = max(0.0, min(1.0, liveScore / 140.0))
             PriorityPerson(
                 id: attendee.id,
                 name: attendee.name,
                 avatarUrl: attendee.avatarUrl,
                 statusLabel: statusLabel(isHereNow: attendee.isHereNow, proximity: proximity),
-                reason: buildLiveReason(relationship: rel, goal: goal)
+                reason: buildLiveReason(
+                    relationship: rel,
+                    goal: goal,
+                    isNearby: nearby,
+                    isHereNow: attendee.isHereNow
+                ),
+                matchScore: liveScore,
+                confidence: confidence,
+                isNearby: nearby
             )
         }
     }
@@ -192,30 +208,46 @@ enum PreEventBriefBuilder {
         return "Likely a strong conversation fit"
     }
 
-    private static func buildLiveReason(relationship: RelationshipMemory?, goal: String) -> String {
+    private static func buildLiveReason(
+        relationship: RelationshipMemory?,
+        goal: String,
+        isNearby: Bool,
+        isHereNow: Bool
+    ) -> String {
         guard let relationship else {
-            return "Good chance for a useful conversation right now"
+            if isNearby {
+                return "Strong live signal: they're nearby and active at this event."
+            }
+            return isHereNow
+                ? "Live signal is active now — this is your strongest available match."
+                : "Recent live signal detected for this attendee at the event."
         }
 
         let minutes = max(relationship.totalOverlapSeconds / 60, 0)
         if minutes >= 15 {
-            return "Strong overlap (\(minutes) min) — you've spent time together"
+            return "You’ve already spent \(minutes) minutes near each other — strong interaction signal."
         }
 
         if let topic = relationship.sharedInterests.first {
             let goalTokens = tokenize(goal)
             let shared = Set(relationship.sharedInterests.map { $0.lowercased() })
             if !goalTokens.isDisjoint(with: shared) {
-                return "Overlapping interests in \(topic), aligned with your goal"
+                if isNearby {
+                    return "High overlap with your goal in \(topic), and they're nearby now."
+                }
+                return "High overlap with your goal in \(topic), with live event activity now."
             }
-            return "Overlapping interests in \(topic)"
+            return "Clear shared interest in \(topic), with a live event signal."
         }
 
         if relationship.encounterCount >= 2 {
-            return "You've spent time together at recent events"
+            return "You’ve crossed paths \(relationship.encounterCount)x at recent events — strong repeat signal."
         }
 
-        return "Potentially aligned with your goal"
+        if isNearby {
+            return "Strong live signal: they're nearby now and aligned with your event goal."
+        }
+        return "This is your strongest live match right now."
     }
 
     private static func buildStarters(
