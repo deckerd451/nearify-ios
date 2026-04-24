@@ -50,7 +50,7 @@ enum PreEventBriefBuilder {
                 relationship: rel,
                 eventName: eventName,
                 goal: resolvedGoal
-            }
+            )
             chosenPeople.append(
                 PriorityPerson(
                     id: person.id,
