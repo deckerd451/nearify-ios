@@ -1,128 +1,150 @@
 import Foundation
 
-/// Computes pre-event briefing data from existing services.
-/// No new backend calls — derives everything from RelationshipMemory,
-/// EventAttendees, MeetSuggestion, and the current user's profile.
+/// Computes a lightweight pre-event brief from existing intelligence sources.
+/// No new backend calls and no schema changes.
 @MainActor
 enum PreEventBriefBuilder {
 
     struct Brief {
-        let hereNow: [PersonSnippet]
-        let likelyAttendees: [PersonSnippet]
+        let goalLine: String
+        let priorityPeople: [PriorityPerson]
+        let whyLine: String
         let conversationStarters: [String]
-        let peopleToMeet: [PersonSnippet]
+        let missedOpportunityLine: String?
     }
 
-    struct PersonSnippet: Identifiable {
+    struct PriorityPerson: Identifiable {
         let id: UUID
         let name: String
         let avatarUrl: String?
-        let contextLine: String
+        let reason: String
     }
 
-    /// Build a brief for the given event.
-    /// All data comes from already-loaded service state.
+    /// Builds a brief for the current joined event state.
     static func build(eventId: UUID, eventName: String) -> Brief {
-        let attendees = EventAttendeesService.shared.attendees
         let relationships = RelationshipMemoryService.shared.relationships
-        let meetCandidates = MeetSuggestionService.shared.candidates
         let myId = AuthService.shared.currentUser?.id
-        let myInterests = AuthService.shared.currentUser?.interests ?? []
-        let mySkills = AuthService.shared.currentUser?.skills ?? []
+        let myInterests = Set((AuthService.shared.currentUser?.interests ?? []).map { $0.lowercased() })
+        let intentPrimary = EventContextService.shared.cachedContext?.intentPrimary?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Track shown IDs to avoid duplicates across sections
-        var shownIds = Set<UUID>()
-        if let myId { shownIds.insert(myId) }
+        let resolvedGoal = (intentPrimary?.isEmpty == false)
+            ? intentPrimary!
+            : "Meet interesting people"
 
-        // ── 1. PEOPLE HERE NOW ──
-        let hereNow: [PersonSnippet] = attendees
-            .filter { $0.isHereNow && $0.id != myId }
-            .prefix(5)
-            .map { attendee in
-                shownIds.insert(attendee.id)
-                return PersonSnippet(
-                    id: attendee.id,
-                    name: attendee.name,
-                    avatarUrl: attendee.avatarUrl,
-                    contextLine: attendee.lastSeenText
+        // Pull from existing intelligence pipeline first.
+        let sections = PeopleIntelligenceController.shared.sections
+        let rankedPeople = (sections.hereNow + sections.followUp + sections.notHere)
+            .sorted { $0.priorityScore > $1.priorityScore }
+
+        var chosenPeople: [PriorityPerson] = []
+        var chosenIds = Set<UUID>()
+        for person in rankedPeople {
+            guard chosenPeople.count < 3 else { break }
+            guard person.id != myId else { continue }
+            guard !chosenIds.contains(person.id) else { continue }
+
+            let rel = relationships.first(where: { $0.profileId == person.id })
+            let reason = buildReason(
+                person: person,
+                relationship: rel,
+                eventName: eventName,
+                goal: resolvedGoal
+            }
+            chosenPeople.append(
+                PriorityPerson(
+                    id: person.id,
+                    name: person.name,
+                    avatarUrl: person.avatarUrl,
+                    reason: reason
                 )
-            }
+            )
+            chosenIds.insert(person.id)
+        }
 
-        // ── 2. LIKELY ATTENDEES ──
-        // People you've met before who have history with this event
-        let likely: [PersonSnippet] = relationships
-            .filter { rel in
-                !shownIds.contains(rel.profileId)
-                && (rel.eventContexts.contains(eventName) || rel.encounterCount >= 2)
-            }
-            .prefix(5)
-            .map { rel in
-                shownIds.insert(rel.profileId)
-                let context: String
-                if rel.eventContexts.contains(eventName) {
-                    context = "Attended this event before"
-                } else if let event = rel.eventContexts.first {
-                    context = "You met at \(event)"
-                } else {
-                    context = "\(rel.encounterCount) encounters together"
-                }
-                return PersonSnippet(
-                    id: rel.profileId,
-                    name: rel.name,
-                    avatarUrl: rel.avatarUrl,
-                    contextLine: context
-                )
-            }
+        // Lightweight natural-language reasoning based on existing EL-style factors.
+        let whyFactors = [
+            "prior interaction",
+            "shared interests",
+            "repeated overlap"
+        ]
+        let whyLine = "Suggestions are based on \(whyFactors.joined(separator: ", "))."
 
-        // ── 3. CONVERSATION STARTERS ──
+        // Reuse existing prompt logic style: short, practical starters.
         var starters: [String] = []
-
-        // From shared interests with attendees
-        let attendeeInterests = attendees
-            .compactMap { $0.interests }
-            .flatMap { $0 }
-        let sharedInterests = Set(myInterests).intersection(Set(attendeeInterests))
-        if let topic = sharedInterests.first {
-            starters.append("Ask about \(topic) — several people here share that interest")
+        if let firstPerson = chosenPeople.first {
+            let firstName = firstPerson.name.components(separatedBy: " ").first ?? firstPerson.name
+            starters.append("Ask \(firstName) what they’re most focused on today.")
         }
-
-        // From user's own skills/interests
-        if let skill = mySkills.first {
-            starters.append("Mention your work in \(skill) — it's a natural opener")
+        if let sharedTopic = myInterests.first {
+            starters.append("Open with \(sharedTopic) — easy shared ground.")
         }
-
-        // From event context
         starters.append("What brought you to \(eventName)?")
+        starters = Array(starters.prefix(3))
 
-        // Generic but human
-        if starters.count < 4 {
-            starters.append("What are you working on right now?")
+        // Optional missed opportunity signal.
+        let misses = relationships.filter {
+            $0.profileId != myId
+            && $0.totalOverlapSeconds >= 120
+            && $0.connectionStatus == .none
         }
-        if starters.count < 5 {
-            starters.append("Have you been to events like this before?")
+        let missedOpportunityLine: String?
+        if misses.count >= 2 {
+            missedOpportunityLine = "You’ve crossed paths with \(misses.count) people before but never connected."
+        } else if let miss = misses.first {
+            let name = miss.name.components(separatedBy: " ").first ?? miss.name
+            missedOpportunityLine = "You and \(name) have crossed paths before but haven’t connected yet."
+        } else {
+            missedOpportunityLine = nil
         }
-
-        starters = Array(starters.prefix(5))
-
-        // ── 4. PEOPLE TO MEET ──
-        let toMeet: [PersonSnippet] = meetCandidates
-            .filter { !shownIds.contains($0.id) }
-            .prefix(3)
-            .map { candidate in
-                shownIds.insert(candidate.id)
-                return PersonSnippet(
-                    id: candidate.id,
-                    name: candidate.name,
-                    avatarUrl: candidate.avatarUrl,
-                    contextLine: candidate.explanation
-                )
-            }
 
         return Brief(
-            hereNow: hereNow,
-            likelyAttendees: Array(likely),
+            goalLine: "Today’s goal: \(resolvedGoal)",
+            priorityPeople: chosenPeople,
+            whyLine: whyLine,
             conversationStarters: starters,
-            peopleToMeet: Array(toMeet)
+            missedOpportunityLine: missedOpportunityLine
+        )
+    }
+
+    private static func buildReason(
+        person: PersonIntelligence,
+        relationship: RelationshipMemory?,
+        eventName: String,
+        goal: String
+    ) -> String {
+        if let relationship {
+            let minutes = max(relationship.totalOverlapSeconds / 60, 0)
+            let goalTokens = tokenize(goal)
+            let shared = Set(relationship.sharedInterests.map { $0.lowercased() })
+            let intentAligned = !goalTokens.isDisjoint(with: shared)
+
+            if minutes >= 10 {
+                return "strong prior interaction (\(minutes) min together)"
+            }
+            if intentAligned, let topic = relationship.sharedInterests.first {
+                return "high intent alignment around \(topic)"
+            }
+            if relationship.encounterCount >= 3 {
+                return "repeated overlap across recent events"
+            }
+            if relationship.eventContexts.contains(eventName) {
+                return "you’ve both shown up at this event before"
+            }
+        }
+
+        if let firstDeep = person.deepInsights.first(where: { $0.category == "Interaction" || $0.category == "Relationship" })?.text {
+            return firstDeep.lowercased()
+        }
+        return "high potential for a meaningful conversation"
+    }
+
+    private static func tokenize(_ text: String) -> Set<String> {
+        Set(
+            text.lowercased()
+                .split { !$0.isLetter && !$0.isNumber }
+                .map(String.init)
+                .filter { $0.count > 2 }
         )
     }
 }
