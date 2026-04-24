@@ -183,7 +183,7 @@ struct HomeView: View {
                 .foregroundColor(.secondary)
 
             Button {
-                eventJoin.setIntent(.checkIn)
+                EventPresenceService.shared.setActivationIntent(.userCheckIn)
                 Task { await eventJoin.checkIn() }
             } label: {
                 Text("Check In")

@@ -47,10 +47,10 @@ struct NearifyProfileRow: Decodable {
 @MainActor
 final class EventPresenceService: ObservableObject {
 
-    enum PresenceActivationSource: String {
+    enum PresenceActivationIntent: String {
         case none
-        case checkIn
-        case qr
+        case userCheckIn
+        case explicitQR
     }
 
     static let shared = EventPresenceService()
@@ -84,11 +84,16 @@ final class EventPresenceService: ObservableObject {
 
     /// True when context was established via QR join.
     private(set) var isQRJoinActive = false
-    private(set) var activationSource: PresenceActivationSource = .none
+    private(set) var activationIntent: PresenceActivationIntent = .none
+    private(set) var lastActivationIntent: PresenceActivationIntent = .none
 
     private init() {}
 
     // MARK: - Public API
+
+    func setActivationIntent(_ intent: PresenceActivationIntent) {
+        activationIntent = intent
+    }
 
     func reset() {
         #if DEBUG
@@ -105,46 +110,54 @@ final class EventPresenceService: ObservableObject {
 
     /// Called by explicit QR/deep-link flows.
     /// Starts the heartbeat for QR-activated sessions.
-    func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
-        activationSource = .qr
+    @discardableResult
+    func activateFromQRJoin(eventName: String, contextId eventId: UUID, communityId profileId: UUID) -> Bool {
         activate(
             eventName: eventName,
             eventId: eventId,
             profileId: profileId,
             sourceLabel: "QR join",
-            statusPrefix: "QR join active"
+            statusPrefix: "QR join active",
+            allowedIntent: .explicitQR
         )
     }
 
     /// Called by explicit Check In action from the app UI.
     /// Starts the heartbeat for manual check-in sessions.
-    func activateFromCheckIn(eventName: String, contextId eventId: UUID, communityId profileId: UUID) {
-        activationSource = .checkIn
+    @discardableResult
+    func activateFromCheckIn(eventName: String, contextId eventId: UUID, communityId profileId: UUID) -> Bool {
         activate(
             eventName: eventName,
             eventId: eventId,
             profileId: profileId,
             sourceLabel: "check-in",
-            statusPrefix: "Checked in"
+            statusPrefix: "Checked in",
+            allowedIntent: .userCheckIn
         )
     }
 
+    @discardableResult
     private func activate(
         eventName: String,
         eventId: UUID,
         profileId: UUID,
         sourceLabel: String,
-        statusPrefix: String
-    ) {
-        guard activationSource == .checkIn || activationSource == .qr else {
-            print("[Presence] 🚫 Blocked — no explicit activation source")
-            return
+        statusPrefix: String,
+        allowedIntent: PresenceActivationIntent
+    ) -> Bool {
+        guard activationIntent == .userCheckIn || activationIntent == .explicitQR,
+              activationIntent == allowedIntent else {
+            print("[Presence] BLOCKED — attempted activation without explicit intent")
+            activationIntent = .none
+            return false
         }
 
         #if DEBUG
+        print("[Presence] ✅ Presence allowed source=\(activationIntent.rawValue) — \(eventName)")
         print("[Presence] 🎫 Activating from \(sourceLabel) — \(eventName)")
         #endif
 
+        lastActivationIntent = activationIntent
         isQRJoinActive = true
         _currentEventId = eventId
         _currentProfileId = profileId
@@ -153,7 +166,8 @@ final class EventPresenceService: ObservableObject {
         lastPresenceWrite = Date()
 
         startHeartbeat()
-        activationSource = .none
+        activationIntent = .none
+        return true
     }
 
     /// Writes status="left" to DB and stops heartbeat.
@@ -288,11 +302,13 @@ final class EventPresenceService: ObservableObject {
 
         isWritingPresence = false
         isQRJoinActive = false
+        activationIntent = .none
 
         if clearContext {
             _currentEventId = nil
             _currentProfileId = nil
             currentEvent = nil
+            lastActivationIntent = .none
             debugStatus = "Stopped"
         } else {
             debugStatus = "Heartbeat stopped"

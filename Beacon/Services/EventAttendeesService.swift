@@ -202,12 +202,18 @@ final class EventAttendeesService: ObservableObject {
 
     private struct PresenceReadiness: Equatable {
         let eventName: String?
-        let isEventJoined: Bool
+        let activationIntent: EventPresenceService.PresenceActivationIntent
         let contextId: UUID?
         let profileId: UUID?
         let isOnline: Bool
 
-        var source: String { isEventJoined ? "QR join" : "beacon" }
+        var source: String {
+            switch activationIntent {
+            case .explicitQR: return "explicitQR"
+            case .userCheckIn: return "userCheckIn"
+            case .none: return "beacon"
+            }
+        }
         var hasRequiredContext: Bool { contextId != nil && profileId != nil }
     }
 
@@ -229,7 +235,7 @@ final class EventAttendeesService: ObservableObject {
 
             let readiness = PresenceReadiness(
                 eventName: event,
-                isEventJoined: isJoined,
+                activationIntent: self.presence.lastActivationIntent,
                 contextId: self.presence.currentContextId,
                 profileId: self.presence.currentCommunityId,
                 isOnline: NetworkMonitor.shared.isOnline
