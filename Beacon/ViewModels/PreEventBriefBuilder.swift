@@ -120,7 +120,7 @@ enum PreEventBriefBuilder {
         return scored.prefix(3).map { attendee, rel, proximity, liveScore in
             let nearby = proximity == .veryClose || proximity == .nearby
             let confidence = max(0.0, min(1.0, liveScore / 140.0))
-            PriorityPerson(
+            return PriorityPerson(
                 id: attendee.id,
                 name: attendee.name,
                 avatarUrl: attendee.avatarUrl,
