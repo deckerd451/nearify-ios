@@ -93,7 +93,7 @@ struct MainTabView: View {
         print("[EventJoin] ✅ User-initiated join via deep link (source: \(source), eventId: \(eventId))")
         #endif
 
-        selectedTab = .event
+        switchTab(to: .event, source: .user)
 
         Task {
             await EventJoinService.shared.joinEvent(eventID: eventId)
@@ -102,7 +102,7 @@ struct MainTabView: View {
                 self.isConsumingPendingEvent = false
 
                 if EventJoinService.shared.isEventJoined {
-                    selectedTab = .event
+                    switchTab(to: .event, source: .user)
                 }
 
                 #if DEBUG
@@ -114,5 +114,14 @@ struct MainTabView: View {
                 #endif
             }
         }
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 }

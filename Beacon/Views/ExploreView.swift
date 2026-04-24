@@ -219,7 +219,7 @@ struct ExploreView: View {
                 onCheckIn: {
                     Task {
                         await eventJoin.checkIn()
-                        selectedTab = .home
+                        switchTab(to: .home)
                     }
                 },
                 onSayGoodbye: {
@@ -235,6 +235,15 @@ struct ExploreView: View {
                 personalQREventId: PersonalQRContextResolver.shared.resolve()?.eventId
             )
         }
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 
     @ViewBuilder

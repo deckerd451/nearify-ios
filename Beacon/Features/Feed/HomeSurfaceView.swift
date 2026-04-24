@@ -729,7 +729,7 @@ struct HomeSurfaceView: View {
                         profileId: personId,
                         source: "home"
                     )
-                    selectedTab = .people
+                    switchTab(to: .people)
                 }
             }
 
@@ -875,7 +875,7 @@ struct HomeSurfaceView: View {
                             eventId: eventId, eventName: eventName
                         )
                     }
-                    selectedTab = .people
+                    switchTab(to: .people)
                     return
                 }
                 // "Find them" — find the specific person
@@ -889,10 +889,10 @@ struct HomeSurfaceView: View {
                             eventId: eventId, eventName: eventName
                         )
                     }
-                    selectedTab = .people
+                    switchTab(to: .people)
                 case "View everyone":
                     // Active state secondary → Event tab (full attendee list)
-                    selectedTab = .event
+                    switchTab(to: .event)
                 default:
                     if let personId = decision.personId {
                         handleViewProfile(profileId: personId)
@@ -906,7 +906,7 @@ struct HomeSurfaceView: View {
                     Task { await eventJoin.joinEvent(eventID: eventId) }
                 }
             } else {
-                selectedTab = .event
+                switchTab(to: .event)
             }
 
         case .reconnect:
@@ -939,7 +939,7 @@ struct HomeSurfaceView: View {
             if isPrimary {
                 showScanner = true
             } else {
-                selectedTab = .event
+                switchTab(to: .event)
             }
         }
     }
@@ -1075,7 +1075,7 @@ struct HomeSurfaceView: View {
                         profileId: profileId,
                         source: "home"
                     )
-                    selectedTab = .people
+                    switchTab(to: .people)
                 }
             }
 
@@ -1870,7 +1870,7 @@ struct HomeSurfaceView: View {
                 }
 
                 Button {
-                    selectedTab = .event
+                    switchTab(to: .event)
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "safari")
@@ -2570,7 +2570,7 @@ struct HomeSurfaceView: View {
                 handleConnect(profileId: profileId)
             }
         case .jumpBack:
-            selectedTab = .event
+            switchTab(to: .event)
         case .viewProfile:
             if let profileId = item.profileId {
                 handleViewProfile(profileId: profileId)
@@ -2580,6 +2580,15 @@ struct HomeSurfaceView: View {
 
     private func handleViewProfile(profileId: UUID) {
         navigationPath.append(FeedRoute.profileDetail(profileId: profileId))
+    }
+
+    private func switchTab(to target: AppTab, source: TabChangeSource = .user) {
+        _ = NavigationState.shared.requestTabChange(
+            from: selectedTab,
+            to: target,
+            source: source,
+            binding: &selectedTab
+        )
     }
 
     // MARK: - People CTA Routing
@@ -2626,7 +2635,7 @@ struct HomeSurfaceView: View {
         #if DEBUG
         print("[PeopleCTA] \(crowdState.rawValue) → switching to Event tab")
         #endif
-        selectedTab = .event
+        switchTab(to: .event)
     }
 
     private func handleFindAttendee(profileId: UUID) {
