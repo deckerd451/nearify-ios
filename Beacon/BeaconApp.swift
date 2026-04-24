@@ -148,6 +148,7 @@ struct BeaconApp: App {
             .onAppear {
                 if authService.isAuthenticated {
                     MessageNotificationCoordinator.shared.markForegroundActive()
+                    MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
                 }
             }
             .sheet(item: $activeBannerConversation) { destination in
@@ -161,6 +162,7 @@ struct BeaconApp: App {
                 if isAuthenticated {
                     showPostAuthTransition = true
                     MessageNotificationCoordinator.shared.markForegroundActive()
+                    MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
                 } else {
                     showPostAuthTransition = true
                     selectedTab = .event
@@ -286,6 +288,7 @@ struct BeaconApp: App {
                 await EventJoinService.shared.handleAppForeground()
             }
             MessageNotificationCoordinator.shared.markForegroundActive()
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
             // Resume local encounter capture if in an event or Nearby Mode
             if EventJoinService.shared.isEventJoined || AuthService.shared.isOfflineMode {
                 LocalEncounterStore.shared.startCapture()

@@ -24,6 +24,8 @@ final class MessagingService: ObservableObject {
     private let supabase = AppEnvironment.shared.supabaseClient
     private var currentConversationId: UUID?
     private var profileNameCache: [UUID: String] = [:]
+    private var conversationLoadTask: Task<[Conversation], Never>?
+    private var pendingConversationReload = false
 
     private init() {}
 
@@ -36,6 +38,28 @@ final class MessagingService: ObservableObject {
 
     /// Returns a sorted snapshot and updates published conversations.
     func fetchConversationsSnapshot() async -> [Conversation] {
+        if let inFlight = conversationLoadTask {
+            pendingConversationReload = true
+            return await inFlight.value
+        }
+
+        var latestResult: [Conversation] = []
+
+        repeat {
+            pendingConversationReload = false
+            let task = Task { [weak self] in
+                guard let self else { return [] }
+                return await self.performConversationSnapshotFetch()
+            }
+            conversationLoadTask = task
+            latestResult = await task.value
+            conversationLoadTask = nil
+        } while pendingConversationReload
+
+        return latestResult
+    }
+
+    private func performConversationSnapshotFetch() async -> [Conversation] {
         guard let myId = AuthService.shared.currentUser?.id else { return [] }
 
         isLoading = true
