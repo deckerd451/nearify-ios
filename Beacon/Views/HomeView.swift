@@ -8,6 +8,8 @@ struct HomeView: View {
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
     @State private var showLastSummaryRecap = false
+    @State private var showEventBrief = false
+    @State private var autoPresentedBriefEventId: String?
 
     var body: some View {
         NavigationStack {
@@ -32,7 +34,15 @@ struct HomeView: View {
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.large)
             .refreshable { attendeesService.refresh() }
-            .onAppear {}
+            .onChange(of: eventJoin.currentEventID) { _, _ in
+                maybePresentEventBrief()
+            }
+            .onChange(of: eventJoin.isCheckedIn) { _, _ in
+                maybePresentEventBrief()
+            }
+            .onAppear {
+                maybePresentEventBrief()
+            }
             .confirmationDialog("Say Goodbye?", isPresented: $showLeaveConfirmation, titleVisibility: .visible) {
                 Button("Leave Event", role: .destructive) { Task { await eventJoin.leaveEvent() } }
                 Button("Cancel", role: .cancel) {}
@@ -56,6 +66,9 @@ struct HomeView: View {
                 if let summary = eventJoin.postEventSummary {
                     LastSummaryRecapView(summary: summary)
                 }
+            }
+            .sheet(isPresented: $showEventBrief) {
+                eventBriefSheet
             }
         }
     }
@@ -193,6 +206,18 @@ struct HomeView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(Capsule().fill(Color.green))
+            }
+
+            Button {
+                showEventBrief = true
+            } label: {
+                Text("View Brief")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.blue.opacity(0.12)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -377,6 +402,50 @@ struct HomeView: View {
             source: source,
             binding: &selectedTab
         )
+    }
+
+    @ViewBuilder
+    private var eventBriefSheet: some View {
+        NavigationStack {
+            if let eventIdString = eventJoin.currentEventID,
+               let eventId = UUID(uuidString: eventIdString) {
+                let brief = PreEventBriefBuilder.build(
+                    eventId: eventId,
+                    eventName: eventDisplayName
+                )
+                ScrollView {
+                    PreEventBriefView(brief: brief) {
+                        showEventBrief = false
+                        switchTab(to: .home, source: .user)
+                    }
+                    .padding()
+                }
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Dismiss") {
+                            showEventBrief = false
+                        }
+                    }
+                }
+            } else {
+                Text("No event brief available.")
+                    .foregroundColor(.secondary)
+                    .padding()
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func maybePresentEventBrief() {
+        guard eventJoin.isEventJoined,
+              !eventJoin.isCheckedIn,
+              let eventId = eventJoin.currentEventID else {
+            return
+        }
+        guard autoPresentedBriefEventId != eventId else { return }
+        autoPresentedBriefEventId = eventId
+        showEventBrief = true
     }
 }
 
