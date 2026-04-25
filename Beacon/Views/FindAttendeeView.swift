@@ -35,6 +35,11 @@ enum FindAttendeeConnectionMode {
     }
 }
 
+private enum InteractionPhase: Equatable {
+    case active
+    case completed
+}
+
 /// Find Attendee screen with identity, status block, chips, radar, and signal details
 struct FindAttendeeView: View {
     let attendee: EventAttendee
@@ -47,11 +52,15 @@ struct FindAttendeeView: View {
     @State private var signalTimer: Timer?
     @State private var hadDirectSignal = false
     @State private var didTriggerStrongProximityHaptic = false
-    @State private var strongProximityStartAt: Date?
-    @State private var lastStrongProximitySeenAt: Date?
     @State private var showConnectionPromptCard = false
     @State private var isSavingConnection = false
     @State private var transientConfirmationMessage: String?
+    @State private var interactionPhase: InteractionPhase = .active
+    @State private var hasReachedStrongProximity = false
+    @State private var completionDebounceStartedAt: Date?
+    @State private var hasTriggeredCompletionState = false
+    @State private var hasShownSessionConnectionCard = false
+    @State private var hasDismissedSessionConnectionCard = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -228,7 +237,7 @@ struct FindAttendeeView: View {
             }
             #endif
 
-            checkVeryCloseTransition()
+            updateInteractionState()
         }
     }
 
@@ -463,70 +472,87 @@ struct FindAttendeeView: View {
                     .foregroundColor(.cyan.opacity(0.75))
             }
 
-            switch findSignalState {
-            case .directSignalLocked(let rssi, let deviceId):
-                let trend = rssiTrend(for: deviceId) ?? 0
-
-                Text(proximityHeadline(rssi: rssi, trend: trend))
+            if interactionPhase == .completed {
+                Image(systemName: "checkmark.circle.fill")
                     .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(signalColor)
+                    .foregroundColor(.green)
 
-                Text(movementSuggestion(rssi: rssi, trend: trend))
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-
-                conversationBridge(rssi: rssi)
-
-            case .searchingForDirectSignal:
-                Image(systemName: "magnifyingglass")
-                    .font(.title2)
-                    .foregroundColor(.yellow)
-
-                Text(isBriefRecommendationMode ? "Connecting now" : "They’re somewhere nearby")
+                Text("You just crossed paths with \(attendee.name)")
                     .font(.title3)
                     .fontWeight(.semibold)
-                    .foregroundColor(.yellow)
+                    .foregroundColor(.green)
 
-                Text(isBriefRecommendationMode ? "Walk naturally and look around — this is a good moment to approach." : "Move around naturally while Nearify keeps looking.")
+                Text("Wrap up when you're ready.")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 16)
+            } else {
+                switch findSignalState {
+                case .directSignalLocked(let rssi, let deviceId):
+                    let trend = rssiTrend(for: deviceId) ?? 0
 
-            case .fallbackEventPresence:
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.title2)
-                    .foregroundColor(.orange)
+                    Text(proximityHeadline(rssi: rssi, trend: trend))
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(signalColor)
 
-                Text(isBriefRecommendationMode ? "They’re nearby" : "Using event presence")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.orange)
+                    Text(movementSuggestion(rssi: rssi, trend: trend))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
 
-                Text(isBriefRecommendationMode ? "You can start walking over now while we refine their direction." : "They’re active at this event — walk naturally and look around.")
-                    .font(.caption)
-                    .foregroundColor(.gray.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
+                    conversationBridge(rssi: rssi)
 
-            case .signalLost:
-                Image(systemName: "wifi.slash")
-                    .font(.title2)
-                    .foregroundColor(.gray)
+                case .searchingForDirectSignal:
+                    Image(systemName: "magnifyingglass")
+                        .font(.title2)
+                        .foregroundColor(.yellow)
 
-                Text("They may have moved")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.gray)
+                    Text(isBriefRecommendationMode ? "Connecting now" : "They’re somewhere nearby")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.yellow)
 
-                Text("They may have moved — try looking around naturally")
-                    .font(.caption)
-                    .foregroundColor(.gray.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
+                    Text(isBriefRecommendationMode ? "Walk naturally and look around — this is a good moment to approach." : "Move around naturally while Nearify keeps looking.")
+                        .font(.caption)
+                        .foregroundColor(.gray.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+
+                case .fallbackEventPresence:
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.title2)
+                        .foregroundColor(.orange)
+
+                    Text(isBriefRecommendationMode ? "They’re nearby" : "Using event presence")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.orange)
+
+                    Text(isBriefRecommendationMode ? "You can start walking over now while we refine their direction." : "They’re active at this event — walk naturally and look around.")
+                        .font(.caption)
+                        .foregroundColor(.gray.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+
+                case .signalLost:
+                    Image(systemName: "wifi.slash")
+                        .font(.title2)
+                        .foregroundColor(.gray)
+
+                    Text("They may have moved")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.gray)
+
+                    Text("They may have moved — try looking around naturally")
+                        .font(.caption)
+                        .foregroundColor(.gray.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                }
             }
         }
         .padding(.vertical, 14)
@@ -592,36 +618,42 @@ struct FindAttendeeView: View {
 
     private var signalDetailsView: some View {
         VStack(spacing: 6) {
-            switch findSignalState {
-            case .directSignalLocked(let rssi, _):
-                HStack(spacing: 14) {
-                    Label("\(rssi) dBm", systemImage: "antenna.radiowaves.left.and.right")
-                        .font(.caption2)
-                        .foregroundColor(signalColor.opacity(0.7))
+            if interactionPhase == .completed {
+                Text("Interaction complete")
+                    .font(.caption2)
+                    .foregroundColor(.green.opacity(0.7))
+            } else {
+                switch findSignalState {
+                case .directSignalLocked(let rssi, _):
+                    HStack(spacing: 14) {
+                        Label("\(rssi) dBm", systemImage: "antenna.radiowaves.left.and.right")
+                            .font(.caption2)
+                            .foregroundColor(signalColor.opacity(0.7))
 
-                    Label(trendLabel, systemImage: "arrow.up.arrow.down")
+                        Label(trendLabel, systemImage: "arrow.up.arrow.down")
+                            .font(.caption2)
+                            .foregroundColor(trendColor.opacity(0.7))
+                    }
+
+                    Text("Live BLE signal detected")
                         .font(.caption2)
-                        .foregroundColor(trendColor.opacity(0.7))
+                        .foregroundColor(.green.opacity(0.6))
+
+                case .searchingForDirectSignal:
+                    Text("Looking for their live signal…")
+                        .font(.caption2)
+                        .foregroundColor(.yellow.opacity(0.6))
+
+                case .fallbackEventPresence:
+                    Text("They’re active at this event — refining direction")
+                        .font(.caption2)
+                        .foregroundColor(.orange.opacity(0.6))
+
+                case .signalLost:
+                    Text("Last seen nearby — keep looking around naturally")
+                        .font(.caption2)
+                        .foregroundColor(.gray.opacity(0.6))
                 }
-
-                Text("Live BLE signal detected")
-                    .font(.caption2)
-                    .foregroundColor(.green.opacity(0.6))
-
-            case .searchingForDirectSignal:
-                Text("Looking for their live signal…")
-                    .font(.caption2)
-                    .foregroundColor(.yellow.opacity(0.6))
-
-            case .fallbackEventPresence:
-                Text("They’re active at this event — refining direction")
-                    .font(.caption2)
-                    .foregroundColor(.orange.opacity(0.6))
-
-            case .signalLost:
-                Text("Last seen nearby — keep looking around naturally")
-                    .font(.caption2)
-                    .foregroundColor(.gray.opacity(0.6))
             }
         }
         .padding(.horizontal, 24)
@@ -692,34 +724,55 @@ struct FindAttendeeView: View {
         signalTimer = nil
     }
 
-    private func checkVeryCloseTransition() {
-        guard !isBriefRecommendationMode else {
+    private func updateInteractionState() {
+        let now = Date()
+        let isStrongSignal = isCurrentSignalStrong
+
+        if interactionPhase == .completed {
+            return
+        }
+
+        if isStrongSignal {
+            hasReachedStrongProximity = true
+            completionDebounceStartedAt = nil
             triggerStrongProximityFeedbackIfNeeded()
             return
         }
 
-        guard !ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId) else {
-            showConnectionPromptCard = false
+        didTriggerStrongProximityHaptic = false
+
+        guard hasReachedStrongProximity else {
             return
         }
 
-        guard !ConnectionPromptStateStore.shared.isDismissed(profileId: attendee.id, eventId: currentEventId) else {
-            showConnectionPromptCard = false
+        if completionDebounceStartedAt == nil {
+            completionDebounceStartedAt = now
             return
         }
 
-        updateStrongProximityWindow()
+        guard let debounceStartedAt = completionDebounceStartedAt else { return }
+        guard now.timeIntervalSince(debounceStartedAt) >= 8 else { return }
+        enterCompletedInteractionState()
+    }
 
-        guard let strongStart = strongProximityStartAt else {
-            showConnectionPromptCard = false
-            return
+    private var isCurrentSignalStrong: Bool {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
+            return false
         }
+        return rssi >= -45
+    }
 
-        let strongDuration = Date().timeIntervalSince(strongStart)
-        guard strongDuration >= 30 else { return }
-        guard !ConnectionPromptStateStore.shared.hasShown(profileId: attendee.id, eventId: currentEventId) else { return }
+    private func enterCompletedInteractionState() {
+        guard !hasTriggeredCompletionState else { return }
+        hasTriggeredCompletionState = true
+        interactionPhase = .completed
+        showConnectionPromptCard = false
 
-        ConnectionPromptStateStore.shared.markShown(profileId: attendee.id, eventId: currentEventId)
+        guard !hasDismissedSessionConnectionCard else { return }
+        guard !ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId) else { return }
+        guard !hasShownSessionConnectionCard else { return }
+
+        hasShownSessionConnectionCard = true
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
             showConnectionPromptCard = true
@@ -746,36 +799,9 @@ struct FindAttendeeView: View {
         EventJoinService.shared.currentEventID
     }
 
-    private func updateStrongProximityWindow() {
-        let now = Date()
-        let isStrongSignal: Bool
-        if case .directSignalLocked(let rssi, _) = findSignalState {
-            isStrongSignal = rssi >= -45
-        } else {
-            isStrongSignal = false
-        }
-
-        if isStrongSignal {
-            if let lastSeen = lastStrongProximitySeenAt, now.timeIntervalSince(lastSeen) > 8 {
-                strongProximityStartAt = now
-            } else if strongProximityStartAt == nil {
-                strongProximityStartAt = now
-            }
-            lastStrongProximitySeenAt = now
-            return
-        }
-
-        if let lastSeen = lastStrongProximitySeenAt, now.timeIntervalSince(lastSeen) <= 8 {
-            return
-        }
-
-        strongProximityStartAt = nil
-        lastStrongProximitySeenAt = nil
-    }
-
     private var saveConnectionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Looks like you connected with \(attendee.name)")
+            Text("Save connection with \(attendee.name)")
                 .font(.subheadline)
                 .foregroundColor(.white)
 
@@ -800,7 +826,7 @@ struct FindAttendeeView: View {
                 .disabled(isSavingConnection)
 
                 Button("Dismiss") {
-                    ConnectionPromptStateStore.shared.markDismissed(profileId: attendee.id, eventId: currentEventId)
+                    hasDismissedSessionConnectionCard = true
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showConnectionPromptCard = false
                     }
