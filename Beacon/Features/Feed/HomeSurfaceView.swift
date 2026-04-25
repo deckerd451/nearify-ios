@@ -598,7 +598,7 @@ struct HomeSurfaceView: View {
         VStack(spacing: 0) {
             Spacer().frame(height: 16)
 
-            // "View Brief" — persistent entry point after arrival brief is dismissed
+            // "Who to Talk To" — persistent entry point after arrival brief is dismissed
             if hasSeenArrivalBrief {
                 Button {
                     showBriefSheet = true
@@ -606,7 +606,7 @@ struct HomeSurfaceView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "doc.text.magnifyingglass")
                             .font(.system(size: 11))
-                        Text("View Brief")
+                        Text("Who to Talk To")
                             .font(.caption)
                             .fontWeight(.medium)
                     }
@@ -2480,7 +2480,7 @@ struct HomeSurfaceView: View {
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
 
-            Text("Check in when you arrive to become visible")
+            Text("Check in when you arrive to start meeting people")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
