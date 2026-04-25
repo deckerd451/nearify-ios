@@ -81,6 +81,8 @@ final class ContactSyncService {
         switch CNContactStore.authorizationStatus(for: .contacts) {
         case .authorized:
             granted = true
+        case .limited:
+            granted = true
         case .denied, .restricted:
             granted = false
         case .notDetermined:
@@ -161,9 +163,9 @@ final class ContactSyncService {
             return false
         }
 
-        do {
-            let newNote = buildNote(from: payload)
-            let didSave = try await Task.detached(priority: .utility) { () throws -> Bool in
+        let newNote = buildNote(from: payload)
+        let didSave = await Task.detached(priority: .utility) { () -> Bool in
+            do {
                 let store = CNContactStore()
                 let saveRequest = CNSaveRequest()
 
@@ -188,7 +190,7 @@ final class ContactSyncService {
                 if existing == nil,
                    let email = payload.email?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !email.isEmpty {
-                    let emailPredicate = CNContact.predicateForContacts(matchingEmailAddress: email as NSString)
+                    let emailPredicate = CNContact.predicateForContacts(matchingEmailAddress: email)
                     if let first = try store.unifiedContacts(matching: emailPredicate, keysToFetch: keys).first {
                         existing = first.mutableCopy() as? CNMutableContact
                     }
@@ -238,20 +240,19 @@ final class ContactSyncService {
                 try store.execute(saveRequest)
                 print("[ContactSync] Created contact for \(payload.name)")
                 return true
-            }.value
-
-            if didSave {
-                defaults.set(true, forKey: persistedKey)
-                await state.remove(dedupeKey)
-                return true
+            } catch {
+                print("[ContactSync] Save failed: \(error.localizedDescription)")
+                return false
             }
+        }.value
 
+        if didSave {
+            defaults.set(true, forKey: persistedKey)
             await state.remove(dedupeKey)
-            return false
-        } catch {
-            await state.remove(dedupeKey)
-            print("[ContactSync] Save failed: \(error.localizedDescription)")
-            return false
+            return true
         }
+
+        await state.remove(dedupeKey)
+        return false
     }
 }
