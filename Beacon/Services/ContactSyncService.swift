@@ -65,6 +65,14 @@ final class ContactSyncService {
 
     private init() {}
 
+    private func dedupeKey(profileId: UUID, eventId: UUID) -> String {
+        "\(profileId.uuidString.lowercased())_\(eventId.uuidString.lowercased())"
+    }
+
+    private func persistedKey(for dedupeKey: String) -> String {
+        "\(idempotencyPrefix).\(dedupeKey)"
+    }
+
     // MARK: - Permission
 
     func requestAccessIfNeeded() async -> Bool {
@@ -98,8 +106,8 @@ final class ContactSyncService {
     // MARK: - Idempotency
 
     func shouldCreateContact(profileId: UUID, eventId: UUID) async -> Bool {
-        let key = "\(profileId.uuidString.lowercased())_\(eventId.uuidString.lowercased())"
-        let persistedKey = "\(idempotencyPrefix).\(key)"
+        let key = dedupeKey(profileId: profileId, eventId: eventId)
+        let persistedKey = persistedKey(for: key)
 
         if defaults.bool(forKey: persistedKey) {
             return false
@@ -112,6 +120,11 @@ final class ContactSyncService {
         }
 
         return true
+    }
+
+    func hasSavedContact(profileId: UUID, eventId: UUID) -> Bool {
+        let key = dedupeKey(profileId: profileId, eventId: eventId)
+        return defaults.bool(forKey: persistedKey(for: key))
     }
 
     // MARK: - Note Builder
@@ -149,8 +162,8 @@ final class ContactSyncService {
 
     @discardableResult
     func createOrUpdateContact(payload: ContactSyncPayload) async -> Bool {
-        let dedupeKey = "\(payload.profileId.uuidString.lowercased())_\(payload.eventId.uuidString.lowercased())"
-        let persistedKey = "\(idempotencyPrefix).\(dedupeKey)"
+        let key = dedupeKey(profileId: payload.profileId, eventId: payload.eventId)
+        let persistedKey = persistedKey(for: key)
 
         guard await shouldCreateContact(profileId: payload.profileId, eventId: payload.eventId) else {
             print("[ContactSync] Skipped duplicate for event")
@@ -158,7 +171,7 @@ final class ContactSyncService {
         }
 
         guard await requestAccessIfNeeded() else {
-            await state.remove(dedupeKey)
+            await state.remove(key)
             print("[ContactSync] Permission denied")
             return false
         }
@@ -248,11 +261,11 @@ final class ContactSyncService {
 
         if didSave {
             defaults.set(true, forKey: persistedKey)
-            await state.remove(dedupeKey)
+            await state.remove(key)
             return true
         }
 
-        await state.remove(dedupeKey)
+        await state.remove(key)
         return false
     }
 }
