@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Find Signal State
 
@@ -48,6 +49,7 @@ struct FindAttendeeView: View {
     @State private var connectDismissedAt: Date?
     @State private var signalTimer: Timer?
     @State private var hadDirectSignal = false
+    @State private var didTriggerStrongProximityHaptic = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -134,10 +136,14 @@ struct FindAttendeeView: View {
                 VStack(spacing: 16) {
                     identitySection
                     statusBlock
-                    chipsSection
+                    if !isBriefRecommendationMode {
+                        chipsSection
+                    }
                     radarView
                     guidanceCard
-                    signalDetailsView
+                    if !isBriefRecommendationMode {
+                        signalDetailsView
+                    }
                     Spacer(minLength: 24)
                 }
                 .padding(.top, 16)
@@ -267,13 +273,13 @@ struct FindAttendeeView: View {
     private var signalStateLabel: String {
         switch findSignalState {
         case .searchingForDirectSignal:
-            return "Searching for signal"
+            return "Looking nearby"
         case .directSignalLocked:
-            return "Live BLE signal"
+            return "Live proximity"
         case .fallbackEventPresence:
-            return "Event presence only"
+            return "Nearby at this event"
         case .signalLost:
-            return "Signal lost"
+            return "Recently nearby"
         }
     }
 
@@ -324,7 +330,7 @@ struct FindAttendeeView: View {
         case .metPreviously:
             return "Met previously"
         case .verified, .unverified:
-            return "Not connected"
+            return "You haven’t met yet"
         }
     }
 
@@ -442,20 +448,10 @@ struct FindAttendeeView: View {
             case .directSignalLocked(let rssi, let deviceId):
                 let trend = rssiTrend(for: deviceId) ?? 0
 
-                Text(proximityLabel(rssi))
+                Text(proximityHeadline(rssi: rssi, trend: trend))
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(signalColor)
-
-                HStack(spacing: 6) {
-                    Image(systemName: guidanceIcon(for: trend))
-                        .font(.system(size: 14, weight: .semibold))
-
-                    Text(guidanceLabel(for: trend))
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                }
-                .foregroundColor(guidanceColor(for: trend))
 
                 Text(movementSuggestion(rssi: rssi, trend: trend))
                     .font(.caption)
@@ -463,17 +459,19 @@ struct FindAttendeeView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 16)
 
+                conversationBridge(rssi: rssi)
+
             case .searchingForDirectSignal:
                 Image(systemName: "magnifyingglass")
                     .font(.title2)
                     .foregroundColor(.yellow)
 
-                Text(isBriefRecommendationMode ? "Connecting now" : "Searching for direct signal")
+                Text(isBriefRecommendationMode ? "Connecting now" : "They’re somewhere nearby")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.yellow)
 
-                Text(isBriefRecommendationMode ? "Good time to say hi — they're nearby." : "Move around slowly — looking for their signal")
+                Text(isBriefRecommendationMode ? "Walk naturally and look around — this is a good moment to approach." : "Move around naturally while Nearify keeps looking.")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -489,7 +487,7 @@ struct FindAttendeeView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.orange)
 
-                Text(isBriefRecommendationMode ? "Good time to say hi while Nearify keeps locking onto their signal." : "Live BLE signal not locked yet — they're at the event but radar guidance is unavailable")
+                Text(isBriefRecommendationMode ? "You can start walking over now while we refine their direction." : "They’re active at this event — walk naturally and look around.")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -500,12 +498,12 @@ struct FindAttendeeView: View {
                     .font(.title2)
                     .foregroundColor(.gray)
 
-                Text("Signal lost")
+                Text("They may have moved")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.gray)
 
-                Text("They may have moved out of range or turned off their device")
+                Text("They may have moved — try looking around naturally")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -524,42 +522,51 @@ struct FindAttendeeView: View {
 
     // MARK: - Guidance Helpers
 
-    private func guidanceLabel(for trend: Int) -> String {
-        if trend > 4 { return "Getting much warmer" }
-        if trend > 2 { return "Getting warmer" }
-        if trend < -4 { return "Getting much colder" }
-        if trend < -2 { return "Getting colder" }
-        return "Holding steady"
-    }
-
-    private func guidanceIcon(for trend: Int) -> String {
-        if trend > 2 { return "flame.fill" }
-        if trend < -2 { return "snowflake" }
-        return "equal.circle.fill"
-    }
-
-    private func guidanceColor(for trend: Int) -> Color {
-        if trend > 4 { return .green }
-        if trend > 2 { return Color(red: 0.4, green: 0.9, blue: 0.5) }
-        if trend < -4 { return .red }
-        if trend < -2 { return .orange }
-        return Color.cyan.opacity(0.7)
+    private func proximityHeadline(rssi: Int, trend: Int) -> String {
+        if rssi >= -45 {
+            return "They’re very close"
+        }
+        if trend > 2 {
+            return "You’re getting closer"
+        }
+        return "They’re somewhere nearby"
     }
 
     private func movementSuggestion(rssi: Int, trend: Int) -> String {
         if rssi >= -45 {
-            return "They're right here — look around you"
+            return "This is a good moment to say hi"
         }
         if rssi >= -55, trend > 2 {
-            return "Almost there — keep going"
+            return "Keep going — you’re almost there"
         }
         if trend > 2 {
-            return "Good direction — move slightly forward"
+            return "You’re headed the right way"
         }
         if trend >= -2, trend <= 2 {
-            return "Hold position and look around"
+            return "Pause and scan the room naturally"
         }
-        return "Turn back and try another direction"
+        return "Try a different direction and look around"
+    }
+
+    @ViewBuilder
+    private func conversationBridge(rssi: Int) -> some View {
+        if rssi >= -45 {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Open with:")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white.opacity(0.85))
+                Text("• What brought you here?")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+                Text("• What are you working on right now?")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+            .padding(.horizontal, 8)
+        }
     }
 
     // MARK: - Signal Details
@@ -601,17 +608,17 @@ struct FindAttendeeView: View {
                 }
 
             case .searchingForDirectSignal:
-                Text("Scanning for direct BLE signal…")
+                Text("Looking for their live signal…")
                     .font(.caption2)
                     .foregroundColor(.yellow.opacity(0.6))
 
             case .fallbackEventPresence:
-                Text("Using event presence — live BLE signal not locked yet")
+                Text("They’re active at this event — refining direction")
                     .font(.caption2)
                     .foregroundColor(.orange.opacity(0.6))
 
             case .signalLost:
-                Text("Direct signal lost — last seen nearby")
+                Text("Last seen nearby — keep looking around naturally")
                     .font(.caption2)
                     .foregroundColor(.gray.opacity(0.6))
             }
@@ -635,21 +642,6 @@ struct FindAttendeeView: View {
             return .orange
         default:
             return .red
-        }
-    }
-
-    private func proximityLabel(_ rssi: Int) -> String {
-        switch rssi {
-        case -45...0:
-            return "Very close"
-        case -55 ..< -45:
-            return "Close"
-        case -65 ..< -55:
-            return "Near"
-        case -80 ..< -65:
-            return "Moderate"
-        default:
-            return "Far"
         }
     }
 
@@ -702,6 +694,11 @@ struct FindAttendeeView: View {
     /// Auto-opens ConnectAttendeeView once when RSSI reaches Very Close.
     /// Respects cooldown: won't re-trigger within 30s of user dismissing the sheet.
     private func checkVeryCloseTransition() {
+        guard !isBriefRecommendationMode else {
+            triggerStrongProximityFeedbackIfNeeded()
+            return
+        }
+
         guard !showConnectSheet else { return }
 
         if let dismissed = connectDismissedAt,
@@ -722,5 +719,21 @@ struct FindAttendeeView: View {
         hasTriggeredConnect = true
         showConnectSheet = true
         print("[FindAttendee] Auto-opening connect sheet — RSSI \(rssi), trend \(trend)")
+    }
+
+    private func triggerStrongProximityFeedbackIfNeeded() {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
+            didTriggerStrongProximityHaptic = false
+            return
+        }
+
+        guard rssi >= -45 else {
+            didTriggerStrongProximityHaptic = false
+            return
+        }
+
+        guard !didTriggerStrongProximityHaptic else { return }
+        didTriggerStrongProximityHaptic = true
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 }

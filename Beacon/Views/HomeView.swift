@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct HomeView: View {
+    private struct BriefConnectionDestination: Identifiable {
+        let attendee: EventAttendee
+        var id: UUID { attendee.id }
+    }
+
     @Binding var selectedTab: AppTab
     @ObservedObject private var presence = EventPresenceService.shared
     @ObservedObject private var attendeesService = EventAttendeesService.shared
@@ -10,6 +15,7 @@ struct HomeView: View {
     @State private var showLastSummaryRecap = false
     @State private var showEventBrief = false
     @State private var autoPresentedBriefEventId: String?
+    @State private var briefConnectionDestination: BriefConnectionDestination?
 
     var body: some View {
         NavigationStack {
@@ -71,6 +77,12 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showEventBrief) {
                 eventBriefSheet
+            }
+            .fullScreenCover(item: $briefConnectionDestination) { destination in
+                FindAttendeeView(
+                    attendee: destination.attendee,
+                    connectionMode: .briefRecommendation(destination.attendee)
+                )
             }
         }
     }
@@ -441,9 +453,26 @@ struct HomeView: View {
                     PreEventBriefView(
                         brief: brief,
                         ctaTitle: "Continue"
-                    ) {
+                    ) { recommendation in
                         showEventBrief = false
-                        switchTab(to: .home, source: .user)
+                        guard let recommendation else {
+                            switchTab(to: .home, source: .user)
+                            return
+                        }
+
+                        let resolvedAttendee = attendeesService.attendees.first(where: { $0.id == recommendation.id })
+                            ?? EventAttendee(
+                                id: recommendation.id,
+                                name: recommendation.name,
+                                avatarUrl: recommendation.avatarUrl,
+                                bio: recommendation.reason,
+                                skills: nil,
+                                interests: nil,
+                                energy: recommendation.matchScore ?? 0.5,
+                                lastSeen: Date()
+                            )
+
+                        briefConnectionDestination = BriefConnectionDestination(attendee: resolvedAttendee)
                     }
                     .padding()
                 }
