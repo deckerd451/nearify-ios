@@ -60,6 +60,8 @@ struct FindAttendeeView: View {
     @State private var isCheckingConnectionStatus = false
     @State private var isAlreadyConnected = false
     @State private var hasSavedConnection = false
+    @State private var hasSavedContactCard = false
+    @State private var isSavingContactCard = false
     @State private var transientConfirmationMessage: String?
     @State private var viewAppearedAt: Date?
     @State private var hasEnteredExtendedSearchState = false
@@ -1066,6 +1068,7 @@ struct FindAttendeeView: View {
         findState = .arrived
         arrivedRSSI = rssi
         hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
+        refreshContactSyncStatus()
         stopAmbientMessageRotation()
         if !hasTriggeredArrivedHaptic {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -1077,6 +1080,10 @@ struct FindAttendeeView: View {
 
     private var currentEventId: String? {
         EventJoinService.shared.currentEventID
+    }
+
+    private var currentEventUUID: UUID? {
+        currentEventId.flatMap(UUID.init(uuidString:))
     }
 
     @ViewBuilder
@@ -1103,11 +1110,47 @@ struct FindAttendeeView: View {
             .padding(.horizontal, 16)
             .padding(.top, 4)
         } else if isAlreadyConnected {
-            Text("You're already connected")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.green.opacity(0.9))
+            if hasSavedContactCard {
+                VStack(spacing: 4) {
+                    Text("You're connected")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.green.opacity(0.9))
+
+                    Text("Contact saved with event context")
+                        .font(.caption)
+                        .foregroundColor(.gray.opacity(0.85))
+                }
                 .padding(.top, 4)
+            } else {
+                VStack(spacing: 8) {
+                    Text("You're already connected in Nearify")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.green.opacity(0.9))
+
+                    Button {
+                        saveContactCardWithContext()
+                    } label: {
+                        HStack(spacing: 6) {
+                            if isSavingContactCard {
+                                ProgressView().tint(.black)
+                            }
+                            Text("Save contact with context")
+                                .fontWeight(.semibold)
+                        }
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color.green)
+                        .foregroundColor(.black)
+                        .cornerRadius(10)
+                    }
+                    .disabled(isSavingContactCard)
+                    .padding(.horizontal, 16)
+                }
+                .padding(.top, 4)
+            }
         }
 
         HStack(spacing: 10) {
@@ -1186,7 +1229,75 @@ struct FindAttendeeView: View {
             let connected = await ConnectionService.shared.isConnected(with: attendee.id)
             await MainActor.run {
                 isAlreadyConnected = connected
+                if connected {
+                    refreshContactSyncStatus()
+                } else {
+                    hasSavedContactCard = false
+                }
+                if findState == .arrived {
+                    print("[FindAttendee] arrived connected=\(connected) contactSaved=\(hasSavedContactCard)")
+                }
                 isCheckingConnectionStatus = false
+            }
+        }
+    }
+
+    private func refreshContactSyncStatus() {
+        guard let eventId = currentEventUUID else {
+            hasSavedContactCard = false
+            return
+        }
+        hasSavedContactCard = ContactSyncService.shared.hasSavedContact(profileId: attendee.id, eventId: eventId)
+    }
+
+    private func saveContactCardWithContext() {
+        guard !isSavingContactCard else { return }
+        guard isAlreadyConnected else { return }
+        guard let eventId = currentEventUUID else { return }
+
+        if ContactSyncService.shared.hasSavedContact(profileId: attendee.id, eventId: eventId) {
+            print("[ContactSync] skipped — already saved for this event")
+            hasSavedContactCard = true
+            return
+        }
+
+        isSavingContactCard = true
+        print("[ContactSync] manual/contact-card save requested from arrived state")
+
+        let payload = ContactSyncPayload(
+            profileId: attendee.id,
+            name: attendee.name,
+            phoneNumber: nil,
+            email: nil,
+            eventId: eventId,
+            eventName: EventJoinService.shared.currentEventName ?? "Event",
+            eventDate: Date(),
+            interactionSummary: "Connected in Nearify during \(EventJoinService.shared.currentEventName ?? "event").",
+            signalScore: 1.0,
+            interactionCount: 1,
+            intentAlignment: 1.0
+        )
+
+        Task {
+            let didSave = await ContactSyncService.shared.createOrUpdateContact(payload: payload)
+            await MainActor.run {
+                if didSave {
+                    print("[ContactSync] saved contact card from arrived state")
+                    hasSavedContactCard = true
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        transientConfirmationMessage = "Saved to Contacts\nEvent context added to notes."
+                    }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_800_000_000)
+                        await MainActor.run {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                transientConfirmationMessage = nil
+                            }
+                        }
+                    }
+                }
+                isSavingContactCard = false
             }
         }
     }
