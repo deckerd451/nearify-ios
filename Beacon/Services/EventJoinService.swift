@@ -352,7 +352,7 @@ final class EventJoinService: ObservableObject {
     }
 
     @discardableResult
-    func leaveEvent(source: String = "user") async -> Bool {
+    func leaveEvent(source: String = "system") async -> Bool {
         guard !isLeaveInProgress else {
             #if DEBUG
             print("[LeaveEvent] duplicate leave ignored — already in progress")
@@ -419,12 +419,15 @@ final class EventJoinService: ObservableObject {
             sessionEncounters: encounterSnapshot
         )
 
-        await runPostEventContactSync(
-            eventId: eventUUID,
-            eventName: eventName,
-            eventDate: sessionStartedAt ?? Date(),
-            sessionEncounters: encounterSnapshot
-        )
+        let contactSyncContext = contactSyncContext(for: source)
+        await ContactSyncTrigger.runIfEligible(context: contactSyncContext) {
+            await self.runPostEventContactSync(
+                eventId: eventUUID,
+                eventName: eventName,
+                eventDate: sessionStartedAt ?? Date(),
+                sessionEncounters: encounterSnapshot
+            )
+        }
 
         // Upload encounter fragments to backend (fire-and-forget)
         LocalEncounterStore.shared.uploadPendingFragments()
@@ -463,6 +466,33 @@ final class EventJoinService: ObservableObject {
         let interactionSummary: String
         let intentAlignment: Double
         let skipReason: String?
+    }
+
+    private func contactSyncContext(for source: String) -> ContactSyncContext {
+        let normalized = source.lowercased()
+
+        if normalized.contains("wrap") {
+            return .eventWrapUp
+        }
+        if normalized.contains("arrived") {
+            return .arrived
+        }
+        if normalized.contains("found") {
+            return .foundEachOther
+        }
+        if normalized.contains("proximity") {
+            return .proximityDetection
+        }
+        if normalized.contains("ble") {
+            return .bleMatch
+        }
+        if normalized.contains("connection") {
+            return .connectionState
+        }
+        if normalized.contains("user") {
+            return .userExplicitAction
+        }
+        return .unknown(source)
     }
 
     private func runPostEventContactSync(

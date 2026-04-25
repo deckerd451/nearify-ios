@@ -315,7 +315,7 @@ struct HomeSurfaceView: View {
                     isWrappingUpEvent = true
                     defer { isWrappingUpEvent = false }
 
-                    await eventJoin.leaveEvent()
+                    await eventJoin.leaveEvent(source: "event-wrap-up")
                     showWrapUp = false
                 }
             }
