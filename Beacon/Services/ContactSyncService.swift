@@ -89,35 +89,33 @@ final class ContactSyncService {
         }
 
         let store = CNContactStore()
-        let granted: Bool
 
         switch CNContactStore.authorizationStatus(for: .contacts) {
         case .authorized:
-            granted = true
-        case .limited:
-            granted = true
-        case .denied, .restricted:
-            granted = false
+            await state.setPermission(true)
+            return true
+
         case .notDetermined:
-            granted = await requestWriteOnlyAccess(store: store)
-        @unknown default:
-            granted = false
-        }
-
-        await state.setPermission(granted)
-        return granted
-    }
-
-    private func requestWriteOnlyAccess(store: CNContactStore) async -> Bool {
-        if #available(iOS 18.0, *) {
-            return await withCheckedContinuation { continuation in
-                store.requestWriteOnlyAccessToContacts { granted, _ in
+            let granted = await withCheckedContinuation { continuation in
+                store.requestAccess(for: .contacts) { granted, error in
+                    if let error = error {
+                        print("[ContactSync] Permission request error: \(error.localizedDescription)")
+                    }
                     continuation.resume(returning: granted)
                 }
             }
-        }
+            await state.setPermission(granted)
+            return granted
 
-        return (try? await store.requestAccess(for: .contacts)) ?? false
+        case .denied, .restricted:
+            await state.setPermission(false)
+            print("[ContactSync] Permission denied or restricted")
+            return false
+
+        @unknown default:
+            await state.setPermission(false)
+            return false
+        }
     }
 
     // MARK: - Idempotency
