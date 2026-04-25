@@ -55,6 +55,7 @@ final class EventJoinService: ObservableObject {
     private var beaconCancellable: AnyCancellable?
     private var joinedProfileId: UUID?
     private var isLeaveInProgress = false
+    private let strongBLEThresholdRSSI = -65
 
     /// Timestamp when the app entered background. Used for timeout calculation.
     private(set) var backgroundEnteredAt: Date?
@@ -418,6 +419,13 @@ final class EventJoinService: ObservableObject {
             sessionEncounters: encounterSnapshot
         )
 
+        await runPostEventContactSync(
+            eventId: eventUUID,
+            eventName: eventName,
+            eventDate: sessionStartedAt ?? Date(),
+            sessionEncounters: encounterSnapshot
+        )
+
         // Upload encounter fragments to backend (fire-and-forget)
         LocalEncounterStore.shared.uploadPendingFragments()
 
@@ -441,6 +449,188 @@ final class EventJoinService: ObservableObject {
         print("[LeaveEvent] state cleared — isEventJoined=false, membership=left")
         #endif
         return true
+    }
+
+    // MARK: - Post-event Contact Sync Integration
+
+    private struct ContactSyncCandidate {
+        let profileId: UUID
+        let name: String
+        let confirmedConnection: Bool
+        let interactionCount: Int
+        let proximityDuration: Int
+        let signalScore: Double
+        let interactionSummary: String
+        let intentAlignment: Double
+        let skipReason: String?
+    }
+
+    private func runPostEventContactSync(
+        eventId: UUID?,
+        eventName: String,
+        eventDate: Date,
+        sessionEncounters: [UUID: EncounterTracker]
+    ) async {
+        print("[ContactSync] evaluating contact sync")
+
+        guard let eventId else {
+            print("[ContactSync] skipped — no eligible confirmed interaction")
+            return
+        }
+
+        let relationships = RelationshipMemoryService.shared.relationships
+        let relationshipById = Dictionary(uniqueKeysWithValues: relationships.map { ($0.profileId, $0) })
+        let localEncounters = LocalEncounterStore.shared.encounters(forEvent: eventId)
+        let localByProfile = Dictionary(grouping: localEncounters.compactMap { encounter -> (UUID, LocalEncounterStore.CapturedEncounter)? in
+            guard let id = encounter.resolvedProfileId else { return nil }
+            return (id, encounter)
+        }, by: { $0.0 }).mapValues { pairs in pairs.map(\.1) }
+        let connectedIds = AttendeeStateResolver.shared.connectedIds
+
+        var candidateIds = Set(sessionEncounters.keys)
+        candidateIds.formUnion(localByProfile.keys)
+        candidateIds.formUnion(
+            relationships
+                .filter { $0.connectionStatus == .accepted || $0.totalOverlapSeconds > 0 || $0.encounterCount > 0 }
+                .map(\.profileId)
+        )
+
+        let candidates = candidateIds.compactMap { id in
+            buildContactSyncCandidate(
+                profileId: id,
+                relationship: relationshipById[id],
+                localEncounters: localByProfile[id] ?? [],
+                sessionEncounter: sessionEncounters[id],
+                connectedIds: connectedIds,
+                eventName: eventName
+            )
+        }.sorted { $0.signalScore > $1.signalScore }
+
+        guard !candidates.isEmpty else {
+            print("[ContactSync] skipped — no eligible confirmed interaction")
+            return
+        }
+
+        var savedAny = false
+        var eligibleCount = 0
+
+        for candidate in candidates {
+            print("[ContactSync] candidate=\(candidate.name), profileId=\(candidate.profileId.uuidString), event=\(eventName)")
+            let durationLog = candidate.proximityDuration > 0 ? "\(candidate.proximityDuration)" : "0"
+            print("[ContactSync] confirmedConnection=\(candidate.confirmedConnection), interactionCount=\(candidate.interactionCount), proximityDuration=\(durationLog)")
+
+            if let reason = candidate.skipReason {
+                print("[ContactSync] decision=skipped, reason=\(reason)")
+                continue
+            }
+
+            print("[ContactSync] decision=will sync, reason=eligible confirmed/strong interaction")
+            eligibleCount += 1
+            let payload = ContactSyncPayload(
+                profileId: candidate.profileId,
+                name: candidate.name,
+                phoneNumber: nil,
+                email: nil,
+                eventId: eventId,
+                eventName: eventName,
+                eventDate: eventDate,
+                interactionSummary: candidate.interactionSummary,
+                signalScore: candidate.signalScore,
+                interactionCount: candidate.interactionCount,
+                intentAlignment: candidate.intentAlignment
+            )
+
+            let didSave = await ContactSyncService.shared.createOrUpdateContact(payload: payload)
+            if didSave {
+                savedAny = true
+            }
+        }
+
+        if eligibleCount == 0 {
+            print("[ContactSync] skipped — no eligible confirmed interaction")
+        } else if !savedAny {
+            print("[ContactSync] decision=skipped, reason=eligible candidate sync attempt failed")
+        }
+    }
+
+    private func buildContactSyncCandidate(
+        profileId: UUID,
+        relationship: RelationshipMemory?,
+        localEncounters: [LocalEncounterStore.CapturedEncounter],
+        sessionEncounter: EncounterTracker?,
+        connectedIds: Set<UUID>,
+        eventName: String
+    ) -> ContactSyncCandidate? {
+        let strongestRSSI = localEncounters.map(\.signalStrengthSummary.strongestRSSI).max()
+        let proximityDuration = localEncounters.map(\.duration).reduce(0, +)
+        let overlapSeconds = max(sessionEncounter?.totalSeconds ?? 0, relationship?.totalOverlapSeconds ?? 0)
+        let interactionCount = max(
+            localEncounters.count,
+            max(sessionEncounter == nil ? 0 : 1, relationship?.encounterCount ?? 0)
+        )
+        let confirmedConnection = connectedIds.contains(profileId) || relationship?.connectionStatus == .accepted
+        let strongBLESeen = (strongestRSSI ?? Int.min) >= strongBLEThresholdRSSI
+        let hasStrongDuration = proximityDuration >= 30 || overlapSeconds >= 30
+        let shouldSync = confirmedConnection || (strongBLESeen && hasStrongDuration)
+
+        let skipReason: String?
+        if shouldSync {
+            skipReason = nil
+        } else if !confirmedConnection && !strongBLESeen {
+            skipReason = "no confirmed connection and BLE not strong"
+        } else if !confirmedConnection && !hasStrongDuration {
+            skipReason = "strong BLE without sustained duration/overlap"
+        } else {
+            skipReason = "insufficient qualifying interaction"
+        }
+
+        guard relationship != nil || sessionEncounter != nil || !localEncounters.isEmpty else {
+            return nil
+        }
+
+        let name = relationship?.name
+            ?? ProfileCache.shared.profile(for: profileId)?.name
+            ?? "Unknown"
+
+        let signals = InteractionScorer.Signals(
+            isBLEDetected: strongBLESeen,
+            isHeartbeatLive: false,
+            encounterSeconds: sessionEncounter?.totalSeconds ?? proximityDuration,
+            historicalOverlapSeconds: relationship?.totalOverlapSeconds ?? overlapSeconds,
+            lastSeenAt: sessionEncounter?.lastSeen ?? relationship?.lastEncounterAt,
+            encounterCount: interactionCount,
+            isConnected: confirmedConnection,
+            hasConversation: relationship?.hasConversation ?? false,
+            sharedInterestCount: relationship?.sharedInterests.count ?? 0
+        )
+        let signalScore = InteractionScorer.score(signals) * 2.0
+
+        let summary: String = {
+            if let rel = relationship, !rel.whyLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return rel.whyLine
+            }
+            if proximityDuration >= 30 {
+                return "Strong BLE proximity at \(eventName) (\(proximityDuration)s)"
+            }
+            if overlapSeconds >= 30 {
+                return "Sustained overlap at \(eventName) (\(overlapSeconds)s)"
+            }
+            return "Met at \(eventName)"
+        }()
+
+        let intentAlignment = relationship?.relationshipStrength ?? min(signalScore / 2.0, 1.0)
+
+        return ContactSyncCandidate(
+            profileId: profileId,
+            name: name,
+            confirmedConnection: confirmedConnection,
+            interactionCount: interactionCount,
+            proximityDuration: proximityDuration,
+            signalScore: signalScore,
+            interactionSummary: summary,
+            intentAlignment: intentAlignment,
+            skipReason: skipReason
+        )
     }
 
     // MARK: - Dormant State (inactivity without leaving)
