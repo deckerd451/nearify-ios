@@ -40,6 +40,7 @@ struct HomeView: View {
                     }
                 }
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("Home")
             .navigationBarTitleDisplayMode(.large)
             .refreshable { attendeesService.refresh() }
@@ -143,67 +144,72 @@ struct HomeView: View {
                 scanCard
             }
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.9), value: eventJoin.isCheckedIn)
+        .animation(.spring(response: 0.3, dampingFraction: 0.9), value: eventJoin.isEventJoined)
     }
 
     // MARK: - Scan Card (State A)
 
     private var scanCard: some View {
         Button(action: { showScanner = true }) {
-            VStack(spacing: 16) {
+            VStack(spacing: 14) {
+                Text("READY TO JOIN")
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1.2)
+                    .foregroundColor(VisualStyle.tertiaryText)
                 Image(systemName: "qrcode.viewfinder")
-                    .font(.system(size: 40))
-                    .foregroundColor(.blue)
+                    .font(.system(size: 38, weight: .semibold))
+                    .foregroundColor(VisualStyle.primaryAction)
 
                 VStack(spacing: 4) {
                     Text("Join an Event")
-                        .font(.title3)
+                        .font(.title3.weight(.semibold))
                         .fontWeight(.semibold)
-                    Text("Scan the event QR code to get started")
+                    Text("Scan event QR to get started")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(VisualStyle.secondaryText)
                 }
             }
             .padding(24)
             .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.systemGray6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.blue.opacity(0.3), lineWidth: 1)
-                    )
-            )
+            .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.2)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableScaleButtonStyle())
     }
 
     // MARK: - Joined Card (State B)
 
     private var joinedCard: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("LIVE • \(max(attendeesService.attendeeCount, 1)) NEARBY")
+                .font(.caption2.weight(.semibold))
+                .tracking(1.2)
+                .foregroundColor(VisualStyle.tertiaryText)
+
             HStack(spacing: 12) {
                 Image(systemName: "person.3.fill")
-                    .foregroundColor(.green)
-                    .font(.title3)
+                    .foregroundColor(VisualStyle.live)
+                    .font(.system(size: 20, weight: .semibold))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(eventDisplayName)
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                     Text(joinedSubtitle)
                         .font(.caption)
-                        .foregroundColor(.green)
+                        .foregroundColor(VisualStyle.secondaryText)
                 }
 
                 Spacer()
+                PresencePulseDot(color: VisualStyle.live)
 
                 if attendeesService.attendeeCount > 0 {
                     Text("\(attendeesService.attendeeCount)")
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.white.opacity(0.9))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(Color(.systemGray5)))
+                        .background(Capsule().fill(VisualStyle.live.opacity(0.22)))
                 }
             }
 
@@ -213,20 +219,18 @@ struct HomeView: View {
                 Text("Who to Talk To")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.blue.opacity(0.12)))
+                    .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
             }
+            .buttonStyle(PressableScaleButtonStyle())
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.green.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.green.opacity(0.2), lineWidth: 1)
-                )
+        .elevatedCard(accent: VisualStyle.live, glow: 0.25)
+        .overlay(
+            RoundedRectangle(cornerRadius: VisualStyle.cardCornerRadius, style: .continuous)
+                .stroke(LinearGradient(colors: [VisualStyle.live.opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1.2)
         )
         .overlay(alignment: .bottomTrailing) {
             Button {
@@ -235,11 +239,12 @@ struct HomeView: View {
                 Text("Say Goodbye")
                     .font(.caption2)
                     .fontWeight(.semibold)
-                    .foregroundColor(.red.opacity(0.9))
+                    .foregroundColor(VisualStyle.danger)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.red.opacity(0.12)))
+                    .background(Capsule().fill(VisualStyle.danger.opacity(0.18)))
             }
+            .buttonStyle(PressableScaleButtonStyle())
             .padding(.trailing, 10)
             .padding(.bottom, 8)
         }
@@ -248,18 +253,22 @@ struct HomeView: View {
     private var joinedSubtitle: String {
         let count = attendeesService.attendeeCount
         if count > 0 {
-            return "Event active · \(count) nearby"
+            return "You’re live. \(count) nearby now."
         }
-        return "Event active · Proximity enabled"
+        return "You’re live. See who’s around you."
     }
 
     private var preCheckInCard: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("JOINED • NOT LIVE")
+                .font(.caption2.weight(.semibold))
+                .tracking(1.1)
+                .foregroundColor(VisualStyle.tertiaryText)
             Text(eventDisplayName)
-                .font(.headline)
-            Text("You joined this event. Check in when you arrive to start meeting people.")
+                .font(.headline.weight(.semibold))
+            Text("Check in to go live")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(VisualStyle.secondaryText)
 
             Button {
                 EventPresenceService.shared.setActivationIntent(.userCheckIn)
@@ -268,11 +277,12 @@ struct HomeView: View {
                 Text("Check In")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.black)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.green))
+                    .background(Capsule().fill(VisualStyle.primaryAction))
             }
+            .buttonStyle(PressableScaleButtonStyle())
 
             Button {
                 showEventBrief = true
@@ -280,22 +290,16 @@ struct HomeView: View {
                 Text("Prepare for Event")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.blue.opacity(0.12)))
+                    .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
             }
+            .buttonStyle(PressableScaleButtonStyle())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.blue.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.blue.opacity(0.2), lineWidth: 1)
-                )
-        )
+        .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.2)
     }
 
     // MARK: - Legacy Card
@@ -303,26 +307,19 @@ struct HomeView: View {
     private var legacyCard: some View {
         HStack(spacing: 10) {
             Image(systemName: "antenna.radiowaves.left.and.right")
-                .foregroundColor(.green)
-                .font(.title3)
+                .foregroundColor(VisualStyle.live)
+                .font(.system(size: 20, weight: .semibold))
             VStack(alignment: .leading, spacing: 2) {
                 Text(eventDisplayName)
-                    .font(.headline)
+                    .font(.headline.weight(.semibold))
                 Text("Event detected")
                     .font(.caption)
-                    .foregroundColor(.green)
+                    .foregroundColor(VisualStyle.secondaryText)
             }
             Spacer()
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.green.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.green.opacity(0.2), lineWidth: 1)
-                )
-        )
+        .elevatedCard(accent: VisualStyle.live, glow: 0.2)
     }
 
     // MARK: - Attendee List
@@ -333,14 +330,14 @@ struct HomeView: View {
                 Text("Checked-In Attendees")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
                 Spacer()
                 Text("\(attendeesService.attendeeCount)")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.tertiaryText)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(Color(.systemGray5)))
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
             }
             .padding(.horizontal)
             .padding(.bottom, 4)
@@ -367,7 +364,7 @@ struct HomeView: View {
         VStack(spacing: 12) {
             Text("You’ve joined. Check in when you arrive to start meeting people.")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundColor(VisualStyle.secondaryText)
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 56)
@@ -378,10 +375,10 @@ struct HomeView: View {
         VStack(spacing: 12) {
             Text("No live event yet")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundColor(VisualStyle.secondaryText)
             Text("Explore events, join one, then check in when you arrive.")
                 .font(.subheadline)
-                .foregroundColor(.secondary.opacity(0.8))
+                .foregroundColor(VisualStyle.tertiaryText)
                 .multilineTextAlignment(.center)
             Button {
                 switchTab(to: .event)
@@ -392,8 +389,9 @@ struct HomeView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.blue))
+                    .background(Capsule().fill(VisualStyle.primaryAction))
             }
+            .buttonStyle(PressableScaleButtonStyle())
 
             if let summary = eventJoin.postEventSummary {
                 Button {
@@ -403,7 +401,7 @@ struct HomeView: View {
                         HStack(spacing: 8) {
                             Text("Last Summary")
                                 .font(.caption)
-                                .foregroundColor(.cyan)
+                                .foregroundColor(VisualStyle.intelligence)
                             Spacer()
                             Text("View recap")
                                 .font(.caption2)
@@ -437,7 +435,7 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.06)))
+                .elevatedCard(accent: VisualStyle.intelligence, glow: 0.12)
                 .buttonStyle(.plain)
                 .padding(.horizontal)
             }
@@ -449,10 +447,10 @@ struct HomeView: View {
         VStack(spacing: 16) {
             Image(systemName: "person.3")
                 .font(.system(size: 40))
-                .foregroundColor(.secondary.opacity(0.5))
+                .foregroundColor(VisualStyle.tertiaryText)
             Text("You’re checked in. We’ll show people here as they appear.")
                 .font(.headline)
-                .foregroundColor(.secondary)
+                .foregroundColor(VisualStyle.secondaryText)
         }
         .multilineTextAlignment(.center)
     }
@@ -462,7 +460,7 @@ struct HomeView: View {
             ProgressView()
             Text("Loading attendees…")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(VisualStyle.secondaryText)
         }
     }
 

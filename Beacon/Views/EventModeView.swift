@@ -37,6 +37,7 @@ struct EventModeView: View {
                 .padding()
                 .padding(.bottom, 20)
             }
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("Event Mode")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingPrivacyInfo) { privacySheet }
@@ -49,10 +50,10 @@ struct EventModeView: View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Event Mode")
-                    .font(.title2).fontWeight(.bold)
+                    .font(.title2.weight(.bold))
                 Text(bleService.isScanning ? "Active" : "Off")
                     .font(.subheadline)
-                    .foregroundColor(bleService.isScanning ? .green : .secondary)
+                    .foregroundColor(bleService.isScanning ? VisualStyle.live : VisualStyle.secondaryText)
             }
             Spacer()
             Toggle("", isOn: Binding(
@@ -67,18 +68,22 @@ struct EventModeView: View {
             .labelsHidden()
         }
         .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+        .elevatedCard(accent: bleService.isScanning ? VisualStyle.live : VisualStyle.primaryAction, glow: 0.14)
     }
 
     // MARK: - Event Status Card
 
     private var eventStatusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text(state.nearbyResolvedCount > 0 ? "LIVE • \(state.nearbyResolvedCount) NEARBY" : "EVENT STATUS")
+                .font(.caption2.weight(.semibold))
+                .tracking(1.2)
+                .foregroundColor(VisualStyle.tertiaryText)
             // Canonical membership state banner
             HStack(spacing: 8) {
                 Image(systemName: state.membership.iconName)
                     .foregroundColor(state.membership.displayColor)
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: .semibold))
                 Text(state.membership.displayLabel)
                     .font(.caption)
                     .fontWeight(.medium)
@@ -92,66 +97,68 @@ struct EventModeView: View {
             case .scanningForEvent:
                 HStack(spacing: 8) {
                     Image(systemName: "qrcode.viewfinder")
-                        .foregroundColor(.orange)
+                        .foregroundColor(VisualStyle.primaryAction)
                     Text("Ready to Join")
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
                 }
-                Text("Scan an event QR code to get started.")
+                Text("Scan event QR to get started.")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
 
             case .joinedLooking(let eventName):
                 eventJoinedHeader(eventName)
                 Text("Scanning for nearby attendees…")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
 
             case .joinedWithNearby(let eventName, _):
                 eventJoinedHeader(eventName)
                 Text(state.attendeeSummaryText)
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
+        .elevatedCard(accent: statusCardStroke, glow: 0.22)
+        .overlay(
+            RoundedRectangle(cornerRadius: VisualStyle.cardCornerRadius, style: .continuous)
                 .fill(statusCardFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(statusCardStroke, lineWidth: 1)
-                )
+                .blendMode(.plusLighter)
+                .opacity(0.35)
         )
+        .animation(.easeInOut(duration: 0.22), value: state.status)
     }
 
     private func eventJoinedHeader(_ eventName: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .foregroundColor(VisualStyle.live)
             Text(eventName)
-                .font(.headline)
+                .font(.headline.weight(.semibold))
             Spacer()
+            PresencePulseDot(color: VisualStyle.live)
             NavigationLink(destination: NetworkView()) {
                 Text("Network")
                     .font(.caption).fontWeight(.medium)
-                    .foregroundColor(.blue)
+                    .foregroundColor(VisualStyle.primaryAction)
                 Image(systemName: "chevron.right")
-                    .font(.caption2).foregroundColor(.blue)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(VisualStyle.primaryAction)
             }
         }
     }
 
     private var statusCardFill: Color {
         switch state.status {
-        case .joinedLooking, .joinedWithNearby: return Color.green.opacity(0.08)
-        default: return Color.orange.opacity(0.08)
+        case .joinedLooking, .joinedWithNearby: return VisualStyle.live.opacity(0.12)
+        default: return VisualStyle.primaryAction.opacity(0.1)
         }
     }
 
     private var statusCardStroke: Color {
         switch state.status {
-        case .joinedLooking, .joinedWithNearby: return Color.green.opacity(0.2)
-        default: return Color.orange.opacity(0.2)
+        case .joinedLooking, .joinedWithNearby: return VisualStyle.live
+        default: return VisualStyle.primaryAction
         }
     }
 
@@ -161,9 +168,10 @@ struct EventModeView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "person.3.fill")
-                    .foregroundColor(.blue)
+                    .foregroundColor(VisualStyle.primaryAction)
+                    .font(.system(size: 16, weight: .semibold))
                 Text("Nearby Attendees")
-                    .font(.headline)
+                    .font(.headline.weight(.semibold))
                 Spacer()
                 if state.nearbyResolvedCount > 0 {
                     Text("\(state.nearbyResolvedCount)")
@@ -181,35 +189,36 @@ struct EventModeView: View {
                 if attendees.attendees.isEmpty {
                     Text("Move to discover people")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(VisualStyle.secondaryText)
                 } else {
                     Text("Someone is nearby — go say hi")
                         .font(.subheadline)
-                        .foregroundColor(.orange)
+                        .foregroundColor(VisualStyle.intelligence)
                 }
             } else {
                 ForEach(resolved.prefix(5), id: \.device.id) { match in
                     HStack(spacing: 10) {
                         Circle()
                             .fill(Color.green)
+                            .overlay(PresencePulseDot(color: VisualStyle.live).opacity(0.55))
                             .frame(width: 8, height: 8)
                         Text(match.attendee.name)
                             .font(.subheadline)
                         Spacer()
                         Text(match.device.signalStrength)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(VisualStyle.tertiaryText)
                     }
                 }
                 if resolved.count > 5 {
                     Text("+ \(resolved.count - 5) more")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(VisualStyle.tertiaryText)
                 }
             }
         }
         .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+        .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.12)
     }
 
     // MARK: - Technical Diagnostics (collapsed by default)
@@ -287,14 +296,14 @@ struct EventModeView: View {
             .padding(.top, 8)
         }
         .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+        .elevatedCard()
     }
 
     private func diagRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(VisualStyle.secondaryText)
             Spacer()
             Text(value)
                 .font(.caption)
@@ -307,20 +316,13 @@ struct EventModeView: View {
     private func errorCard(_ message: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.red)
+                .foregroundColor(VisualStyle.danger)
             Text(message)
                 .font(.subheadline)
-                .foregroundColor(.red)
+                .foregroundColor(VisualStyle.danger)
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.red.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.red.opacity(0.2), lineWidth: 1)
-                )
-        )
+        .elevatedCard(accent: VisualStyle.danger, glow: 0.12)
     }
 
     // MARK: - Privacy Notice
@@ -328,22 +330,22 @@ struct EventModeView: View {
     private var privacyNotice: some View {
         HStack(spacing: 10) {
             Image(systemName: "lock.shield")
-                .foregroundColor(.blue)
+                .foregroundColor(VisualStyle.primaryAction)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Your privacy matters")
                     .font(.subheadline).fontWeight(.medium)
                 Text("Event Mode uses Bluetooth to discover nearby attendees. Your data stays on your device.")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
             }
             Spacer()
             Button(action: { showingPrivacyInfo = true }) {
                 Image(systemName: "info.circle")
-                    .foregroundColor(.blue)
+                    .foregroundColor(VisualStyle.primaryAction)
             }
         }
         .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue.opacity(0.06)))
+        .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.1)
     }
 
     // MARK: - Privacy Sheet
@@ -388,14 +390,14 @@ struct EventModeView: View {
     private func privacySection(icon: String, title: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
-                .foregroundColor(.blue)
+                .foregroundColor(VisualStyle.primaryAction)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.subheadline).fontWeight(.semibold)
                 Text(text)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
             }
         }
     }
