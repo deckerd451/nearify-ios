@@ -120,8 +120,8 @@ struct PeopleView: View {
 
                     if !sections.notHere.isEmpty {
                         sectionBlock(
-                            title: "Meet Next", icon: "sparkles",
-                            color: .white.opacity(0.6), subtitle: "A connection worth building",
+                            title: "Follow Up", icon: "sparkles",
+                            color: .white.opacity(0.6), subtitle: "People you've interacted with",
                             people: sections.notHere
                         )
                     }
