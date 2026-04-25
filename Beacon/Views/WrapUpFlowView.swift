@@ -19,6 +19,7 @@ struct WrapUpFlowView: View {
     @State private var isNavigatingToProfile = false
     @State private var isWrappingUpEvent = false
     @State private var wrapUpTask: Task<Void, Never>?
+    @State private var showContactSavedToast = false
 
     private enum ShareState: Equatable {
         case hidden             // No strong candidates or share not applicable
@@ -88,6 +89,27 @@ struct WrapUpFlowView: View {
 
                 if isWrappingUpEvent {
                     wrappingUpOverlay
+                }
+
+                if showContactSavedToast {
+                    VStack {
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.circle.badge.checkmark")
+                                .foregroundColor(.white)
+                            Text("Saved to contacts")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.green.opacity(0.95))
+                        .cornerRadius(12)
+                        .shadow(radius: 4)
+                        .padding(.top, 12)
+                        Spacer()
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .navigationTitle("Say Goodbye")
@@ -807,11 +829,98 @@ struct WrapUpFlowView: View {
         isWrappingUpEvent = true
 
         wrapUpTask = Task {
+            let didSaveAnyContact = await syncEligibleContacts()
             await onComplete()
             await MainActor.run {
                 isWrappingUpEvent = false
+                if didSaveAnyContact {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showContactSavedToast = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showContactSavedToast = false
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private func syncEligibleContacts() async -> Bool {
+        guard let eventIdString = EventJoinService.shared.currentEventID,
+              let eventId = UUID(uuidString: eventIdString) else {
+            return false
+        }
+
+        let connectedIds = AttendeeStateResolver.shared.connectedIds
+        let encounters = EncounterService.shared.activeEncounters
+        let eventEncounters = LocalEncounterStore.shared.encounters(forEvent: eventId)
+        let relationships = RelationshipMemoryService.shared.relationships
+
+        var didSaveAny = false
+
+        for person in people {
+            guard connectedIds.contains(person.id) else { continue }
+
+            let personEventEncounters = eventEncounters.filter { $0.resolvedProfileId == person.id }
+            let localInteractionCount = personEventEncounters.count
+            let activeInteractionCount = (encounters[person.id]?.totalSeconds ?? 0) > 0 ? 1 : 0
+            let interactionCount = max(localInteractionCount, activeInteractionCount)
+
+            guard interactionCount >= 1 else {
+                print("[ContactSync] Skipped — insufficient interaction")
+                continue
+            }
+
+            let relationship = relationships.first(where: { $0.profileId == person.id })
+            let attendee = EventAttendeesService.shared.attendees.first(where: { $0.id == person.id })
+            let encounterTracker = encounters[person.id]
+
+            let signals: InteractionScorer.Signals
+            if let relationship {
+                signals = InteractionScorer.signals(
+                    for: relationship,
+                    encounter: encounterTracker,
+                    bleDetected: false,
+                    heartbeatLive: attendee?.isHereNow ?? false
+                )
+            } else {
+                signals = InteractionScorer.Signals(
+                    isBLEDetected: false,
+                    isHeartbeatLive: attendee?.isHereNow ?? false,
+                    encounterSeconds: encounterTracker?.totalSeconds ?? 0,
+                    historicalOverlapSeconds: 0,
+                    lastSeenAt: encounterTracker?.lastSeen,
+                    encounterCount: interactionCount,
+                    isConnected: true,
+                    hasConversation: false,
+                    sharedInterestCount: 0
+                )
+            }
+
+            let signalScore = InteractionScorer.score(signals) * 2.0
+            let payload = ContactSyncPayload(
+                profileId: person.id,
+                name: person.name,
+                phoneNumber: nil,
+                email: nil,
+                eventId: eventId,
+                eventName: eventName,
+                eventDate: Date(),
+                interactionSummary: person.reason,
+                signalScore: signalScore,
+                interactionCount: interactionCount,
+                intentAlignment: relationship?.relationshipStrength ?? min(signalScore / 2.0, 1.0)
+            )
+
+            let didSave = await ContactSyncService.shared.createOrUpdateContact(payload: payload)
+            if didSave {
+                didSaveAny = true
+            }
+        }
+
+        return didSaveAny
     }
 
     private var wrappingUpOverlay: some View {
