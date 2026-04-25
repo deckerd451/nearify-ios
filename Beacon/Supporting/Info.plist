@@ -39,6 +39,8 @@
 	<string>Bluetooth access is required to detect nearby event beacons for passive networking.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Beacon needs camera access to scan QR codes and connect attendees.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Nearify saves real connections to your Contacts with event context so you can follow up later.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location access is required to scan for nearby event beacons and enable passive networking.</string>
 	<key>NSPrincipalClass</key>
