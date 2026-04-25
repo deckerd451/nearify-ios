@@ -16,6 +16,12 @@ enum FindSignalState: Equatable {
     case signalLost
 }
 
+enum FindState: Equatable {
+    case searching
+    case locked(rssi: Int)
+    case arrived
+}
+
 enum FindAttendeeSource {
     case brief
     case explore
@@ -35,11 +41,6 @@ enum FindAttendeeConnectionMode {
     }
 }
 
-private enum InteractionPhase: Equatable {
-    case active
-    case completed
-}
-
 /// Find Attendee screen with identity, status block, chips, radar, and signal details
 struct FindAttendeeView: View {
     let attendee: EventAttendee
@@ -51,16 +52,15 @@ struct FindAttendeeView: View {
     @State private var signalAge: TimeInterval = 0
     @State private var signalTimer: Timer?
     @State private var hadDirectSignal = false
-    @State private var didTriggerStrongProximityHaptic = false
+    @State private var findState: FindState = .searching
+    @State private var proximityLockStartedAt: Date?
+    @State private var arrivedRSSI: Int?
+    @State private var hasTriggeredArrivedHaptic = false
     @State private var isSavingConnection = false
     @State private var isCheckingConnectionStatus = false
     @State private var isAlreadyConnected = false
     @State private var hasSavedConnection = false
     @State private var transientConfirmationMessage: String?
-    @State private var interactionPhase: InteractionPhase = .active
-    @State private var hasReachedStrongProximity = false
-    @State private var completionDebounceStartedAt: Date?
-    @State private var hasTriggeredCompletionState = false
     @State private var viewAppearedAt: Date?
     @State private var hasEnteredExtendedSearchState = false
     @State private var isSearchExpanded = false
@@ -209,6 +209,8 @@ struct FindAttendeeView: View {
             stopAmbientMessageRotation()
         }
         .onChange(of: signalAge) {
+            guard findState != .arrived else { return }
+
             // Track if we ever had a direct signal (for signalLost detection)
             if case .directSignalLocked = findSignalState {
                 if !hadDirectSignal {
@@ -241,7 +243,7 @@ struct FindAttendeeView: View {
             #endif
 
             updateAdaptiveSearchState()
-            updateInteractionState()
+            updateFindState()
         }
     }
 
@@ -320,6 +322,9 @@ struct FindAttendeeView: View {
     }
 
     private var signalStateLabel: String {
+        if findState == .arrived {
+            return "Arrived"
+        }
         switch findSignalState {
         case .searchingForDirectSignal:
             return "Looking nearby"
@@ -333,6 +338,9 @@ struct FindAttendeeView: View {
     }
 
     private var signalStateIcon: String {
+        if findState == .arrived {
+            return "checkmark.seal.fill"
+        }
         switch findSignalState {
         case .searchingForDirectSignal:
             return "magnifyingglass"
@@ -346,6 +354,9 @@ struct FindAttendeeView: View {
     }
 
     private var signalStateColor: Color {
+        if findState == .arrived {
+            return .green
+        }
         switch findSignalState {
         case .searchingForDirectSignal:
             return .yellow
@@ -452,12 +463,19 @@ struct FindAttendeeView: View {
         ZStack {
             ForEach([190.0, 140.0, 90.0, 56.0], id: \.self) { size in
                 Circle()
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .stroke(Color.white.opacity(findState == .arrived ? 0.03 : 0.08), lineWidth: 1)
                     .frame(width: size, height: size)
             }
 
-            directionalBiasGlow
-            radarPulse
+            if findState == .arrived {
+                Circle()
+                    .fill(Color.green.opacity(0.18))
+                    .frame(width: 140, height: 140)
+                    .blur(radius: 8)
+            } else {
+                directionalBiasGlow
+                radarPulse
+            }
 
             Circle()
                 .fill(signalColor.opacity(0.3))
@@ -468,7 +486,7 @@ struct FindAttendeeView: View {
                         .frame(width: 10, height: 10)
                 )
                 .offset(radarOffset)
-                .animation(.easeInOut(duration: 1.0), value: radarOffset)
+                .animation(findState == .arrived ? nil : .easeInOut(duration: 1.0), value: radarOffset)
         }
         .frame(height: 200)
     }
@@ -542,6 +560,9 @@ struct FindAttendeeView: View {
     }
 
     private var radarOffset: CGSize {
+        if findState == .arrived {
+            return .zero
+        }
         guard case .directSignalLocked(let rssi, _) = findSignalState else {
             // No direct signal — place dot at outer edge
             return CGSize(width: 60, height: -40)
@@ -573,26 +594,52 @@ struct FindAttendeeView: View {
                     .foregroundColor(.cyan.opacity(0.75))
             }
 
-            if interactionPhase == .completed {
+            if findState == .arrived {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title2)
                     .foregroundColor(.green)
 
-                Text("You just crossed paths with \(attendee.name)")
+                Text("You found each other")
                     .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.green)
 
-                Text(completionSubtitle)
+                Text("Look up — you’re close")
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 16)
 
-                completedInteractionActions
+                Text("Say hi 👋")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.top, 2)
+
+                arrivedActions
             } else {
-                switch findSignalState {
-                case .directSignalLocked(let rssi, let deviceId):
+                switch findState {
+                case .locked(let rssi):
+                    let deviceId = bestPeerDevice?.id
+                    let trend = deviceId.flatMap { rssiTrend(for: $0) } ?? 0
+
+                    Text(proximityGradientLabel(rssi: rssi, trend: trend))
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(signalColor)
+
+                    Text(movementSuggestion(rssi: rssi, trend: trend))
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+
+                    ambientGuidanceLine
+                    conversationBridge(rssi: rssi)
+                    fallbackActionSection
+
+                case .searching:
+                    switch findSignalState {
+                    case .directSignalLocked(let rssi, let deviceId):
                     let trend = rssiTrend(for: deviceId) ?? 0
 
                     Text(proximityGradientLabel(rssi: rssi, trend: trend))
@@ -610,7 +657,7 @@ struct FindAttendeeView: View {
                     conversationBridge(rssi: rssi)
                     fallbackActionSection
 
-                case .searchingForDirectSignal:
+                    case .searchingForDirectSignal:
                     Image(systemName: "magnifyingglass")
                         .font(.title2)
                         .foregroundColor(.yellow)
@@ -629,7 +676,7 @@ struct FindAttendeeView: View {
                     ambientGuidanceLine
                     fallbackActionSection
 
-                case .fallbackEventPresence:
+                    case .fallbackEventPresence:
                     Image(systemName: "antenna.radiowaves.left.and.right")
                         .font(.title2)
                         .foregroundColor(.orange)
@@ -648,7 +695,7 @@ struct FindAttendeeView: View {
                     ambientGuidanceLine
                     fallbackActionSection
 
-                case .signalLost:
+                    case .signalLost:
                     Image(systemName: "wifi.slash")
                         .font(.title2)
                         .foregroundColor(.gray)
@@ -666,6 +713,9 @@ struct FindAttendeeView: View {
 
                     ambientGuidanceLine
                     fallbackActionSection
+                    }
+                case .arrived:
+                    EmptyView()
                 }
             }
         }
@@ -791,8 +841,8 @@ struct FindAttendeeView: View {
 
     private var signalDetailsView: some View {
         VStack(spacing: 6) {
-            if interactionPhase == .completed {
-                Text("Interaction complete")
+            if findState == .arrived {
+                Text("Arrival locked\(arrivedRSSI.map { " (\($0) dBm)" } ?? "") — signal updates paused")
                     .font(.caption2)
                     .foregroundColor(.green.opacity(0.7))
             } else {
@@ -852,6 +902,9 @@ struct FindAttendeeView: View {
     }
 
     private var presenceCueText: String {
+        if findState == .arrived {
+            return "Look up — you’re close"
+        }
         switch findSignalState {
         case .directSignalLocked(_, let deviceId):
             let trend = rssiTrend(for: deviceId) ?? 0
@@ -874,6 +927,9 @@ struct FindAttendeeView: View {
     }
 
     private var currentAmbientMessage: String {
+        if findState == .arrived {
+            return "You found each other"
+        }
         let messages: [String]
         switch findSignalState {
         case .directSignalLocked(let rssi, _):
@@ -956,39 +1012,39 @@ struct FindAttendeeView: View {
         ambientMessageTask = nil
     }
 
-    private func updateInteractionState() {
+    private let arrivalRSSIThreshold = -45
+    private let arrivalStabilityDuration: TimeInterval = 2
+
+    private func updateFindState() {
         let now = Date()
-        let isStrongSignal = isCurrentSignalStrong
-
-        if interactionPhase == .completed {
+        if findState == .arrived {
             return
         }
 
-        if isStrongSignal {
-            hasReachedStrongProximity = true
-            completionDebounceStartedAt = nil
-            triggerStrongProximityFeedbackIfNeeded()
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
+            findState = .searching
+            proximityLockStartedAt = nil
             return
         }
 
-        didTriggerStrongProximityHaptic = false
-
-        guard hasReachedStrongProximity else {
+        findState = .locked(rssi: rssi)
+        guard rssi >= arrivalRSSIThreshold else {
+            proximityLockStartedAt = nil
             return
         }
 
-        if completionDebounceStartedAt == nil {
-            completionDebounceStartedAt = now
+        if proximityLockStartedAt == nil {
+            proximityLockStartedAt = now
             return
         }
 
-        guard let debounceStartedAt = completionDebounceStartedAt else { return }
-        guard now.timeIntervalSince(debounceStartedAt) >= 8 else { return }
-        enterCompletedInteractionState()
+        guard let lockStartedAt = proximityLockStartedAt else { return }
+        guard now.timeIntervalSince(lockStartedAt) >= arrivalStabilityDuration else { return }
+        enterArrivedState(rssi: rssi)
     }
 
     private func updateAdaptiveSearchState() {
-        guard interactionPhase != .completed else {
+        guard findState != .arrived else {
             hasEnteredExtendedSearchState = false
             return
         }
@@ -1006,36 +1062,17 @@ struct FindAttendeeView: View {
         hasEnteredExtendedSearchState = false
     }
 
-    private var isCurrentSignalStrong: Bool {
-        guard case .directSignalLocked(let rssi, _) = findSignalState else {
-            return false
-        }
-        return rssi >= -45
-    }
-
-    private func enterCompletedInteractionState() {
-        guard !hasTriggeredCompletionState else { return }
-        hasTriggeredCompletionState = true
-        interactionPhase = .completed
+    private func enterArrivedState(rssi: Int) {
+        findState = .arrived
+        arrivedRSSI = rssi
         hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        stopAmbientMessageRotation()
+        if !hasTriggeredArrivedHaptic {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            hasTriggeredArrivedHaptic = true
+        }
+        print("[FindAttendee] ARRIVED state reached for \(attendee.name) (RSSI: \(rssi))")
         refreshConnectionStatusIfNeeded()
-    }
-
-    private func triggerStrongProximityFeedbackIfNeeded() {
-        guard case .directSignalLocked(let rssi, _) = findSignalState else {
-            didTriggerStrongProximityHaptic = false
-            return
-        }
-
-        guard rssi >= -45 else {
-            didTriggerStrongProximityHaptic = false
-            return
-        }
-
-        guard !didTriggerStrongProximityHaptic else { return }
-        didTriggerStrongProximityHaptic = true
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 
     private var currentEventId: String? {
@@ -1043,8 +1080,8 @@ struct FindAttendeeView: View {
     }
 
     @ViewBuilder
-    private var completedInteractionActions: some View {
-        if shouldShowSaveAction {
+    private var arrivedActions: some View {
+        if shouldShowConnectAction {
             Button {
                 saveConnection()
             } label: {
@@ -1052,7 +1089,7 @@ struct FindAttendeeView: View {
                     if isSavingConnection {
                         ProgressView().tint(.black)
                     }
-                    Text("Save Connection")
+                    Text("Connect")
                         .fontWeight(.semibold)
                 }
                 .font(.subheadline)
@@ -1073,13 +1110,14 @@ struct FindAttendeeView: View {
                 .padding(.top, 4)
         }
 
-        if interactionPhase == .completed {
-            Button("Back to event") { dismiss() }
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.white.opacity(0.9))
-                .padding(.top, 2)
+        HStack(spacing: 10) {
+            Button("Back") { dismiss() }
+                .buttonStyle(fallbackButtonStyle(prominent: true))
+            Button("Keep exploring") { resetArrivedStateForExploration() }
+                .buttonStyle(fallbackButtonStyle(prominent: true))
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
     }
 
     private func saveConnection() {
@@ -1123,15 +1161,16 @@ struct FindAttendeeView: View {
         }
     }
 
-    private var shouldShowSaveAction: Bool {
-        interactionPhase == .completed && !hasSavedConnection && !isAlreadyConnected && !isCheckingConnectionStatus
+    private var shouldShowConnectAction: Bool {
+        findState == .arrived && !hasSavedConnection && !isAlreadyConnected && !isCheckingConnectionStatus
     }
 
-    private var completionSubtitle: String {
-        if shouldShowSaveAction {
-            return "Save this connection or return when you're ready"
-        }
-        return "Wrap up when you're ready."
+    private func resetArrivedStateForExploration() {
+        findState = .searching
+        proximityLockStartedAt = nil
+        arrivedRSSI = nil
+        hasTriggeredArrivedHaptic = false
+        startAmbientMessageRotation()
     }
 
     private func refreshConnectionStatusIfNeeded() {
