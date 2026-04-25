@@ -3,6 +3,7 @@ import SwiftUI
 /// Compact horizontal card for displaying event attendee profile information
 struct AttendeeCardView: View {
     let attendee: EventAttendee
+    @State private var isVisible = false
 
     private var isRecentlySeen: Bool {
         attendee.presenceState == .stale
@@ -20,12 +21,12 @@ struct AttendeeCardView: View {
                 Text(attendee.name)
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(isRecentlySeen ? .secondary : .primary)
+                    .foregroundColor(isRecentlySeen ? VisualStyle.secondaryText : .white)
                 
                 // Subtitle from bio/skills/interests
                 Text(attendee.detailSubtitleText)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.secondaryText)
                     .lineLimit(1)
                 
                 // Tags (if available)
@@ -38,9 +39,9 @@ struct AttendeeCardView: View {
                                 .padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 4)
-                                        .fill(Color.blue.opacity(0.1))
+                                        .fill(VisualStyle.intelligence.opacity(0.18))
                                 )
-                                .foregroundColor(.blue)
+                                .foregroundColor(.white.opacity(0.9))
                         }
                     }
                 }
@@ -51,30 +52,30 @@ struct AttendeeCardView: View {
             // Status indicator
             VStack(alignment: .trailing, spacing: 4) {
                 Circle()
-                    .fill(attendee.isActiveNow ? Color.green : Color.orange.opacity(0.8))
+                    .fill(attendee.isActiveNow ? VisualStyle.live : VisualStyle.primaryAction.opacity(0.8))
                     .frame(width: 8, height: 8)
 
                 if isRecentlySeen {
                     Text("Recently seen")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(VisualStyle.tertiaryText)
                 }
                 
                 Text(attendee.lastSeenText)
                     .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(VisualStyle.tertiaryText)
             }
         }
         .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.separator), lineWidth: 0.5)
-        )
+        .elevatedCard(accent: attendee.isActiveNow ? VisualStyle.live : VisualStyle.primaryAction, glow: 0.10)
         .opacity(isRecentlySeen ? 0.82 : 1.0)
+        .opacity(isVisible ? 1 : 0.0)
+        .offset(y: isVisible ? 0 : 6)
+        .onAppear {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                isVisible = true
+            }
+        }
     }
     
     // MARK: - Avatar View
@@ -107,12 +108,12 @@ struct AttendeeCardView: View {
     
     private var initialsPlaceholder: some View {
         Circle()
-            .fill(Color.blue.opacity(0.2))
+            .fill(VisualStyle.primaryAction.opacity(0.25))
             .overlay(
                 Text(attendee.initials)
                     .font(.headline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.blue)
+                    .foregroundColor(.white)
             )
     }
 }
