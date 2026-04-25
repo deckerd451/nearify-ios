@@ -52,15 +52,15 @@ struct FindAttendeeView: View {
     @State private var signalTimer: Timer?
     @State private var hadDirectSignal = false
     @State private var didTriggerStrongProximityHaptic = false
-    @State private var showConnectionPromptCard = false
     @State private var isSavingConnection = false
+    @State private var isCheckingConnectionStatus = false
+    @State private var isAlreadyConnected = false
+    @State private var hasSavedConnection = false
     @State private var transientConfirmationMessage: String?
     @State private var interactionPhase: InteractionPhase = .active
     @State private var hasReachedStrongProximity = false
     @State private var completionDebounceStartedAt: Date?
     @State private var hasTriggeredCompletionState = false
-    @State private var hasShownSessionConnectionCard = false
-    @State private var hasDismissedSessionConnectionCard = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -159,14 +159,7 @@ struct FindAttendeeView: View {
                         Spacer(minLength: 24)
                     }
                     .padding(.top, 16)
-                    .padding(.bottom, showConnectionPromptCard ? 120 : 24)
-                }
-
-                if showConnectionPromptCard {
-                    saveConnectionCard
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 24)
                 }
 
                 if let message = transientConfirmationMessage {
@@ -177,7 +170,7 @@ struct FindAttendeeView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .background(Capsule().fill(Color.green))
-                        .padding(.bottom, showConnectionPromptCard ? 110 : 20)
+                        .padding(.bottom, 20)
                         .transition(.opacity)
                 }
             }
@@ -192,6 +185,7 @@ struct FindAttendeeView: View {
         }
         .onAppear {
             startSignalTimer()
+            hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
             #if DEBUG
             let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
             print("[FindAttendee] 📡 Opened for: \(attendee.name) (prefix: \(prefix))")
@@ -482,11 +476,13 @@ struct FindAttendeeView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.green)
 
-                Text("Wrap up when you're ready.")
+                Text(completionSubtitle)
                     .font(.caption)
                     .foregroundColor(.gray.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 16)
+
+                completedInteractionActions
             } else {
                 switch findSignalState {
                 case .directSignalLocked(let rssi, let deviceId):
@@ -766,17 +762,9 @@ struct FindAttendeeView: View {
         guard !hasTriggeredCompletionState else { return }
         hasTriggeredCompletionState = true
         interactionPhase = .completed
-        showConnectionPromptCard = false
-
-        guard !hasDismissedSessionConnectionCard else { return }
-        guard !ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId) else { return }
-        guard !hasShownSessionConnectionCard else { return }
-
-        hasShownSessionConnectionCard = true
+        hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
-            showConnectionPromptCard = true
-        }
+        refreshConnectionStatusIfNeeded()
     }
 
     private func triggerStrongProximityFeedbackIfNeeded() {
@@ -799,52 +787,44 @@ struct FindAttendeeView: View {
         EventJoinService.shared.currentEventID
     }
 
-    private var saveConnectionCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Save connection with \(attendee.name)")
-                .font(.subheadline)
-                .foregroundColor(.white)
-
-            HStack(spacing: 10) {
-                Button {
-                    saveConnection()
-                } label: {
-                    HStack(spacing: 6) {
-                        if isSavingConnection {
-                            ProgressView().tint(.black)
-                        }
-                        Text("Save Connection")
-                            .fontWeight(.semibold)
+    @ViewBuilder
+    private var completedInteractionActions: some View {
+        if shouldShowSaveAction {
+            Button {
+                saveConnection()
+            } label: {
+                HStack(spacing: 6) {
+                    if isSavingConnection {
+                        ProgressView().tint(.black)
                     }
-                    .font(.subheadline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Color.green)
-                    .foregroundColor(.black)
-                    .cornerRadius(10)
-                }
-                .disabled(isSavingConnection)
-
-                Button("Dismiss") {
-                    hasDismissedSessionConnectionCard = true
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showConnectionPromptCard = false
-                    }
+                    Text("Save Connection")
+                        .fontWeight(.semibold)
                 }
                 .font(.subheadline)
-                .foregroundColor(.white.opacity(0.85))
-                .disabled(isSavingConnection)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.green)
+                .foregroundColor(.black)
+                .cornerRadius(10)
             }
+            .disabled(isSavingConnection)
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+        } else if isAlreadyConnected {
+            Text("You're already connected")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.green.opacity(0.9))
+                .padding(.top, 4)
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
-                )
-        )
+
+        if interactionPhase == .completed {
+            Button("Done") { dismiss() }
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white.opacity(0.9))
+                .padding(.top, 2)
+        }
     }
 
     private func saveConnection() {
@@ -853,18 +833,27 @@ struct FindAttendeeView: View {
 
         Task {
             do {
-                _ = try await ConnectionService.shared.createConnectionIfNeeded(to: attendee.id.uuidString)
-                ConnectionPromptStateStore.shared.markSaved(profileId: attendee.id, eventId: currentEventId)
+                let result = try await ConnectionService.shared.createConnectionIfNeeded(to: attendee.id.uuidString)
                 await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showConnectionPromptCard = false
-                        transientConfirmationMessage = "Connection saved"
+                    switch result {
+                    case .created:
+                        hasSavedConnection = true
+                        ConnectionPromptStateStore.shared.markSaved(profileId: attendee.id, eventId: currentEventId)
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            transientConfirmationMessage = "Saved — find them later in People"
+                        }
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    case .alreadyExists:
+                        isAlreadyConnected = true
                     }
                 }
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        transientConfirmationMessage = nil
+
+                if case .created = result {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            transientConfirmationMessage = nil
+                        }
                     }
                 }
             } catch {
@@ -875,6 +864,35 @@ struct FindAttendeeView: View {
 
             await MainActor.run {
                 isSavingConnection = false
+            }
+        }
+    }
+
+    private var shouldShowSaveAction: Bool {
+        interactionPhase == .completed && !hasSavedConnection && !isAlreadyConnected && !isCheckingConnectionStatus
+    }
+
+    private var completionSubtitle: String {
+        if shouldShowSaveAction {
+            return "Save this connection or return when you're ready"
+        }
+        return "Wrap up when you're ready."
+    }
+
+    private func refreshConnectionStatusIfNeeded() {
+        guard !hasSavedConnection else {
+            isAlreadyConnected = false
+            return
+        }
+
+        guard !isCheckingConnectionStatus else { return }
+        isCheckingConnectionStatus = true
+
+        Task {
+            let connected = await ConnectionService.shared.isConnected(with: attendee.id)
+            await MainActor.run {
+                isAlreadyConnected = connected
+                isCheckingConnectionStatus = false
             }
         }
     }
