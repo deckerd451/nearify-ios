@@ -210,7 +210,7 @@ struct HomeView: View {
             Button {
                 showEventBrief = true
             } label: {
-                Text("View Brief")
+                Text("Who to Talk To")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.blue)
@@ -257,7 +257,7 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(eventDisplayName)
                 .font(.headline)
-            Text("You joined this event. Check in when you arrive to become visible to other attendees.")
+            Text("You joined this event. Check in when you arrive to start meeting people.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
@@ -277,7 +277,7 @@ struct HomeView: View {
             Button {
                 showEventBrief = true
             } label: {
-                Text("View Brief")
+                Text("Prepare for Event")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.blue)
@@ -365,7 +365,7 @@ struct HomeView: View {
 
     private var joinedNotCheckedInState: some View {
         VStack(spacing: 12) {
-            Text("You’ve joined. Check in when you arrive to become visible.")
+            Text("You’ve joined. Check in when you arrive to start meeting people.")
                 .font(.headline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
