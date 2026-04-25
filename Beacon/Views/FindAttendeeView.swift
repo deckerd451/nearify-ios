@@ -44,12 +44,14 @@ struct FindAttendeeView: View {
     @ObservedObject private var scanner = BLEScannerService.shared
 
     @State private var signalAge: TimeInterval = 0
-    @State private var showConnectSheet = false
-    @State private var hasTriggeredConnect = false
-    @State private var connectDismissedAt: Date?
     @State private var signalTimer: Timer?
     @State private var hadDirectSignal = false
     @State private var didTriggerStrongProximityHaptic = false
+    @State private var strongProximityStartAt: Date?
+    @State private var lastStrongProximitySeenAt: Date?
+    @State private var showConnectionPromptCard = false
+    @State private var isSavingConnection = false
+    @State private var transientConfirmationMessage: String?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -132,29 +134,51 @@ struct FindAttendeeView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 16) {
-                    identitySection
-                    statusBlock
-                    if !isBriefRecommendationMode {
-                        chipsSection
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        identitySection
+                        statusBlock
+                        if !isBriefRecommendationMode {
+                            chipsSection
+                        }
+                        radarView
+                        guidanceCard
+                        if !isBriefRecommendationMode {
+                            signalDetailsView
+                        }
+                        Spacer(minLength: 24)
                     }
-                    radarView
-                    guidanceCard
-                    if !isBriefRecommendationMode {
-                        signalDetailsView
-                    }
-                    Spacer(minLength: 24)
+                    .padding(.top, 16)
+                    .padding(.bottom, showConnectionPromptCard ? 120 : 24)
                 }
-                .padding(.top, 16)
+
+                if showConnectionPromptCard {
+                    saveConnectionCard
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if let message = transientConfirmationMessage {
+                    Text(message)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.green))
+                        .padding(.bottom, showConnectionPromptCard ? 110 : 20)
+                        .transition(.opacity)
+                }
             }
-            .background(Color.black.ignoresSafeArea())
-            .navigationTitle(navigationTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .navigationTitle(navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Done") { dismiss() }
             }
         }
         .onAppear {
@@ -205,11 +229,6 @@ struct FindAttendeeView: View {
             #endif
 
             checkVeryCloseTransition()
-        }
-        .sheet(isPresented: $showConnectSheet, onDismiss: {
-            connectDismissedAt = Date()
-        }) {
-            ConnectAttendeeView(attendee: attendee)
         }
     }
 
@@ -589,24 +608,6 @@ struct FindAttendeeView: View {
                     .font(.caption2)
                     .foregroundColor(.green.opacity(0.6))
 
-                if rssi >= -45 {
-                    Button(action: { showConnectSheet = true }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "person.crop.circle.badge.plus")
-                            Text("Connect with \(attendee.name)")
-                                .fontWeight(.semibold)
-                        }
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(Color.green)
-                        .foregroundColor(.black)
-                        .cornerRadius(10)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 6)
-                }
-
             case .searchingForDirectSignal:
                 Text("Looking for their live signal…")
                     .font(.caption2)
@@ -691,34 +692,38 @@ struct FindAttendeeView: View {
         signalTimer = nil
     }
 
-    /// Auto-opens ConnectAttendeeView once when RSSI reaches Very Close.
-    /// Respects cooldown: won't re-trigger within 30s of user dismissing the sheet.
     private func checkVeryCloseTransition() {
         guard !isBriefRecommendationMode else {
             triggerStrongProximityFeedbackIfNeeded()
             return
         }
 
-        guard !showConnectSheet else { return }
-
-        if let dismissed = connectDismissedAt,
-           Date().timeIntervalSince(dismissed) < 30 {
+        guard !ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId) else {
+            showConnectionPromptCard = false
             return
         }
 
-        if hasTriggeredConnect, connectDismissedAt == nil {
+        guard !ConnectionPromptStateStore.shared.isDismissed(profileId: attendee.id, eventId: currentEventId) else {
+            showConnectionPromptCard = false
             return
         }
 
-        guard case .directSignalLocked(let rssi, let deviceId) = findSignalState else { return }
+        updateStrongProximityWindow()
 
-        let trend = rssiTrend(for: deviceId) ?? 0
+        guard let strongStart = strongProximityStartAt else {
+            showConnectionPromptCard = false
+            return
+        }
 
-        guard rssi >= -45, trend >= -2 else { return }
+        let strongDuration = Date().timeIntervalSince(strongStart)
+        guard strongDuration >= 30 else { return }
+        guard !ConnectionPromptStateStore.shared.hasShown(profileId: attendee.id, eventId: currentEventId) else { return }
 
-        hasTriggeredConnect = true
-        showConnectSheet = true
-        print("[FindAttendee] Auto-opening connect sheet — RSSI \(rssi), trend \(trend)")
+        ConnectionPromptStateStore.shared.markShown(profileId: attendee.id, eventId: currentEventId)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+            showConnectionPromptCard = true
+        }
     }
 
     private func triggerStrongProximityFeedbackIfNeeded() {
@@ -735,5 +740,116 @@ struct FindAttendeeView: View {
         guard !didTriggerStrongProximityHaptic else { return }
         didTriggerStrongProximityHaptic = true
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+    }
+
+    private var currentEventId: String? {
+        EventJoinService.shared.currentEventID
+    }
+
+    private func updateStrongProximityWindow() {
+        let now = Date()
+        let isStrongSignal: Bool
+        if case .directSignalLocked(let rssi, _) = findSignalState {
+            isStrongSignal = rssi >= -45
+        } else {
+            isStrongSignal = false
+        }
+
+        if isStrongSignal {
+            if let lastSeen = lastStrongProximitySeenAt, now.timeIntervalSince(lastSeen) > 8 {
+                strongProximityStartAt = now
+            } else if strongProximityStartAt == nil {
+                strongProximityStartAt = now
+            }
+            lastStrongProximitySeenAt = now
+            return
+        }
+
+        if let lastSeen = lastStrongProximitySeenAt, now.timeIntervalSince(lastSeen) <= 8 {
+            return
+        }
+
+        strongProximityStartAt = nil
+        lastStrongProximitySeenAt = nil
+    }
+
+    private var saveConnectionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Looks like you connected with \(attendee.name)")
+                .font(.subheadline)
+                .foregroundColor(.white)
+
+            HStack(spacing: 10) {
+                Button {
+                    saveConnection()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSavingConnection {
+                            ProgressView().tint(.black)
+                        }
+                        Text("Save Connection")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.green)
+                    .foregroundColor(.black)
+                    .cornerRadius(10)
+                }
+                .disabled(isSavingConnection)
+
+                Button("Dismiss") {
+                    ConnectionPromptStateStore.shared.markDismissed(profileId: attendee.id, eventId: currentEventId)
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showConnectionPromptCard = false
+                    }
+                }
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.85))
+                .disabled(isSavingConnection)
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.white.opacity(0.14), lineWidth: 1)
+                )
+        )
+    }
+
+    private func saveConnection() {
+        guard !isSavingConnection else { return }
+        isSavingConnection = true
+
+        Task {
+            do {
+                _ = try await ConnectionService.shared.createConnectionIfNeeded(to: attendee.id.uuidString)
+                ConnectionPromptStateStore.shared.markSaved(profileId: attendee.id, eventId: currentEventId)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showConnectionPromptCard = false
+                        transientConfirmationMessage = "Connection saved"
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        transientConfirmationMessage = nil
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[FindAttendee] Failed to save connection for \(attendee.name): \(error.localizedDescription)")
+                #endif
+            }
+
+            await MainActor.run {
+                isSavingConnection = false
+            }
+        }
     }
 }
