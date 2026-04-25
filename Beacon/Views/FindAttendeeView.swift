@@ -64,6 +64,8 @@ struct FindAttendeeView: View {
     @State private var viewAppearedAt: Date?
     @State private var hasEnteredExtendedSearchState = false
     @State private var isSearchExpanded = false
+    @State private var ambientMessageIndex = 0
+    @State private var ambientMessageTask: Task<Void, Never>?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -190,6 +192,7 @@ struct FindAttendeeView: View {
         .onAppear {
             viewAppearedAt = Date()
             startSignalTimer()
+            startAmbientMessageRotation()
             hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
             #if DEBUG
             let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
@@ -203,6 +206,7 @@ struct FindAttendeeView: View {
         }
         .onDisappear {
             stopSignalTimer()
+            stopAmbientMessageRotation()
         }
         .onChange(of: signalAge) {
             // Track if we ever had a direct signal (for signalLost detection)
@@ -280,7 +284,7 @@ struct FindAttendeeView: View {
                 .fontWeight(.bold)
                 .foregroundColor(.white)
 
-            Text(attendee.detailSubtitleText)
+            Text(presenceCueText)
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
@@ -452,6 +456,7 @@ struct FindAttendeeView: View {
                     .frame(width: size, height: size)
             }
 
+            directionalBiasGlow
             radarPulse
 
             Circle()
@@ -472,36 +477,68 @@ struct FindAttendeeView: View {
         TimelineView(.animation) { context in
             let duration = pulseDuration
             let elapsed = context.date.timeIntervalSinceReferenceDate
-            let cycle = elapsed.truncatingRemainder(dividingBy: duration) / duration
-            let scale = 0.4 + (cycle * 2.0)
-            let opacity = (1.0 - cycle) * pulseMaxOpacity
+            let organicVariance = 1 + (sin(elapsed * 0.41) * 0.08)
+            let cycle = elapsed.truncatingRemainder(dividingBy: duration * organicVariance) / (duration * organicVariance)
+            let tightened = isGettingCloserMoment ? 0.88 : 1.0
 
-            Circle()
-                .stroke(signalColor.opacity(opacity), lineWidth: 2)
-                .frame(width: 72, height: 72)
-                .scaleEffect(scale)
-                .offset(radarOffset)
+            ZStack {
+                Circle()
+                    .fill(signalColor.opacity(0.11 + (signalIntensity * 0.1)))
+                    .frame(width: 26, height: 26)
+                    .blur(radius: isGettingCloserMoment ? 1 : 2)
+
+                ForEach([0.0, 0.33, 0.66], id: \.self) { phase in
+                    let phasedCycle = (cycle + phase).truncatingRemainder(dividingBy: 1.0)
+                    let scale = (0.42 + (phasedCycle * 2.0)) * tightened
+                    let opacity = (1.0 - phasedCycle) * pulseMaxOpacity * (1.0 - (phase * 0.28))
+
+                    Circle()
+                        .stroke(signalColor.opacity(opacity), lineWidth: 1.6)
+                        .frame(width: 72, height: 72)
+                        .scaleEffect(scale)
+                        .offset(pulseBiasOffset)
+                }
+            }
         }
+    }
+
+    private var directionalBiasGlow: some View {
+        Circle()
+            .fill(
+                RadialGradient(
+                    gradient: Gradient(stops: [
+                        .init(color: signalColor.opacity(0.18 + signalIntensity * 0.12), location: 0.0),
+                        .init(color: signalColor.opacity(0.05), location: 0.45),
+                        .init(color: .clear, location: 1.0)
+                    ]),
+                    center: .center,
+                    startRadius: 6,
+                    endRadius: 110
+                )
+            )
+            .frame(width: 180, height: 180)
+            .offset(pulseBiasOffset)
+            .blendMode(.screen)
     }
 
     private var pulseDuration: TimeInterval {
         guard case .directSignalLocked(let rssi, _) = findSignalState else {
-            return 2.2
+            return 2.4
         }
 
-        if rssi >= -50 { return 0.9 }
-        if rssi >= -65 { return 1.35 }
-        return 1.9
+        if rssi >= -45 { return 1.05 }
+        if rssi >= -60 { return 1.35 }
+        return 1.85
     }
 
     private var pulseMaxOpacity: Double {
         guard case .directSignalLocked(let rssi, _) = findSignalState else {
-            return 0.22
+            return 0.2
         }
 
-        if rssi >= -50 { return 0.65 }
-        if rssi >= -65 { return 0.45 }
-        return 0.3
+        if rssi >= -45 { return 0.62 }
+        if rssi >= -60 { return 0.46 }
+        return 0.32
     }
 
     private var radarOffset: CGSize {
@@ -514,6 +551,15 @@ struct FindAttendeeView: View {
         let distance = 80.0 * (1.0 - norm)
 
         return CGSize(width: distance * 0.7, height: -distance * 0.5)
+    }
+
+    private var signalIntensity: Double {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else { return 0.2 }
+        return max(0.2, min(1.0, Double(rssi + 90) / 45.0))
+    }
+
+    private var pulseBiasOffset: CGSize {
+        CGSize(width: radarOffset.width * 0.15, height: radarOffset.height * 0.15)
     }
 
     // MARK: - Guidance Card
@@ -549,7 +595,7 @@ struct FindAttendeeView: View {
                 case .directSignalLocked(let rssi, let deviceId):
                     let trend = rssiTrend(for: deviceId) ?? 0
 
-                    Text(proximityHeadline(rssi: rssi, trend: trend))
+                    Text(proximityGradientLabel(rssi: rssi, trend: trend))
                         .font(.title2)
                         .fontWeight(.bold)
                         .foregroundColor(signalColor)
@@ -560,6 +606,7 @@ struct FindAttendeeView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
 
+                    ambientGuidanceLine
                     conversationBridge(rssi: rssi)
                     fallbackActionSection
 
@@ -579,6 +626,7 @@ struct FindAttendeeView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
 
+                    ambientGuidanceLine
                     fallbackActionSection
 
                 case .fallbackEventPresence:
@@ -597,6 +645,7 @@ struct FindAttendeeView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
 
+                    ambientGuidanceLine
                     fallbackActionSection
 
                 case .signalLost:
@@ -615,6 +664,7 @@ struct FindAttendeeView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
 
+                    ambientGuidanceLine
                     fallbackActionSection
                 }
             }
@@ -631,14 +681,10 @@ struct FindAttendeeView: View {
 
     // MARK: - Guidance Helpers
 
-    private func proximityHeadline(rssi: Int, trend: Int) -> String {
-        if rssi >= -45 {
-            return "They’re very close"
-        }
-        if trend > 2 {
-            return "You’re getting closer"
-        }
-        return "Signal suggests they may be nearby"
+    private func proximityGradientLabel(rssi: Int, trend: Int) -> String {
+        if rssi >= -48 { return "Very close" }
+        if rssi >= -63 || trend > 2 { return "You’re getting closer" }
+        return "Signal is faint"
     }
 
     private func movementSuggestion(rssi: Int, trend: Int) -> String {
@@ -655,6 +701,17 @@ struct FindAttendeeView: View {
             return "Pause and scan the room naturally"
         }
         return "Try a different direction and look around"
+    }
+
+    private var ambientGuidanceLine: some View {
+        Text(currentAmbientMessage)
+            .id(currentAmbientMessage)
+            .font(.caption)
+            .foregroundColor(.white.opacity(0.7))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.7), value: currentAmbientMessage)
     }
 
     @ViewBuilder
@@ -682,7 +739,7 @@ struct FindAttendeeView: View {
         VStack(spacing: 10) {
             Text("Can’t find them?")
                 .font(.caption.weight(.semibold))
-                .foregroundColor(hasEnteredExtendedSearchState ? .white : .gray.opacity(0.85))
+                .foregroundColor(hasEnteredExtendedSearchState ? .white.opacity(0.9) : .gray.opacity(0.75))
 
             HStack(spacing: 10) {
                 Button("See others nearby") {
@@ -693,7 +750,7 @@ struct FindAttendeeView: View {
                 Button("Back to event") {
                     dismiss()
                 }
-                .buttonStyle(fallbackButtonStyle(prominent: true))
+                .buttonStyle(fallbackButtonStyle(prominent: hasEnteredExtendedSearchState))
             }
 
             Button(isSearchExpanded ? "Search expanded" : "Expand search") {
@@ -711,7 +768,7 @@ struct FindAttendeeView: View {
 
     private func fallbackButtonStyle(prominent: Bool) -> some ButtonStyle {
         CapsuleActionButtonStyle(
-            backgroundColor: prominent ? Color.white.opacity(0.16) : Color.white.opacity(0.08),
+            backgroundColor: prominent ? Color.white.opacity(0.14) : Color.white.opacity(0.05),
             textColor: .white
         )
     }
@@ -794,6 +851,47 @@ struct FindAttendeeView: View {
         }
     }
 
+    private var presenceCueText: String {
+        switch findSignalState {
+        case .directSignalLocked(_, let deviceId):
+            let trend = rssiTrend(for: deviceId) ?? 0
+            if abs(trend) >= 5 { return "Moving around the room" }
+            if abs(trend) >= 2 { return "Signal fluctuating" }
+            return "Recently active nearby"
+        case .searchingForDirectSignal:
+            return "Recently active nearby"
+        case .fallbackEventPresence:
+            return "Signal suggests proximity"
+        case .signalLost:
+            return "Recently active nearby"
+        }
+    }
+
+    private var isGettingCloserMoment: Bool {
+        guard case .directSignalLocked(let rssi, let deviceId) = findSignalState else { return false }
+        let trend = rssiTrend(for: deviceId) ?? 0
+        return trend > 2 || rssi >= -52
+    }
+
+    private var currentAmbientMessage: String {
+        let messages: [String]
+        switch findSignalState {
+        case .directSignalLocked(let rssi, _):
+            if rssi >= -48 {
+                messages = ["You’re getting closer", "Pause and look around", "They may be nearby"]
+            } else {
+                messages = ["Try turning slightly", "Move a bit closer", "Signal is shifting…", "Pause and look around"]
+            }
+        case .searchingForDirectSignal:
+            messages = ["Pause and look around", "Try turning slightly", "Signal is shifting…"]
+        case .fallbackEventPresence:
+            messages = ["They may be nearby", "Move a bit closer", "Pause and look around"]
+        case .signalLost:
+            messages = ["Signal is shifting…", "Try turning slightly", "They may be nearby"]
+        }
+        return messages[ambientMessageIndex % messages.count]
+    }
+
     private var trendLabel: String {
         guard case .directSignalLocked(_, let deviceId) = findSignalState,
               let trend = rssiTrend(for: deviceId) else {
@@ -838,6 +936,24 @@ struct FindAttendeeView: View {
     private func stopSignalTimer() {
         signalTimer?.invalidate()
         signalTimer = nil
+    }
+
+    private func startAmbientMessageRotation() {
+        stopAmbientMessageRotation()
+        ambientMessageTask = Task { @MainActor in
+            while !Task.isCancelled {
+                let waitSeconds = Double.random(in: 4.0 ... 6.0)
+                try? await Task.sleep(nanoseconds: UInt64(waitSeconds * 1_000_000_000))
+                withAnimation(.easeInOut(duration: 0.7)) {
+                    ambientMessageIndex += 1
+                }
+            }
+        }
+    }
+
+    private func stopAmbientMessageRotation() {
+        ambientMessageTask?.cancel()
+        ambientMessageTask = nil
     }
 
     private func updateInteractionState() {
