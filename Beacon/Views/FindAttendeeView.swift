@@ -61,6 +61,9 @@ struct FindAttendeeView: View {
     @State private var hasReachedStrongProximity = false
     @State private var completionDebounceStartedAt: Date?
     @State private var hasTriggeredCompletionState = false
+    @State private var viewAppearedAt: Date?
+    @State private var hasEnteredExtendedSearchState = false
+    @State private var isSearchExpanded = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -146,6 +149,7 @@ struct FindAttendeeView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(spacing: 16) {
+                        searchAnchor
                         identitySection
                         statusBlock
                         if !isBriefRecommendationMode {
@@ -180,10 +184,11 @@ struct FindAttendeeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Done") { dismiss() }
+                Button("Back to event") { dismiss() }
             }
         }
         .onAppear {
+            viewAppearedAt = Date()
             startSignalTimer()
             hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
             #if DEBUG
@@ -231,6 +236,7 @@ struct FindAttendeeView: View {
             }
             #endif
 
+            updateAdaptiveSearchState()
             updateInteractionState()
         }
     }
@@ -243,6 +249,23 @@ struct FindAttendeeView: View {
     }
 
     // MARK: - Identity Section
+
+    private var searchAnchor: some View {
+        HStack(spacing: 6) {
+            Text("Looking for:")
+                .font(.caption)
+                .foregroundColor(.gray.opacity(0.9))
+            Text(attendee.name)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.white)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Capsule().fill(Color.white.opacity(0.08)))
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 24)
+    }
 
     private var identitySection: some View {
         VStack(spacing: 8) {
@@ -429,6 +452,8 @@ struct FindAttendeeView: View {
                     .frame(width: size, height: size)
             }
 
+            radarPulse
+
             Circle()
                 .fill(signalColor.opacity(0.3))
                 .frame(width: 18, height: 18)
@@ -441,6 +466,42 @@ struct FindAttendeeView: View {
                 .animation(.easeInOut(duration: 1.0), value: radarOffset)
         }
         .frame(height: 200)
+    }
+
+    private var radarPulse: some View {
+        TimelineView(.animation) { context in
+            let duration = pulseDuration
+            let elapsed = context.date.timeIntervalSinceReferenceDate
+            let cycle = elapsed.truncatingRemainder(dividingBy: duration) / duration
+            let scale = 0.4 + (cycle * 2.0)
+            let opacity = (1.0 - cycle) * pulseMaxOpacity
+
+            Circle()
+                .stroke(signalColor.opacity(opacity), lineWidth: 2)
+                .frame(width: 72, height: 72)
+                .scaleEffect(scale)
+                .offset(radarOffset)
+        }
+    }
+
+    private var pulseDuration: TimeInterval {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
+            return 2.2
+        }
+
+        if rssi >= -50 { return 0.9 }
+        if rssi >= -65 { return 1.35 }
+        return 1.9
+    }
+
+    private var pulseMaxOpacity: Double {
+        guard case .directSignalLocked(let rssi, _) = findSignalState else {
+            return 0.22
+        }
+
+        if rssi >= -50 { return 0.65 }
+        if rssi >= -65 { return 0.45 }
+        return 0.3
     }
 
     private var radarOffset: CGSize {
@@ -500,38 +561,43 @@ struct FindAttendeeView: View {
                         .padding(.horizontal, 16)
 
                     conversationBridge(rssi: rssi)
+                    fallbackActionSection
 
                 case .searchingForDirectSignal:
                     Image(systemName: "magnifyingglass")
                         .font(.title2)
                         .foregroundColor(.yellow)
 
-                    Text(isBriefRecommendationMode ? "Connecting now" : "They’re somewhere nearby")
+                    Text(adaptiveSearchTitle(for: isBriefRecommendationMode ? "Connecting now" : "Signal suggests they may be nearby"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.yellow)
 
-                    Text(isBriefRecommendationMode ? "Walk naturally and look around — this is a good moment to approach." : "Move around naturally while Nearify keeps looking.")
+                    Text(adaptiveSearchSubtitle(default: isBriefRecommendationMode ? "Walk naturally and look around — this is a good moment to approach." : "Move around naturally while Nearify keeps looking."))
                         .font(.caption)
                         .foregroundColor(.gray.opacity(0.7))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
+
+                    fallbackActionSection
 
                 case .fallbackEventPresence:
                     Image(systemName: "antenna.radiowaves.left.and.right")
                         .font(.title2)
                         .foregroundColor(.orange)
 
-                    Text(isBriefRecommendationMode ? "They’re nearby" : "Using event presence")
+                    Text(adaptiveSearchTitle(for: isBriefRecommendationMode ? "They may be nearby" : "Using event presence"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.orange)
 
-                    Text(isBriefRecommendationMode ? "You can start walking over now while we refine their direction." : "They’re active at this event — walk naturally and look around.")
+                    Text(adaptiveSearchSubtitle(default: isBriefRecommendationMode ? "You can start walking over now while we refine their direction." : "Signal suggests they may be nearby at this event — walk naturally and look around."))
                         .font(.caption)
                         .foregroundColor(.gray.opacity(0.7))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
+
+                    fallbackActionSection
 
                 case .signalLost:
                     Image(systemName: "wifi.slash")
@@ -548,6 +614,8 @@ struct FindAttendeeView: View {
                         .foregroundColor(.gray.opacity(0.7))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
+
+                    fallbackActionSection
                 }
             }
         }
@@ -570,7 +638,7 @@ struct FindAttendeeView: View {
         if trend > 2 {
             return "You’re getting closer"
         }
-        return "They’re somewhere nearby"
+        return "Signal suggests they may be nearby"
     }
 
     private func movementSuggestion(rssi: Int, trend: Int) -> String {
@@ -610,6 +678,58 @@ struct FindAttendeeView: View {
         }
     }
 
+    private var fallbackActionSection: some View {
+        VStack(spacing: 10) {
+            Text("Can’t find them?")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(hasEnteredExtendedSearchState ? .white : .gray.opacity(0.85))
+
+            HStack(spacing: 10) {
+                Button("See others nearby") {
+                    dismiss()
+                }
+                .buttonStyle(fallbackButtonStyle(prominent: hasEnteredExtendedSearchState))
+
+                Button("Back to event") {
+                    dismiss()
+                }
+                .buttonStyle(fallbackButtonStyle(prominent: true))
+            }
+
+            Button(isSearchExpanded ? "Search expanded" : "Expand search") {
+                isSearchExpanded = true
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundColor(isSearchExpanded ? .green.opacity(0.9) : .cyan.opacity(0.9))
+            .padding(.top, 2)
+            .disabled(isSearchExpanded)
+        }
+        .padding(.top, 4)
+        .padding(.horizontal, 6)
+    }
+
+    private func fallbackButtonStyle(prominent: Bool) -> some ButtonStyle {
+        CapsuleActionButtonStyle(
+            backgroundColor: prominent ? Color.white.opacity(0.16) : Color.white.opacity(0.08),
+            textColor: .white
+        )
+    }
+
+    private func adaptiveSearchTitle(for base: String) -> String {
+        hasEnteredExtendedSearchState ? "Still searching…" : base
+    }
+
+    private func adaptiveSearchSubtitle(default base: String) -> String {
+        if hasEnteredExtendedSearchState {
+            return "Try moving around or explore other connections"
+        }
+        if isSearchExpanded {
+            return "Expanded search is on — we’ll include a wider nearby signal range."
+        }
+        return base
+    }
+
     // MARK: - Signal Details
 
     private var signalDetailsView: some View {
@@ -641,7 +761,7 @@ struct FindAttendeeView: View {
                         .foregroundColor(.yellow.opacity(0.6))
 
                 case .fallbackEventPresence:
-                    Text("They’re active at this event — refining direction")
+                    Text("Signal suggests they may be active at this event")
                         .font(.caption2)
                         .foregroundColor(.orange.opacity(0.6))
 
@@ -751,6 +871,25 @@ struct FindAttendeeView: View {
         enterCompletedInteractionState()
     }
 
+    private func updateAdaptiveSearchState() {
+        guard interactionPhase != .completed else {
+            hasEnteredExtendedSearchState = false
+            return
+        }
+
+        guard case .directSignalLocked = findSignalState else {
+            guard let startedAt = viewAppearedAt else { return }
+            if Date().timeIntervalSince(startedAt) >= 24 {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    hasEnteredExtendedSearchState = true
+                }
+            }
+            return
+        }
+
+        hasEnteredExtendedSearchState = false
+    }
+
     private var isCurrentSignalStrong: Bool {
         guard case .directSignalLocked(let rssi, _) = findSignalState else {
             return false
@@ -819,7 +958,7 @@ struct FindAttendeeView: View {
         }
 
         if interactionPhase == .completed {
-            Button("Done") { dismiss() }
+            Button("Back to event") { dismiss() }
                 .font(.subheadline)
                 .fontWeight(.semibold)
                 .foregroundColor(.white.opacity(0.9))
@@ -895,5 +1034,19 @@ struct FindAttendeeView: View {
                 isCheckingConnectionStatus = false
             }
         }
+    }
+}
+
+private struct CapsuleActionButtonStyle: ButtonStyle {
+    let backgroundColor: Color
+    let textColor: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.semibold))
+            .foregroundColor(textColor.opacity(configuration.isPressed ? 0.7 : 1))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(backgroundColor.opacity(configuration.isPressed ? 0.75 : 1)))
     }
 }
