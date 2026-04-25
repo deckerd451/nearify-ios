@@ -95,6 +95,11 @@ final class ContactSyncService {
             await state.setPermission(true)
             return true
 
+        case .limited:
+            // Limited access is sufficient for creating/updating contacts
+            await state.setPermission(true)
+            return true
+
         case .notDetermined:
             let granted = await withCheckedContinuation { continuation in
                 store.requestAccess(for: .contacts) { granted, error in
