@@ -55,7 +55,7 @@ final class EventJoinService: ObservableObject {
     private var beaconCancellable: AnyCancellable?
     private var joinedProfileId: UUID?
     private var isLeaveInProgress = false
-    private let strongBLEThresholdRSSI = -65
+    private let minimumContactSyncInteractionScore = 1.2
 
     /// Timestamp when the app entered background. Used for timeout calculation.
     private(set) var backgroundEnteredAt: Date?
@@ -524,7 +524,7 @@ final class EventJoinService: ObservableObject {
                 continue
             }
 
-            print("[ContactSync] decision=will sync, reason=eligible confirmed/strong interaction")
+            print("[ContactSync] decision=will sync, reason=qualified interaction score and evidence")
             eligibleCount += 1
             let payload = ContactSyncPayload(
                 profileId: candidate.profileId,
@@ -569,20 +569,7 @@ final class EventJoinService: ObservableObject {
             max(sessionEncounter == nil ? 0 : 1, relationship?.encounterCount ?? 0)
         )
         let confirmedConnection = connectedIds.contains(profileId) || relationship?.connectionStatus == .accepted
-        let strongBLESeen = (strongestRSSI ?? Int.min) >= strongBLEThresholdRSSI
-        let hasStrongDuration = proximityDuration >= 30 || overlapSeconds >= 30
-        let shouldSync = confirmedConnection || (strongBLESeen && hasStrongDuration)
-
-        let skipReason: String?
-        if shouldSync {
-            skipReason = nil
-        } else if !confirmedConnection && !strongBLESeen {
-            skipReason = "no confirmed connection and BLE not strong"
-        } else if !confirmedConnection && !hasStrongDuration {
-            skipReason = "strong BLE without sustained duration/overlap"
-        } else {
-            skipReason = "insufficient qualifying interaction"
-        }
+        let hasConversation = relationship?.hasConversation ?? false
 
         guard relationship != nil || sessionEncounter != nil || !localEncounters.isEmpty else {
             return nil
@@ -593,17 +580,32 @@ final class EventJoinService: ObservableObject {
             ?? "Unknown"
 
         let signals = InteractionScorer.Signals(
-            isBLEDetected: strongBLESeen,
+            isBLEDetected: strongestRSSI != nil,
             isHeartbeatLive: false,
             encounterSeconds: sessionEncounter?.totalSeconds ?? proximityDuration,
             historicalOverlapSeconds: relationship?.totalOverlapSeconds ?? overlapSeconds,
             lastSeenAt: sessionEncounter?.lastSeen ?? relationship?.lastEncounterAt,
             encounterCount: interactionCount,
             isConnected: confirmedConnection,
-            hasConversation: relationship?.hasConversation ?? false,
+            hasConversation: hasConversation,
             sharedInterestCount: relationship?.sharedInterests.count ?? 0
         )
         let signalScore = InteractionScorer.score(signals) * 2.0
+        let hasQualifiedInteractionEvidence =
+            confirmedConnection ||
+            hasConversation ||
+            overlapSeconds >= 120 ||
+            interactionCount >= 2
+        let passesInteractionScoreGuard = signalScore >= minimumContactSyncInteractionScore
+
+        let skipReason: String?
+        if !hasQualifiedInteractionEvidence {
+            skipReason = "insufficient interaction evidence (proximity-only)"
+        } else if !passesInteractionScoreGuard {
+            skipReason = "interaction score below threshold"
+        } else {
+            skipReason = nil
+        }
 
         let summary: String = {
             if let rel = relationship, !rel.whyLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
