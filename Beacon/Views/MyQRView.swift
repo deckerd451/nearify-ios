@@ -145,8 +145,8 @@ struct MyQRView: View {
 
         return Group {
             PersonalConnectQRCard(
-                title: "Connect with me",
-                subtitle: "Anyone can scan this to connect with you instantly — even without the app.",
+                title: "Share your profile",
+                subtitle: "Let others connect with you instantly",
                 eventId: personalQREventContext?.eventId,
                 profileId: displayUser.id
             )

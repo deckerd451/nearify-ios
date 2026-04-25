@@ -49,7 +49,7 @@ struct BeaconApp: App {
                                         // Lightweight prep only.
                                         ExploreEventsService.shared.refresh()
                                         switchTab(to: .event, source: .system)
-                                        try? await Task.sleep(nanoseconds: 800_000_000)
+                                        try? await Task.sleep(nanoseconds: 1_200_000_000)
                                         showPostAuthTransition = false
                                     }
                             } else {
@@ -561,13 +561,15 @@ private struct PostAuthTransitionView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             VStack(spacing: 14) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 42))
-                    .foregroundColor(.cyan.opacity(0.9))
-                Text("Nearify")
-                    .font(.title2)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 40))
+                    .foregroundColor(.green.opacity(0.9))
+                Text("You're in. Let's find your next event.")
+                    .font(.title3)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
                 ProgressView()
                     .tint(.white)
             }

@@ -1162,7 +1162,9 @@ struct HomeSurfaceView: View {
     /// targeted guidance instead of the generic briefing.
     @ViewBuilder
     private func liveEventBriefing(featured: HomeSurfaceItem?) -> some View {
-        if targetIntent.isActive {
+        if !eventJoin.isCheckedIn {
+            joinedNotCheckedInBlock
+        } else if targetIntent.isActive {
             targetedGuidanceBlock
         } else if let featured = featured {
             joinedBriefingBlock(featured: featured)
@@ -1826,12 +1828,12 @@ struct HomeSurfaceView: View {
                 .foregroundColor(.gray)
 
             Button {
-                showScanner = true
+                switchTab(to: .event)
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "qrcode")
+                    Image(systemName: "safari")
                         .font(.caption)
-                    Text("Scan Event QR")
+                    Text("Browse Events")
                         .font(.subheadline)
                         .fontWeight(.medium)
                 }
@@ -1851,48 +1853,31 @@ struct HomeSurfaceView: View {
                 .font(.system(size: 52))
                 .foregroundColor(.white.opacity(0.3))
 
-            Text("Join an event to get started")
+            Text("Join an event to start meeting people")
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
 
-            Text("Scan an event QR or browse events nearby.")
+            Text("No event yet")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
 
-            VStack(spacing: 12) {
-                Button {
-                    showScanner = true
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "camera.fill")
-                        Text("Scan Event QR")
-                            .fontWeight(.semibold)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.white)
-                    .foregroundColor(.black)
-                    .cornerRadius(14)
+            Button {
+                switchTab(to: .event)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "safari")
+                    Text("Browse Events")
+                        .fontWeight(.semibold)
                 }
-
-                Button {
-                    switchTab(to: .event)
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "safari")
-                        Text("Browse Events")
-                            .fontWeight(.medium)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.white.opacity(0.08))
-                    .foregroundColor(.white.opacity(0.7))
-                    .cornerRadius(14)
-                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.white)
+                .foregroundColor(.black)
+                .cornerRadius(14)
             }
             .padding(.horizontal, 32)
             .padding(.top, 4)
@@ -2475,6 +2460,42 @@ struct HomeSurfaceView: View {
                         action: { handleAction(item, override: .viewProfile) }
                     )
                 }
+            }
+            .padding(.top, 4)
+        }
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+    }
+
+    /// Pre-check-in live event briefing.
+    private var joinedNotCheckedInBlock: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.system(size: 28))
+                .foregroundColor(.cyan.opacity(0.8))
+
+            Text("You’re going to \(eventJoin.currentEventName ?? "Event")")
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+
+            Text("Check in when you arrive to become visible")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            Button {
+                Task { await eventJoin.checkIn() }
+            } label: {
+                Text("Check in")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.cyan))
             }
             .padding(.top, 4)
         }

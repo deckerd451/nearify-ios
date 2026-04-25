@@ -57,10 +57,10 @@ struct DistilledInsightEngine {
         // ── LEVEL 3: STRONG RECENT INTERACTION ──
 
         if s.totalOverlapSeconds > 600 {
-            return "You spent meaningful time together · not here right now"
+            return "Met — meaningful interaction"
         }
         if s.totalOverlapSeconds > 120 {
-            return "You crossed paths recently · not here right now"
+            return "Crossed paths — brief interaction"
         }
 
         // ── LEVEL 4: FOLLOW-UP GAP ──
@@ -88,6 +88,6 @@ struct DistilledInsightEngine {
             return "Seen at \(event)"
         }
 
-        return "Worth reconnecting"
+        return "Met — meaningful interaction"
     }
 }

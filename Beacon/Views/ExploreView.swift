@@ -74,7 +74,7 @@ struct ExploreView: View {
                 titleVisibility: .visible
             ) {
                 if let pending = eventJoin.pendingEventSwitch {
-                    Button("Leave \(pending.currentEventName) and Join \(pending.newEventName ?? "new event")", role: .destructive) {
+                    Button("Leave \(pending.currentEventName) and Join Event \(pending.newEventName ?? "new event")", role: .destructive) {
                         Task { await eventJoin.confirmEventSwitch() }
                     }
                 }
@@ -582,7 +582,7 @@ private struct SimpleEventCardView: View {
                                     .tint(.black)
                             }
 
-                            Text(isJoining ? "Joining…" : (isJoinedElsewhere ? "Switch" : "Join"))
+                            Text(isJoining ? "Joining Event…" : (isJoinedElsewhere ? "Switch" : "Join Event"))
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                         }
