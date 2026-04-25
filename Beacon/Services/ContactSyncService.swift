@@ -1,6 +1,43 @@
 import Foundation
 import Contacts
 
+actor ContactSyncState {
+    private var inFlightKeys: Set<String> = []
+    private var permissionCache: Bool?
+    private var didRequestPermission = false
+
+    func insert(_ key: String) -> Bool {
+        if inFlightKeys.contains(key) {
+            return false
+        }
+        inFlightKeys.insert(key)
+        return true
+    }
+
+    func remove(_ key: String) {
+        inFlightKeys.remove(key)
+    }
+
+    func canRequestPermission() -> Bool {
+        if permissionCache != nil {
+            return false
+        }
+        if didRequestPermission {
+            return false
+        }
+        didRequestPermission = true
+        return true
+    }
+
+    func cachedPermission() -> Bool? {
+        permissionCache
+    }
+
+    func setPermission(_ granted: Bool) {
+        permissionCache = granted
+    }
+}
+
 struct ContactSyncPayload {
     let profileId: UUID
     let name: String
@@ -24,27 +61,19 @@ final class ContactSyncService {
 
     private let defaults = UserDefaults.standard
     private let idempotencyPrefix = "contactsync.processed"
-    private var permissionCache: Bool?
-    private var didRequestPermission = false
-    private var inFlightKeys = Set<String>()
-    private let lock = NSLock()
+    private let state = ContactSyncState()
 
     private init() {}
 
     // MARK: - Permission
 
     func requestAccessIfNeeded() async -> Bool {
-        lock.lock()
-        if let cached = permissionCache {
-            lock.unlock()
+        if let cached = await state.cachedPermission() {
             return cached
         }
-        if didRequestPermission {
-            lock.unlock()
+        guard await state.canRequestPermission() else {
             return false
         }
-        didRequestPermission = true
-        lock.unlock()
 
         let store = CNContactStore()
         let granted: Bool
@@ -60,30 +89,26 @@ final class ContactSyncService {
             granted = false
         }
 
-        lock.lock()
-        permissionCache = granted
-        lock.unlock()
+        await state.setPermission(granted)
         return granted
     }
 
     // MARK: - Idempotency
 
-    func shouldCreateContact(profileId: UUID, eventId: UUID) -> Bool {
+    func shouldCreateContact(profileId: UUID, eventId: UUID) async -> Bool {
         let key = "\(profileId.uuidString.lowercased())_\(eventId.uuidString.lowercased())"
         let persistedKey = "\(idempotencyPrefix).\(key)"
-
-        lock.lock()
-        defer { lock.unlock() }
-
-        if inFlightKeys.contains(key) {
-            return false
-        }
 
         if defaults.bool(forKey: persistedKey) {
             return false
         }
 
-        inFlightKeys.insert(key)
+        let didInsert = await state.insert(key)
+        guard didInsert else {
+            print("[ContactSync] Skipped duplicate for \(key)")
+            return false
+        }
+
         return true
     }
 
@@ -125,15 +150,13 @@ final class ContactSyncService {
         let dedupeKey = "\(payload.profileId.uuidString.lowercased())_\(payload.eventId.uuidString.lowercased())"
         let persistedKey = "\(idempotencyPrefix).\(dedupeKey)"
 
-        guard shouldCreateContact(profileId: payload.profileId, eventId: payload.eventId) else {
+        guard await shouldCreateContact(profileId: payload.profileId, eventId: payload.eventId) else {
             print("[ContactSync] Skipped duplicate for event")
             return false
         }
 
         guard await requestAccessIfNeeded() else {
-            lock.lock()
-            inFlightKeys.remove(dedupeKey)
-            lock.unlock()
+            await state.remove(dedupeKey)
             print("[ContactSync] Permission denied")
             return false
         }
@@ -218,21 +241,15 @@ final class ContactSyncService {
             }.value
 
             if didSave {
-                lock.lock()
                 defaults.set(true, forKey: persistedKey)
-                inFlightKeys.remove(dedupeKey)
-                lock.unlock()
+                await state.remove(dedupeKey)
                 return true
             }
 
-            lock.lock()
-            inFlightKeys.remove(dedupeKey)
-            lock.unlock()
+            await state.remove(dedupeKey)
             return false
         } catch {
-            lock.lock()
-            inFlightKeys.remove(dedupeKey)
-            lock.unlock()
+            await state.remove(dedupeKey)
             print("[ContactSync] Save failed: \(error.localizedDescription)")
             return false
         }
