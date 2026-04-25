@@ -10,6 +10,7 @@ struct HomeView: View {
     @ObservedObject private var presence = EventPresenceService.shared
     @ObservedObject private var attendeesService = EventAttendeesService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
+    @ObservedObject private var resolver = AttendeeStateResolver.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
     @State private var showLastSummaryRecap = false
@@ -55,7 +56,7 @@ struct HomeView: View {
                 Button("Leave Event", role: .destructive) { Task { await eventJoin.leaveEvent() } }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This checks you out and prepares your post-event summary.")
+                Text(leaveEventMessage)
             }
             .fullScreenCover(isPresented: $showScanner) {
                 ScanView(
@@ -85,6 +86,43 @@ struct HomeView: View {
                 )
             }
         }
+    }
+
+    private var leaveEventMessage: String {
+        let names = unsavedInteractionNames
+        guard !names.isEmpty else {
+            return "This checks you out and prepares your post-event summary."
+        }
+
+        let namesText: String
+        if names.count == 1 {
+            namesText = names[0]
+        } else if names.count == 2 {
+            namesText = "\(names[0]) and \(names[1])"
+        } else {
+            namesText = "\(names[0]), \(names[1]), and \(names.count - 2) others"
+        }
+
+        return "You spent time with \(namesText) — save any connections?"
+    }
+
+    private var unsavedInteractionNames: [String] {
+        guard let eventId = eventJoin.currentEventID,
+              let eventUUID = UUID(uuidString: eventId) else {
+            return []
+        }
+
+        let attendeeNamesById = Dictionary(uniqueKeysWithValues: attendeesService.attendees.map { ($0.id, $0.name) })
+
+        let profileIds = LocalEncounterStore.shared.encounters(forEvent: eventUUID)
+            .filter { $0.duration >= 30 }
+            .compactMap(\.resolvedProfileId)
+            .filter { !resolver.connectedIds.contains($0) }
+            .filter { !ConnectionPromptStateStore.shared.isSaved(profileId: $0, eventId: eventId) }
+
+        var seen = Set<UUID>()
+        let orderedUnique = profileIds.filter { seen.insert($0).inserted }
+        return orderedUnique.compactMap { attendeeNamesById[$0] }.prefix(3).map { $0 }
     }
 
     // MARK: - Event Header
