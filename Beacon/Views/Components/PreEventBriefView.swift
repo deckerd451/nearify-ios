@@ -4,17 +4,17 @@ import Foundation
 struct PreEventBriefView: View {
     let brief: PreEventBriefBuilder.Brief
     let ctaTitle: String
-    let onGoToEvent: () -> Void
+    let onContinue: (PreEventBriefBuilder.PriorityPerson?) -> Void
     @State private var lastLoggedRecommendationState: String?
 
     init(
         brief: PreEventBriefBuilder.Brief,
         ctaTitle: String = "Go to event",
-        onGoToEvent: @escaping () -> Void
+        onContinue: @escaping (PreEventBriefBuilder.PriorityPerson?) -> Void
     ) {
         self.brief = brief
         self.ctaTitle = ctaTitle
-        self.onGoToEvent = onGoToEvent
+        self.onContinue = onContinue
     }
 
     var body: some View {
@@ -79,7 +79,9 @@ struct PreEventBriefView: View {
                 }
             }
 
-            Button(action: onGoToEvent) {
+            Button {
+                onContinue(primaryRecommendation)
+            } label: {
                 Text(ctaTitle)
                     .font(.subheadline)
                     .fontWeight(.semibold)
