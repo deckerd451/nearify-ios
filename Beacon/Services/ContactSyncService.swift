@@ -61,6 +61,7 @@ final class ContactSyncService {
 
     private let defaults = UserDefaults.standard
     private let idempotencyPrefix = "contactsync.processed"
+    private let contactIdentifierPrefix = "contactsync.contactid"
     private let state = ContactSyncState()
 
     private init() {}
@@ -71,6 +72,10 @@ final class ContactSyncService {
 
     private func persistedKey(for dedupeKey: String) -> String {
         "\(idempotencyPrefix).\(dedupeKey)"
+    }
+
+    private func persistedContactIdentifierKey(profileId: UUID) -> String {
+        "\(contactIdentifierPrefix).\(profileId.uuidString.lowercased())"
     }
 
     // MARK: - Permission
@@ -94,13 +99,25 @@ final class ContactSyncService {
         case .denied, .restricted:
             granted = false
         case .notDetermined:
-            granted = (try? await store.requestAccess(for: .contacts)) ?? false
+            granted = await requestWriteOnlyAccess(store: store)
         @unknown default:
             granted = false
         }
 
         await state.setPermission(granted)
         return granted
+    }
+
+    private func requestWriteOnlyAccess(store: CNContactStore) async -> Bool {
+        if #available(iOS 18.0, *) {
+            return await withCheckedContinuation { continuation in
+                store.requestWriteOnlyAccessToContacts { granted, _ in
+                    continuation.resume(returning: granted)
+                }
+            }
+        }
+
+        return (try? await store.requestAccess(for: .contacts)) ?? false
     }
 
     // MARK: - Idempotency
@@ -192,20 +209,15 @@ final class ContactSyncService {
                 ]
 
                 var existing: CNMutableContact?
+                let identifierKey = self.persistedContactIdentifierKey(profileId: payload.profileId)
+                let existingIdentifier = self.defaults.string(forKey: identifierKey)
 
-                if let phone = payload.phoneNumber?.trimmingCharacters(in: .whitespacesAndNewlines), !phone.isEmpty {
-                    let phonePredicate = CNContact.predicateForContacts(matching: CNPhoneNumber(stringValue: phone))
-                    if let first = try store.unifiedContacts(matching: phonePredicate, keysToFetch: keys).first {
-                        existing = first.mutableCopy() as? CNMutableContact
-                    }
-                }
-
-                if existing == nil,
-                   let email = payload.email?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !email.isEmpty {
-                    let emailPredicate = CNContact.predicateForContacts(matchingEmailAddress: email)
-                    if let first = try store.unifiedContacts(matching: emailPredicate, keysToFetch: keys).first {
-                        existing = first.mutableCopy() as? CNMutableContact
+                if let existingIdentifier, !existingIdentifier.isEmpty {
+                    do {
+                        let contact = try store.unifiedContact(withIdentifier: existingIdentifier, keysToFetch: keys)
+                        existing = contact.mutableCopy() as? CNMutableContact
+                    } catch {
+                        existing = nil
                     }
                 }
 
@@ -218,6 +230,7 @@ final class ContactSyncService {
                     saveRequest.update(existing)
                     try store.execute(saveRequest)
                     print("[ContactSync] Updated existing contact")
+                    self.defaults.set(existing.identifier, forKey: identifierKey)
                     return true
                 }
 
@@ -252,6 +265,7 @@ final class ContactSyncService {
                 saveRequest.add(newContact, toContainerWithIdentifier: containerId)
                 try store.execute(saveRequest)
                 print("[ContactSync] Created contact for \(payload.name)")
+                self.defaults.set(newContact.identifier, forKey: identifierKey)
                 return true
             } catch {
                 print("[ContactSync] Save failed: \(error.localizedDescription)")
