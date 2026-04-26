@@ -616,7 +616,7 @@ final class EventAttendeesService: ObservableObject {
                 guard seenProfileIds.insert(row.profileId).inserted else { return nil }
 
                 let profile = profilesById[row.profileId]
-                return EventAttendee(
+                let baseAttendee = EventAttendee(
                     id: row.profileId,
                     name: profile?.name ?? "User \(row.profileId.uuidString.prefix(8))",
                     avatarUrl: profile?.avatarUrl,
@@ -626,6 +626,24 @@ final class EventAttendeesService: ObservableObject {
                     energy: 1.0,
                     lastSeen: row.lastSeenAt
                 )
+
+                // Preserve backend freshness logic, but promote to live "here now"
+                // when a strong direct BLE identity match is currently active.
+                let isEffectiveLive = AttendeeStateResolver.shared.isEffectivelyHereNow(attendee: baseAttendee)
+                if isEffectiveLive && now.timeIntervalSince(row.lastSeenAt) >= liveCutoff {
+                    return EventAttendee(
+                        id: baseAttendee.id,
+                        name: baseAttendee.name,
+                        avatarUrl: baseAttendee.avatarUrl,
+                        bio: baseAttendee.bio,
+                        skills: baseAttendee.skills,
+                        interests: baseAttendee.interests,
+                        energy: baseAttendee.energy,
+                        lastSeen: now
+                    )
+                }
+
+                return baseAttendee
             }
 
             #if DEBUG

@@ -1066,11 +1066,13 @@ struct FindAttendeeView: View {
         findState = .arrived
         arrivedRSSI = rssi
         hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
+        stopSignalTimer()
         stopAmbientMessageRotation()
         if !hasTriggeredArrivedHaptic {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             hasTriggeredArrivedHaptic = true
         }
+        print("[FindAttendee] ARRIVED → stopping seek loop")
         print("[FindAttendee] ARRIVED state reached for \(attendee.name) (RSSI: \(rssi))")
         refreshConnectionStatusIfNeeded()
     }
@@ -1170,6 +1172,7 @@ struct FindAttendeeView: View {
         proximityLockStartedAt = nil
         arrivedRSSI = nil
         hasTriggeredArrivedHaptic = false
+        startSignalTimer()
         startAmbientMessageRotation()
     }
 
