@@ -669,6 +669,8 @@ private struct PastEventRecapView: View {
     let onRejoin: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var activeConversation: ExploreRecapConversationTarget?
+    @State private var profileSheetTarget: ExploreRecapProfileSheetTarget?
 
     var body: some View {
         NavigationStack {
@@ -697,8 +699,12 @@ private struct PastEventRecapView: View {
                         if let summary {
                             PostEventSummaryView(
                                 summary: summary,
-                                onMessage: { _ in },
-                                onViewProfile: { _ in }
+                                onMessage: { profileId in
+                                    openConversation(profileId: profileId)
+                                },
+                                onViewProfile: { profileId in
+                                    profileSheetTarget = ExploreRecapProfileSheetTarget(profileId: profileId)
+                                }
                             )
                             .padding(.top, 4)
                         } else {
@@ -747,5 +753,48 @@ private struct PastEventRecapView: View {
                 }
             }
         }
+        .sheet(item: $profileSheetTarget) { target in
+            NavigationStack { FeedProfileDetailView(profileId: target.profileId) }
+        }
+        .sheet(item: $activeConversation) { target in
+            ConversationView(
+                targetProfileId: target.profileId,
+                preloadedConversation: target.conversation,
+                preloadedName: target.name
+            )
+        }
     }
+
+    private func openConversation(profileId: UUID) {
+        Task {
+            let convo = try? await MessagingService.shared.getOrCreateConversation(with: profileId)
+            guard let convo else { return }
+            await MessagingService.shared.fetchMessages(conversationId: convo.id)
+
+            var targetName = "Connection"
+            if let profile = try? await ProfileService.shared.fetchProfileById(profileId) {
+                targetName = profile.name
+            }
+
+            await MainActor.run {
+                activeConversation = ExploreRecapConversationTarget(
+                    profileId: profileId,
+                    name: targetName,
+                    conversation: convo
+                )
+            }
+        }
+    }
+}
+
+private struct ExploreRecapProfileSheetTarget: Identifiable {
+    let id = UUID()
+    let profileId: UUID
+}
+
+private struct ExploreRecapConversationTarget: Identifiable {
+    let id = UUID()
+    let profileId: UUID
+    let name: String
+    let conversation: Conversation
 }

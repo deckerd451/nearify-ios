@@ -602,6 +602,8 @@ struct HomeView: View {
 private struct LastSummaryRecapView: View {
     let summary: PostEventSummary
     @Environment(\.dismiss) private var dismiss
+    @State private var activeConversation: RecapConversationTarget?
+    @State private var profileSheetTarget: RecapProfileSheetTarget?
 
     var body: some View {
         NavigationStack {
@@ -611,8 +613,12 @@ private struct LastSummaryRecapView: View {
                 ScrollView {
                     PostEventSummaryView(
                         summary: summary,
-                        onMessage: { _ in },
-                        onViewProfile: { _ in }
+                        onMessage: { profileId in
+                            openConversation(profileId: profileId)
+                        },
+                        onViewProfile: { profileId in
+                            profileSheetTarget = RecapProfileSheetTarget(profileId: profileId)
+                        }
                     )
                     .padding()
                 }
@@ -627,7 +633,50 @@ private struct LastSummaryRecapView: View {
                 }
             }
         }
+        .sheet(item: $profileSheetTarget) { target in
+            NavigationStack { FeedProfileDetailView(profileId: target.profileId) }
+        }
+        .sheet(item: $activeConversation) { target in
+            ConversationView(
+                targetProfileId: target.profileId,
+                preloadedConversation: target.conversation,
+                preloadedName: target.name
+            )
+        }
     }
+
+    private func openConversation(profileId: UUID) {
+        Task {
+            let convo = try? await MessagingService.shared.getOrCreateConversation(with: profileId)
+            guard let convo else { return }
+            await MessagingService.shared.fetchMessages(conversationId: convo.id)
+
+            var targetName = "Connection"
+            if let profile = try? await ProfileService.shared.fetchProfileById(profileId) {
+                targetName = profile.name
+            }
+
+            await MainActor.run {
+                activeConversation = RecapConversationTarget(
+                    profileId: profileId,
+                    name: targetName,
+                    conversation: convo
+                )
+            }
+        }
+    }
+}
+
+private struct RecapProfileSheetTarget: Identifiable {
+    let id = UUID()
+    let profileId: UUID
+}
+
+private struct RecapConversationTarget: Identifiable {
+    let id = UUID()
+    let profileId: UUID
+    let name: String
+    let conversation: Conversation
 }
 
 #Preview {
