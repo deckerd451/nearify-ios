@@ -7,6 +7,22 @@ struct PostEventSummaryView: View {
     let summary: PostEventSummary
     let onMessage: (UUID) -> Void
     let onViewProfile: (UUID) -> Void
+    let onRememberFollowUp: ((UUID) -> Void)?
+
+    @State private var rememberedProfileIds: Set<UUID> = []
+    @State private var showFollowUpToast = false
+
+    init(
+        summary: PostEventSummary,
+        onMessage: @escaping (UUID) -> Void,
+        onViewProfile: @escaping (UUID) -> Void,
+        onRememberFollowUp: ((UUID) -> Void)? = nil
+    ) {
+        self.summary = summary
+        self.onMessage = onMessage
+        self.onViewProfile = onViewProfile
+        self.onRememberFollowUp = onRememberFollowUp
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -121,6 +137,23 @@ struct PostEventSummaryView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if showFollowUpToast {
+                Text("Saved for follow-up")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(Color.yellow.opacity(0.95))
+                    )
+                    .padding(.bottom, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showFollowUpToast)
     }
 
     // MARK: - Section Container
@@ -196,6 +229,7 @@ struct PostEventSummaryView: View {
                     }
 
                     Button {
+                        print("[EventRecap] profile tapped: \(profile.id)")
                         onViewProfile(profile.id)
                     } label: {
                         HStack(spacing: 4) {
@@ -216,6 +250,8 @@ struct PostEventSummaryView: View {
     // MARK: - Suggestion Row
 
     private func suggestionRow(_ suggestion: FollowUpSuggestion) -> some View {
+        let isRemembered = rememberedProfileIds.contains(suggestion.targetProfile.id)
+
         HStack(spacing: 10) {
             AvatarView(
                 imageUrl: suggestion.targetProfile.avatarUrl,
@@ -245,16 +281,29 @@ struct PostEventSummaryView: View {
                 case .message, .followUp:
                     onMessage(suggestion.targetProfile.id)
                 case .meetNextTime:
-                    onViewProfile(suggestion.targetProfile.id)
+                    rememberedProfileIds.insert(suggestion.targetProfile.id)
+                    onRememberFollowUp?(suggestion.targetProfile.id)
+                    print("[EventRecap] follow-up remembered: \(suggestion.targetProfile.id)")
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showFollowUpToast = true
+                    }
+                    Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        await MainActor.run {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showFollowUpToast = false
+                            }
+                        }
+                    }
                 }
             } label: {
-                Text(suggestionActionLabel(suggestion.type))
+                Text(suggestionActionLabel(suggestion.type, isRemembered: isRemembered))
                     .font(.caption2)
                     .fontWeight(.semibold)
-                    .foregroundColor(suggestionColor(suggestion.type))
+                    .foregroundColor(isRemembered ? .green : suggestionColor(suggestion.type))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(suggestionColor(suggestion.type).opacity(0.12))
+                    .background((isRemembered ? Color.green : suggestionColor(suggestion.type)).opacity(0.12))
                     .cornerRadius(6)
             }
         }
@@ -287,6 +336,7 @@ struct PostEventSummaryView: View {
             Spacer()
 
             Button {
+                print("[EventRecap] profile tapped: \(person.profile.id)")
                 onViewProfile(person.profile.id)
             } label: {
                 Text("Profile")
@@ -311,11 +361,11 @@ struct PostEventSummaryView: View {
         }
     }
 
-    private func suggestionActionLabel(_ type: FollowUpSuggestion.SuggestionType) -> String {
+    private func suggestionActionLabel(_ type: FollowUpSuggestion.SuggestionType, isRemembered: Bool = false) -> String {
         switch type {
         case .followUp:     return "Follow up"
         case .message:      return "Message"
-        case .meetNextTime: return "Remember"
+        case .meetNextTime: return isRemembered ? "Remembered" : "Remember"
         }
     }
 
