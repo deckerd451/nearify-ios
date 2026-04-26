@@ -249,6 +249,7 @@ struct PostEventSummaryView: View {
 
     // MARK: - Suggestion Row
 
+    @ViewBuilder
     private func suggestionRow(_ suggestion: FollowUpSuggestion) -> some View {
         let isRemembered = rememberedProfileIds.contains(suggestion.targetProfile.id)
 
