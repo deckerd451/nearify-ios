@@ -17,90 +17,45 @@ struct PersonDetailView: View {
     @ObservedObject private var encounterService = EncounterService.shared
 
     var body: some View {
-        ZStack {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    heroHeader
-
-                    VStack(spacing: 18) {
-                        if !topEarnedTraits.isEmpty {
-                            earnedTraitsHighlight
-                                .padding(.top, 20)
-                        }
-
-                        if let bio = attendee.bio, !bio.isEmpty {
-                            sectionCard(title: "Bio") {
-                                Text(bio)
-                                    .font(.body)
-                                    .foregroundStyle(.primary)
+        GeometryReader { proxy in
+            ZStack {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroHeader
+                            .frame(height: heroHeight)
+                            .overlay(alignment: .topLeading) {
+                                backButton(safeAreaTop: proxy.safeAreaInsets.top)
                             }
-                        }
-
-                        if let skills = attendee.skills, !skills.isEmpty {
-                            sectionCard(title: "Skills") {
-                                tagSection(tags: skills, color: .blue)
+                            .overlay(alignment: .topTrailing) {
+                                editButton(safeAreaTop: proxy.safeAreaInsets.top)
                             }
-                        }
 
-                        if let interests = attendee.interests, !interests.isEmpty {
-                            sectionCard(title: "Interests") {
-                                tagSection(tags: interests, color: .green)
-                            }
-                        }
+                        actionButtons
+                            .padding(.top, 12)
+                            .padding(.bottom, 24)
 
-                        if let pub = publicProfile, !pub.latelyLines.isEmpty {
-                            sectionCard(title: "Lately") {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    ForEach(pub.latelyLines, id: \.self) { line in
-                                        Text(line)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
-                                    }
-                                }
-                            }
-                        }
-
-                        if let paragraph = publicProfile?.emergingStrengthsParagraph {
-                            sectionCard(title: "Emerging Strengths") {
-                                Text(paragraph)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.primary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-
-                        statusRow
-
-                        Spacer(minLength: 40)
+                        contentCards
+                            .padding(.top, 0)
+                            .padding(.bottom, 24)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .fill(Color(.systemBackground))
-                            .ignoresSafeArea(edges: .bottom)
-                    )
-                    .offset(y: -20)
+                }
+
+                if showSavedConfirmation {
+                    VStack {
+                        Spacer()
+                        Text("Saved to your contacts with context from Nearify")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.green))
+                            .padding(.bottom, 14)
+                            .transition(.opacity)
+                    }
                 }
             }
-
-            floatingTopControls
-
-            if showSavedConfirmation {
-                VStack {
-                    Spacer()
-                    Text("Saved to your contacts with context from Nearify")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.green))
-                        .padding(.bottom, 14)
-                        .transition(.opacity)
-                }
-            }
+            .background(Color.black)
+            .ignoresSafeArea(edges: .top)
         }
-        .background(Color.black)
-        .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingFindSheet) {
@@ -179,13 +134,10 @@ struct PersonDetailView: View {
                         .foregroundStyle(.white.opacity(0.84))
                         .lineLimit(2)
                 }
-
-                actionButtons
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 26)
         }
-        .frame(height: 390)
         .opacity(isHeroVisible ? 1 : 0)
     }
 
@@ -243,25 +195,22 @@ struct PersonDetailView: View {
         )
     }
 
-    private var floatingTopControls: some View {
-        VStack {
-            HStack {
-                circularTopButton(systemImage: "chevron.left", label: "Back") {
-                    dismiss()
-                }
+    private func backButton(safeAreaTop: CGFloat) -> some View {
+        circularTopButton(systemImage: "chevron.left", label: "Back") {
+            dismiss()
+        }
+        .padding(.top, safeAreaTop + 12)
+        .padding(.leading, 16)
+    }
 
-                Spacer()
-
-                if attendee.id == AuthService.shared.currentUser?.id {
-                    circularTopButton(systemImage: "square.and.pencil", label: "Edit profile") {
-                        // Keep existing screen behavior: no-op for now
-                    }
-                }
+    @ViewBuilder
+    private func editButton(safeAreaTop: CGFloat) -> some View {
+        if attendee.id == AuthService.shared.currentUser?.id {
+            circularTopButton(systemImage: "square.and.pencil", label: "Edit profile") {
+                // Keep existing screen behavior: no-op for now
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-
-            Spacer()
+            .padding(.top, safeAreaTop + 12)
+            .padding(.trailing, 16)
         }
     }
 
@@ -296,6 +245,8 @@ struct PersonDetailView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
     }
 
     private func profileActionButton(systemImage: String, title: String, accessibility: String, action: @escaping () -> Void) -> some View {
@@ -304,7 +255,7 @@ struct PersonDetailView: View {
                 Image(systemName: systemImage)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
+                    .frame(width: actionButtonSize, height: actionButtonSize)
                     .background(.ultraThinMaterial, in: Circle())
 
                 Text(title)
@@ -314,6 +265,81 @@ struct PersonDetailView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibility)
+    }
+
+    private var contentCards: some View {
+        VStack(spacing: 18) {
+            if !topEarnedTraits.isEmpty {
+                earnedTraitsHighlight
+                    .padding(.top, 20)
+            }
+
+            if let bio = attendee.bio, !bio.isEmpty {
+                sectionCard(title: "Bio") {
+                    Text(bio)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            if let skills = attendee.skills, !skills.isEmpty {
+                sectionCard(title: "Skills") {
+                    tagSection(tags: skills, color: .blue)
+                }
+            }
+
+            if let interests = attendee.interests, !interests.isEmpty {
+                sectionCard(title: "Interests") {
+                    tagSection(tags: interests, color: .green)
+                }
+            }
+
+            if let pub = publicProfile, !pub.latelyLines.isEmpty {
+                sectionCard(title: "Lately") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(pub.latelyLines, id: \.self) { line in
+                            Text(line)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+
+            if let paragraph = publicProfile?.emergingStrengthsParagraph {
+                sectionCard(title: "Emerging Strengths") {
+                    Text(paragraph)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            statusRow
+
+            Spacer(minLength: 40)
+        }
+        .frame(maxWidth: cardMaxWidth)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(.systemBackground))
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private var heroHeight: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 330 : 376
+    }
+
+    private var actionButtonSize: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 68 : 66
+    }
+
+    private var cardMaxWidth: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad ? 780 : .infinity
     }
 
     private var earnedTraitsHighlight: some View {
