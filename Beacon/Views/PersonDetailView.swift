@@ -17,43 +17,40 @@ struct PersonDetailView: View {
     @ObservedObject private var encounterService = EncounterService.shared
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                heroHeader
-                    .frame(height: heroHeight)
-                    .background(Color.black)
-                    .background(Color.red.opacity(0.2))
-                    .zIndex(1)
-                    .overlay(alignment: .topLeading) {
-                        backButton(safeAreaTop: safeAreaTopInset)
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        editButton(safeAreaTop: safeAreaTopInset)
-                    }
+        GeometryReader { proxy in
+            let layout = layoutMetrics(for: proxy)
 
-                actionButtons
-                    .padding(.vertical, 16)
-                    .background(Color.red.opacity(0.2))
-                    .zIndex(1)
+            ZStack(alignment: .top) {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroHeader(layout: layout)
 
-                contentCards
-                    .background(Color.red.opacity(0.2))
-                    .zIndex(0)
+                        actionButtons(layout: layout)
+                            .padding(.top, 12)
+                            .padding(.bottom, 24)
+
+                        contentCards(layout: layout)
+                    }
+                }
+                .ignoresSafeArea(edges: .top)
+
+                floatingTopControls(topInset: proxy.safeAreaInsets.top)
+
+                if showSavedConfirmation {
+                    VStack {
+                        Spacer()
+                        Text("Saved to your contacts with context from Nearify")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.green))
+                            .padding(.bottom, 14)
+                            .transition(.opacity)
+                    }
+                }
             }
+            .background(Color.black)
         }
-        .overlay(alignment: .bottom) {
-            if showSavedConfirmation {
-                Text("Saved to your contacts with context from Nearify")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.green))
-                    .padding(.bottom, 14)
-                    .transition(.opacity)
-            }
-        }
-        .background(Color.black)
-        .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingFindSheet) {
@@ -109,7 +106,19 @@ struct PersonDetailView: View {
         }
     }
 
-    private var heroHeader: some View {
+    private func layoutMetrics(for proxy: GeometryProxy) -> ProfileHeroLayoutMetrics {
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let width = proxy.size.width
+
+        return ProfileHeroLayoutMetrics(
+            heroHeight: isPad ? 330 : 376,
+            actionButtonSize: isPad ? 68 : 66,
+            cardMaxWidth: isPad ? min(width - 40, 780) : .infinity,
+            horizontalPadding: isPad ? 24 : 20
+        )
+    }
+
+    private func heroHeader(layout: ProfileHeroLayoutMetrics) -> some View {
         ZStack(alignment: .bottomLeading) {
             heroBackground
 
@@ -133,20 +142,12 @@ struct PersonDetailView: View {
                         .lineLimit(2)
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, layout.horizontalPadding + 4)
             .padding(.bottom, 26)
         }
+        .frame(height: layout.heroHeight)
+        .clipped()
         .opacity(isHeroVisible ? 1 : 0)
-    }
-
-    private var safeAreaTopInset: CGFloat {
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-        let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
-        return activeScene?
-            .windows
-            .first(where: \.isKeyWindow)?
-            .safeAreaInsets.top ?? 0
     }
 
     @ViewBuilder
@@ -203,22 +204,30 @@ struct PersonDetailView: View {
         )
     }
 
-    private func backButton(safeAreaTop: CGFloat) -> some View {
+    private func floatingTopControls(topInset: CGFloat) -> some View {
+        HStack {
+            backButton()
+
+            Spacer()
+
+            editButton()
+        }
+        .padding(.top, topInset + 12)
+        .padding(.horizontal, 16)
+    }
+
+    private func backButton() -> some View {
         circularTopButton(systemImage: "chevron.left", label: "Back") {
             dismiss()
         }
-        .padding(.top, safeAreaTop + 12)
-        .padding(.leading, 16)
     }
 
     @ViewBuilder
-    private func editButton(safeAreaTop: CGFloat) -> some View {
+    private func editButton() -> some View {
         if attendee.id == AuthService.shared.currentUser?.id {
             circularTopButton(systemImage: "square.and.pencil", label: "Edit profile") {
                 // Keep existing screen behavior: no-op for now
             }
-            .padding(.top, safeAreaTop + 12)
-            .padding(.trailing, 16)
         }
     }
 
@@ -234,36 +243,36 @@ struct PersonDetailView: View {
         .accessibilityLabel(label)
     }
 
-    private var actionButtons: some View {
+    private func actionButtons(layout: ProfileHeroLayoutMetrics) -> some View {
         HStack(spacing: 22) {
-            profileActionButton(systemImage: "bubble.left.fill", title: "Message", accessibility: "Message \(attendee.name)") {
+            profileActionButton(systemImage: "bubble.left.fill", title: "Message", accessibility: "Message \(attendee.name)", buttonSize: layout.actionButtonSize) {
                 print("[ProfileHero] message tapped profileId=\(attendee.id)")
                 handleMessageTap()
             }
 
-            profileActionButton(systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts") {
+            profileActionButton(systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts", buttonSize: layout.actionButtonSize) {
                 print("[ProfileHero] save tapped profileId=\(attendee.id)")
                 showContactSaveSheet = true
             }
 
             if showFindAction {
-                profileActionButton(systemImage: "location.fill", title: "Find", accessibility: "Find \(attendee.name) nearby") {
+                profileActionButton(systemImage: "location.fill", title: "Find", accessibility: "Find \(attendee.name) nearby", buttonSize: layout.actionButtonSize) {
                     print("[ProfileHero] find tapped profileId=\(attendee.id)")
                     showingFindSheet = true
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, layout.horizontalPadding)
     }
 
-    private func profileActionButton(systemImage: String, title: String, accessibility: String, action: @escaping () -> Void) -> some View {
+    private func profileActionButton(systemImage: String, title: String, accessibility: String, buttonSize: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.white)
-                    .frame(width: actionButtonSize, height: actionButtonSize)
+                    .frame(width: buttonSize, height: buttonSize)
                     .background(.ultraThinMaterial, in: Circle())
 
                 Text(title)
@@ -275,7 +284,7 @@ struct PersonDetailView: View {
         .accessibilityLabel(accessibility)
     }
 
-    private var contentCards: some View {
+    private func contentCards(layout: ProfileHeroLayoutMetrics) -> some View {
         VStack(spacing: 18) {
             if !topEarnedTraits.isEmpty {
                 earnedTraitsHighlight
@@ -327,8 +336,8 @@ struct PersonDetailView: View {
 
             Spacer(minLength: 40)
         }
-        .frame(maxWidth: cardMaxWidth)
-        .padding(.horizontal, 20)
+        .frame(maxWidth: layout.cardMaxWidth)
+        .padding(.horizontal, layout.horizontalPadding)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity)
         .background(
@@ -336,18 +345,6 @@ struct PersonDetailView: View {
                 .fill(Color(.systemBackground))
                 .ignoresSafeArea(edges: .bottom)
         )
-    }
-
-    private var heroHeight: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 330 : 376
-    }
-
-    private var actionButtonSize: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 68 : 66
-    }
-
-    private var cardMaxWidth: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? 780 : .infinity
     }
 
     private var earnedTraitsHighlight: some View {
@@ -370,7 +367,6 @@ struct PersonDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
         .padding(.top, 4)
-
     }
 
     private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -476,6 +472,13 @@ struct PersonDetailView: View {
             }
         }
     }
+}
+
+private struct ProfileHeroLayoutMetrics {
+    let heroHeight: CGFloat
+    let actionButtonSize: CGFloat
+    let cardMaxWidth: CGFloat
+    let horizontalPadding: CGFloat
 }
 
 private struct PersonConversationDestination: Identifiable {
