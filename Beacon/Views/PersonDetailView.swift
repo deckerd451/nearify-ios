@@ -17,45 +17,43 @@ struct PersonDetailView: View {
     @ObservedObject private var encounterService = EncounterService.shared
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack {
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        heroHeader
-                            .frame(height: heroHeight)
-                            .overlay(alignment: .topLeading) {
-                                backButton(safeAreaTop: proxy.safeAreaInsets.top)
-                            }
-                            .overlay(alignment: .topTrailing) {
-                                editButton(safeAreaTop: proxy.safeAreaInsets.top)
-                            }
-
-                        actionButtons
-                            .padding(.top, 12)
-                            .padding(.bottom, 24)
-
-                        contentCards
-                            .padding(.top, 0)
-                            .padding(.bottom, 24)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                heroHeader
+                    .frame(height: heroHeight)
+                    .background(Color.black)
+                    .background(Color.red.opacity(0.2))
+                    .zIndex(1)
+                    .overlay(alignment: .topLeading) {
+                        backButton(safeAreaTop: safeAreaTopInset)
                     }
-                }
-
-                if showSavedConfirmation {
-                    VStack {
-                        Spacer()
-                        Text("Saved to your contacts with context from Nearify")
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(Color.green))
-                            .padding(.bottom, 14)
-                            .transition(.opacity)
+                    .overlay(alignment: .topTrailing) {
+                        editButton(safeAreaTop: safeAreaTopInset)
                     }
-                }
+
+                actionButtons
+                    .padding(.vertical, 16)
+                    .background(Color.red.opacity(0.2))
+                    .zIndex(1)
+
+                contentCards
+                    .background(Color.red.opacity(0.2))
+                    .zIndex(0)
             }
-            .background(Color.black)
-            .ignoresSafeArea(edges: .top)
         }
+        .overlay(alignment: .bottom) {
+            if showSavedConfirmation {
+                Text("Saved to your contacts with context from Nearify")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green))
+                    .padding(.bottom, 14)
+                    .transition(.opacity)
+            }
+        }
+        .background(Color.black)
+        .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingFindSheet) {
@@ -139,6 +137,16 @@ struct PersonDetailView: View {
             .padding(.bottom, 26)
         }
         .opacity(isHeroVisible ? 1 : 0)
+    }
+
+    private var safeAreaTopInset: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
+        return activeScene?
+            .windows
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.top ?? 0
     }
 
     @ViewBuilder
