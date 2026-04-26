@@ -12,7 +12,7 @@ struct PersonDetailView: View {
     @State private var publicProfile: PublicProfileSummary?
     @State private var isHeroVisible = false
     @State private var isOpeningConversation = false
-    @State private var activeConversation: ConversationDestination?
+    @State private var activeConversation: PersonConversationDestination?
 
     @ObservedObject private var encounterService = EncounterService.shared
 
@@ -120,7 +120,7 @@ struct PersonDetailView: View {
                 }
             }
         }
-        .sheet(item: $activeConversation) { destination in
+        .sheet(item: $activeConversation) { (destination: PersonConversationDestination) in
             ConversationView(
                 targetProfileId: destination.targetProfileId,
                 preloadedConversation: destination.conversation,
@@ -426,7 +426,7 @@ struct PersonDetailView: View {
                 await MessagingService.shared.fetchMessages(conversationId: conversation.id)
 
                 await MainActor.run {
-                    activeConversation = ConversationDestination(
+                    activeConversation = PersonConversationDestination(
                         id: conversation.id,
                         targetProfileId: attendee.id,
                         targetName: attendee.name,
@@ -444,7 +444,7 @@ struct PersonDetailView: View {
     }
 }
 
-private struct ConversationDestination: Identifiable {
+private struct PersonConversationDestination: Identifiable {
     let id: UUID
     let targetProfileId: UUID
     let targetName: String
