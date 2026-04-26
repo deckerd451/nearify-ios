@@ -28,6 +28,10 @@ struct EncounterCardView: View {
         return "Nearby for \(minutes) min"
     }
 
+    private var isMeaningfulEncounter: Bool {
+        (item.metadata?.overlapSeconds ?? 0) > 120
+    }
+
     private var timeText: String {
         guard let date = item.createdAt else { return "" }
         return date.feedRelativeString
@@ -78,6 +82,9 @@ struct EncounterCardView: View {
 
             HStack(spacing: 12) {
                 FeedActionButton(title: "View Profile", icon: "person", color: .white.opacity(0.7), action: onViewProfile)
+                if isMeaningfulEncounter {
+                    FeedActionButton(title: "Save to Contacts", icon: "person.crop.circle.badge.plus", color: .orange, action: onViewProfile)
+                }
                 FeedActionButton(title: "Connect", icon: "person.badge.plus", color: .green, action: onConnect)
                 FeedActionButton(title: "Dismiss", icon: "xmark", color: .gray, action: onDismiss)
             }

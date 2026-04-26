@@ -11,6 +11,7 @@ struct ProfileView: View {
     @State private var showSuccessBanner = false
     @State private var successMessage = ""
     @State private var showFindMode = false
+    @State private var showContactSaveSheet = false
     
     var body: some View {
         NavigationView {
@@ -81,6 +82,19 @@ struct ProfileView: View {
                                 .disabled(isCreatingConnection)
                             }
                             
+                            Button(action: { showContactSaveSheet = true }) {
+                                HStack {
+                                    Image(systemName: "person.crop.circle.badge.plus")
+                                    Text("Save to Contacts")
+                                        .fontWeight(.semibold)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                            }
+
                             // Find button
                             Button(action: openFindMode) {
                                 HStack {
@@ -145,9 +159,27 @@ struct ProfileView: View {
             .sheet(isPresented: $showFindMode) {
                 FindAttendeeView(attendee: profileToAttendee())
             }
+            .sheet(isPresented: $showContactSaveSheet) {
+                ContactSaveSheet(draft: profileContactDraft) { didSave in
+                    showContactSaveSheet = false
+                    guard didSave else { return }
+                    showSuccessBanner(message: "Saved to your contacts with context from Nearify")
+                }
+            }
         }
     }
     
+
+    private var profileContactDraft: ContactDraftData {
+        ContactDraftData(
+            name: profile.name,
+            eventName: EventJoinService.shared.currentEventName ?? "Nearify event",
+            interests: profile.interests ?? [],
+            skills: profile.skills ?? [],
+            earnedTraits: []
+        )
+    }
+
     private func createConnection() {
         guard !isCreatingConnection else { return }
         
