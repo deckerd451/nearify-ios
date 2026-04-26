@@ -5,6 +5,7 @@ import UIKit
 
 struct MyQRView: View {
     let currentUser: User
+
     @State private var showingSignOutConfirmation = false
     @State private var showingEditProfile = false
     @State private var showingPhotoOptions = false
@@ -16,11 +17,10 @@ struct MyQRView: View {
     @State private var authProvider: String?
     @State private var showProfilePreview = false
     @State private var showFullScreenQR = false
+    @State private var showIntelligenceDebug = false
 
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var latelyService = DynamicProfileService.shared
-
-    @State private var showIntelligenceDebug = false
 
     var body: some View {
         NavigationStack {
@@ -81,6 +81,7 @@ struct MyQRView: View {
                 Button("Sign Out", role: .destructive) {
                     Task { try? await AuthService.shared.signOut() }
                 }
+
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Are you sure you want to sign out?")
@@ -95,12 +96,12 @@ struct MyQRView: View {
 
     private func layoutMetrics(for proxy: GeometryProxy) -> MyProfileLayoutMetrics {
         let isPad = UIDevice.current.userInterfaceIdiom == .pad
-        let width = proxy.size.width
+        let safeWidth = max(1, proxy.size.width)
 
         return MyProfileLayoutMetrics(
             heroHeight: isPad ? 320 : 384,
             actionButtonSize: isPad ? 68 : 64,
-            contentMaxWidth: isPad ? min(width - 48, 800) : .infinity,
+            contentMaxWidth: isPad ? min(max(1, safeWidth - 48), 800) : .infinity,
             horizontalPadding: isPad ? 24 : 20
         )
     }
@@ -127,11 +128,13 @@ struct MyQRView: View {
                     Button(displayUser.imageUrl != nil ? "Change Photo" : "Add Photo") {
                         showingPhotoPicker = true
                     }
+
                     if displayUser.imageUrl != nil {
                         Button("Remove Photo", role: .destructive) {
                             Task { await removePhoto() }
                         }
                     }
+
                     Button("Cancel", role: .cancel) {}
                 }
 
@@ -160,7 +163,7 @@ struct MyQRView: View {
                         .lineLimit(2)
                 }
             }
-            .padding(.horizontal, CGFloat(layout.horizontalPadding))
+            .padding(.horizontal, layout.horizontalPadding)
             .padding(.bottom, 24)
         }
         .frame(height: layout.heroHeight)
@@ -174,22 +177,29 @@ struct MyQRView: View {
                 switch phase {
                 case .empty:
                     fallbackHeroBackground
+
                 case .success(let image):
                     image
                         .resizable()
                         .scaledToFill()
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .overlay(Color.black.opacity(0.28))
                         .overlay(
                             LinearGradient(
-                                colors: [Color.black.opacity(0.76), Color.black.opacity(0.2), .clear],
+                                colors: [
+                                    Color.black.opacity(0.76),
+                                    Color.black.opacity(0.2),
+                                    .clear
+                                ],
                                 startPoint: .bottom,
                                 endPoint: .top
                             )
                         )
                         .clipped()
+
                 case .failure:
                     fallbackHeroBackground
+
                 @unknown default:
                     fallbackHeroBackground
                 }
@@ -202,7 +212,11 @@ struct MyQRView: View {
     private var fallbackHeroBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.indigo, Color.blue.opacity(0.75), Color.teal.opacity(0.7)],
+                colors: [
+                    Color.indigo,
+                    Color.blue.opacity(0.75),
+                    Color.teal.opacity(0.7)
+                ],
                 startPoint: .bottomLeading,
                 endPoint: .topTrailing
             )
@@ -214,7 +228,10 @@ struct MyQRView: View {
         .overlay(Color.black.opacity(0.25))
         .overlay(
             LinearGradient(
-                colors: [Color.black.opacity(0.75), .clear],
+                colors: [
+                    Color.black.opacity(0.75),
+                    .clear
+                ],
                 startPoint: .bottom,
                 endPoint: .top
             )
@@ -232,44 +249,46 @@ struct MyQRView: View {
                 title: "QR",
                 buttonSize: buttonSize
             ) {
-                print("[MyProfileHero] QR tapped")
-            }
-
-            profileActionButton(
-                systemImage: "square.and.arrow.up",
-                title: "Share",
-                buttonSize: buttonSize
-            ) {
-                print("[MyProfileHero] share tapped")
-            }
-<<<<<<< HEAD
-
-            profileActionButton(systemImage: "qrcode", title: "My QR", buttonSize: layout.actionButtonSize) {
                 showFullScreenQR = true
             }
             .disabled(connectURL == nil)
 
-            ShareLink(item: shareURL ?? fallbackShareText) {
-                VStack(spacing: 8) {
-                    Image(systemName: "square.and.arrow.up.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: layout.actionButtonSize, height: layout.actionButtonSize)
-                        .background(.ultraThinMaterial, in: Circle())
+            if let shareURL {
+                ShareLink(item: shareURL) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up.fill")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: buttonSize, height: buttonSize)
+                            .background(.ultraThinMaterial, in: Circle())
 
-                    Text("Share")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
+                        Text("Share")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
                 }
+                .buttonStyle(.plain)
+            } else {
+                profileActionButton(
+                    systemImage: "square.and.arrow.up",
+                    title: "Share",
+                    buttonSize: buttonSize
+                ) {
+                    UIPasteboard.general.string = fallbackShareText
+                }
+                .disabled(true)
             }
-            .buttonStyle(.plain)
-=======
->>>>>>> 8bb3fda (WIP: QR layout + hero actions)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, padding)
     }
-    private func profileActionButton(systemImage: String, title: String, buttonSize: CGFloat, action: @escaping () -> Void) -> some View {
+
+    private func profileActionButton(
+        systemImage: String,
+        title: String,
+        buttonSize: CGFloat,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
@@ -349,7 +368,7 @@ struct MyQRView: View {
             Spacer(minLength: 36)
         }
         .frame(maxWidth: layout.contentMaxWidth)
-        .padding(.horizontal, CGFloat(layout.horizontalPadding))
+        .padding(.horizontal, layout.horizontalPadding)
         .padding(.top, 10)
         .padding(.bottom, DesignTokens.scrollBottomPadding)
         .frame(maxWidth: .infinity)
@@ -360,20 +379,19 @@ struct MyQRView: View {
         )
     }
 
-    // MARK: - 2. QR Code Section
-
     private var qrCodeSection: some View {
-        return Group {
-            PersonalConnectQRCard(
-                title: "Your Nearify QR",
-                subtitle: "Share your profile instantly",
-                connectURL: connectURL,
-                qrImage: qrCodeImage
-            )
-        }
+        PersonalConnectQRCard(
+            title: "Your Nearify QR",
+            subtitle: "Share your profile instantly",
+            connectURL: connectURL,
+            qrImage: qrCodeImage
+        )
     }
 
-    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func sectionCard<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.caption)
@@ -414,14 +432,17 @@ struct MyQRView: View {
                     case .empty:
                         ProgressView()
                             .frame(width: 100, height: 100)
+
                     case .success(let image):
                         image
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .frame(width: 100, height: 100)
                             .clipShape(Circle())
+
                     case .failure:
                         initialsPlaceholder
+
                     @unknown default:
                         initialsPlaceholder
                     }
@@ -445,6 +466,7 @@ struct MyQRView: View {
 
     private var initials: String {
         let components = displayUser.name.components(separatedBy: " ")
+
         if components.count >= 2 {
             let first = components[0].prefix(1)
             let last = components[1].prefix(1)
@@ -454,7 +476,6 @@ struct MyQRView: View {
         }
     }
 
-    /// Use the latest user from AuthService if available, otherwise use passed-in user
     private var displayUser: User {
         authService.currentUser ?? currentUser
     }
@@ -504,7 +525,11 @@ struct MyQRView: View {
         guard let eventId = PersonalQRContextResolver.shared.resolve()?.eventId else {
             return nil
         }
-        return QRService.makePersonalConnectWebURL(eventId: eventId, profileId: displayUser.id)
+
+        return QRService.makePersonalConnectWebURL(
+            eventId: eventId,
+            profileId: displayUser.id
+        )
     }
 
     private var qrCodeImage: UIImage? {
@@ -512,25 +537,26 @@ struct MyQRView: View {
         return QRService.generateQRCode(from: connectURL.absoluteString)
     }
 
-    private var shareURL: URL? { connectURL }
+    private var shareURL: URL? {
+        connectURL
+    }
 
     private var fallbackShareText: String {
         "Connect with me on Nearify: \(displayUser.name)"
     }
 
-    // MARK: - Photo Management
-
     private func uploadPhoto(_ item: PhotosPickerItem) async {
         print("[EditProfilePhoto] 📤 uploadPhoto() called")
         print("[EditProfilePhoto]    User ID: \(displayUser.id)")
 
-        isUploadingPhoto = true
-        uploadError = nil
+        await MainActor.run {
+            isUploadingPhoto = true
+            uploadError = nil
+        }
 
         do {
             print("[EditProfilePhoto] 📥 Loading raw image data from picker...")
 
-            // Load raw image data from picker
             guard let rawData = try await item.loadTransferable(type: Data.self) else {
                 print("[EditProfilePhoto] ❌ Failed to load transferable data")
                 throw ProfileImageError.failedToLoadImage
@@ -539,13 +565,11 @@ struct MyQRView: View {
             print("[EditProfilePhoto] ✅ Raw data loaded: \(rawData.count) bytes")
             print("[EditProfilePhoto] 🔄 Processing image...")
 
-            // Process image (resize and compress)
             let processedData = try ProfileImageService.shared.processImageData(rawData)
 
             print("[EditProfilePhoto] ✅ Image processed: \(processedData.count) bytes")
             print("[EditProfilePhoto] ⬆️ Uploading to storage...")
 
-            // Upload to storage
             let result = try await ProfileImageService.shared.uploadProfileImage(
                 processedData,
                 for: displayUser.id
@@ -556,7 +580,6 @@ struct MyQRView: View {
             print("[EditProfilePhoto]    Image Path: \(result.imagePath)")
             print("[EditProfilePhoto] 🔄 Refreshing profile...")
 
-            // Refresh profile
             await authService.refreshProfile()
 
             print("[EditProfilePhoto] ✅ Profile refresh complete")
@@ -566,7 +589,6 @@ struct MyQRView: View {
                 selectedPhotoItem = nil
                 print("[EditProfilePhoto] ✅ Upload flow complete - UI updated")
             }
-
         } catch {
             print("[EditProfilePhoto] ❌ Upload error: \(error)")
             print("[EditProfilePhoto]    Error type: \(type(of: error))")
@@ -585,8 +607,10 @@ struct MyQRView: View {
         print("[EditProfilePhoto]    User ID: \(displayUser.id)")
         print("[EditProfilePhoto]    Current imagePath: \(displayUser.imagePath ?? "nil")")
 
-        isUploadingPhoto = true
-        uploadError = nil
+        await MainActor.run {
+            isUploadingPhoto = true
+            uploadError = nil
+        }
 
         do {
             print("[EditProfilePhoto] 🔄 Calling removeProfileImage service...")
@@ -599,7 +623,6 @@ struct MyQRView: View {
             print("[EditProfilePhoto] ✅ Remove successful!")
             print("[EditProfilePhoto] 🔄 Refreshing profile...")
 
-            // Refresh profile
             await authService.refreshProfile()
 
             print("[EditProfilePhoto] ✅ Profile refresh complete")
@@ -608,7 +631,6 @@ struct MyQRView: View {
                 isUploadingPhoto = false
                 print("[EditProfilePhoto] ✅ Remove flow complete - UI updated")
             }
-
         } catch {
             print("[EditProfilePhoto] ❌ Remove error: \(error)")
             print("[EditProfilePhoto]    Error type: \(type(of: error))")
@@ -620,8 +642,6 @@ struct MyQRView: View {
             }
         }
     }
-
-    // MARK: - Helpers
 
     private func loadAuthDetails() async {
         do {
@@ -667,12 +687,18 @@ private struct FullScreenQRView: View {
 
                     HStack {
                         Spacer(minLength: 0)
+
                         Image(uiImage: qrImage)
                             .interpolation(.none)
                             .resizable()
+                            .scaledToFit()
                             .frame(width: 300, height: 300)
                             .padding(16)
-                            .background(RoundedRectangle(cornerRadius: 16).fill(Color.white))
+                            .background(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .fill(Color.white)
+                            )
+
                         Spacer(minLength: 0)
                     }
 
@@ -686,13 +712,17 @@ private struct FullScreenQRView: View {
                         Button {
                             UIPasteboard.general.string = connectURL.absoluteString
                             didCopy = true
+
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                                 didCopy = false
                             }
                         } label: {
-                            Label(didCopy ? "Copied" : "Copy Link", systemImage: didCopy ? "checkmark.circle.fill" : "doc.on.doc")
-                                .font(.caption)
-                                .fontWeight(.semibold)
+                            Label(
+                                didCopy ? "Copied" : "Copy Link",
+                                systemImage: didCopy ? "checkmark.circle.fill" : "doc.on.doc"
+                            )
+                            .font(.caption)
+                            .fontWeight(.semibold)
                         }
                         .buttonStyle(.bordered)
 
@@ -722,8 +752,10 @@ private struct FullScreenQRView: View {
             .background(Color.black.ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                        .font(.subheadline.weight(.semibold))
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
                 }
             }
         }
@@ -736,8 +768,6 @@ private struct MyProfileLayoutMetrics {
     let contentMaxWidth: CGFloat
     let horizontalPadding: CGFloat
 }
-
-// MARK: - Info Row Component
 
 struct InfoRow: View {
     let label: String
