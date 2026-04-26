@@ -25,7 +25,6 @@ struct PersonDetailView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         heroHeader(layout: layout)
-
                         contentCards(layout: layout)
                     }
                 }
@@ -34,18 +33,7 @@ struct PersonDetailView: View {
                 floatingTopControls(topInset: proxy.safeAreaInsets.top)
 
                 if showSavedConfirmation {
-                    VStack {
-                        Spacer()
-
-                        Text("Saved to your contacts with context from Nearify")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(Color.green))
-                            .padding(.bottom, max(14, proxy.safeAreaInsets.bottom + 10))
-                            .transition(.opacity)
-                    }
+                    savedConfirmation(bottomInset: proxy.safeAreaInsets.bottom)
                 }
             }
             .background(Color.black)
@@ -59,7 +47,6 @@ struct PersonDetailView: View {
         .sheet(isPresented: $showContactSaveSheet) {
             ContactSaveSheet(draft: contactDraft) { didSave in
                 showContactSaveSheet = false
-
                 guard didSave else { return }
 
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -81,32 +68,22 @@ struct PersonDetailView: View {
             )
         }
         .task {
-            print("[ProfileHero] rendered for profileId=\(attendee.id)")
+            await loadPublicProfile()
+        }
+    }
 
-            let targetUser = User(
-                id: attendee.id,
-                userId: nil,
-                name: attendee.name,
-                email: nil,
-                bio: attendee.bio,
-                skills: attendee.skills,
-                interests: attendee.interests,
-                imageUrl: attendee.avatarUrl,
-                imagePath: nil,
-                profileCompleted: nil,
-                connectionCount: nil,
-                createdAt: nil,
-                updatedAt: nil
-            )
+    private func savedConfirmation(bottomInset: CGFloat) -> some View {
+        VStack {
+            Spacer()
 
-            publicProfile = await DynamicProfileService.shared.generatePublicProfile(
-                for: attendee.id,
-                targetUser: targetUser
-            )
-
-            withAnimation(.easeIn(duration: 0.25)) {
-                isHeroVisible = true
-            }
+            Text("Saved to your contacts with context from Nearify")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color.green))
+                .padding(.bottom, max(14, bottomInset + 10))
+                .transition(.opacity)
         }
     }
 
@@ -218,13 +195,11 @@ struct PersonDetailView: View {
     private func floatingTopControls(topInset: CGFloat) -> some View {
         HStack {
             backButton()
-
             Spacer()
-
             editButton()
         }
         .padding(.horizontal, 20)
-        .padding(.top, topInset + 8)
+        .padding(.top, max(8, topInset + 8))
     }
 
     private func backButton() -> some View {
@@ -520,15 +495,48 @@ struct PersonDetailView: View {
         }
     }
 
+    private func loadPublicProfile() async {
+        print("[ProfileHero] rendered for profileId=\(attendee.id)")
+
+        let targetUser = User(
+            id: attendee.id,
+            userId: nil,
+            name: attendee.name,
+            email: nil,
+            bio: attendee.bio,
+            skills: attendee.skills,
+            interests: attendee.interests,
+            imageUrl: attendee.avatarUrl,
+            imagePath: nil,
+            profileCompleted: nil,
+            connectionCount: nil,
+            createdAt: nil,
+            updatedAt: nil
+        )
+
+        let generatedProfile = await DynamicProfileService.shared.generatePublicProfile(
+            for: attendee.id,
+            targetUser: targetUser
+        )
+
+        await MainActor.run {
+            publicProfile = generatedProfile
+
+            withAnimation(.easeIn(duration: 0.25)) {
+                isHeroVisible = true
+            }
+        }
+    }
+
     private func layoutMetrics(for proxy: GeometryProxy) -> ProfileHeroLayoutMetrics {
         let isCompactWidth = horizontalSizeClass == .compact
-        let screenHeight = proxy.size.height
+        let safeHeight = max(1, proxy.size.height)
 
         let heroHeight: CGFloat = {
             if isCompactWidth {
-                return min(420, max(320, screenHeight * 0.42))
+                return min(420, max(320, safeHeight * 0.42))
             } else {
-                return min(360, max(300, screenHeight * 0.32))
+                return min(360, max(300, safeHeight * 0.32))
             }
         }()
 
@@ -544,7 +552,7 @@ struct PersonDetailView: View {
             actionSpacing: isCompactWidth ? 36 : 28,
             contentTopPadding: isCompactWidth ? 20 : 24,
             contentHorizontalPadding: isCompactWidth ? 20 : 24,
-            contentMaxWidth: isCompactWidth ? nil : 780,
+            contentMaxWidth: isCompactWidth ? .infinity : 780,
             sizeClassLabel: isCompactWidth ? "compact" : "regular"
         )
     }
@@ -562,7 +570,7 @@ private struct ProfileHeroLayoutMetrics {
     let actionSpacing: CGFloat
     let contentTopPadding: CGFloat
     let contentHorizontalPadding: CGFloat
-    let contentMaxWidth: CGFloat?
+    let contentMaxWidth: CGFloat
     let sizeClassLabel: String
 }
 
