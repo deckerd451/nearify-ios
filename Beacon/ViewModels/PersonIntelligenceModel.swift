@@ -44,6 +44,8 @@ struct PersonIntelligence: Identifiable {
 
     // Surface layer
     let distilledInsight: String
+    let topTraits: [String]
+    let whyThisMatters: String?
     let primaryAction: PersonAction
     let secondaryAction: PersonAction?
     let surfacedTraits: [String]
