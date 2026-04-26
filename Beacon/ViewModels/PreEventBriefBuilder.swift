@@ -182,6 +182,10 @@ enum PreEventBriefBuilder {
         eventName: String,
         goal: String
     ) -> String {
+        if !person.topTraits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: person.topTraits) {
+            return "\(person.topTraits.joined(separator: " · ")) — \(why)"
+        }
+
         if let relationship {
             let minutes = max(relationship.totalOverlapSeconds / 60, 0)
             let goalTokens = tokenize(goal)
@@ -214,6 +218,13 @@ enum PreEventBriefBuilder {
         isNearby: Bool,
         isHereNow: Bool
     ) -> String {
+        if let relationship {
+            let traits = TraitReasoning.topTraits(for: relationship, isHereNow: isHereNow)
+            if !traits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: traits) {
+                return "\(traits.joined(separator: " · ")) — \(why)"
+            }
+        }
+
         guard let relationship else {
             if isNearby {
                 return "Strong live signal: they're nearby and active at this event."

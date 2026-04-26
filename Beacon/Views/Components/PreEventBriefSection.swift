@@ -581,6 +581,16 @@ enum EventBriefBuilder {
         myInterests: Set<String>,
         mySkills: Set<String>
     ) -> MutualValue? {
+        if let rel {
+            let traits = TraitReasoning.topTraits(for: rel, isHereNow: person.isHereNow)
+            if !traits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: traits) {
+                return MutualValue(
+                    whyThey: traits.joined(separator: " · "),
+                    whyYou: why
+                )
+            }
+        }
+
         let theirInterests = Set((person.interests ?? []).map { $0.lowercased() })
         let theirSkills = Set((person.skills ?? []).map { $0.lowercased() })
         let sharedInterests = myInterests.intersection(theirInterests)
