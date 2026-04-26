@@ -79,6 +79,31 @@ final class AttendeeStateResolver: ObservableObject {
         default: return .detected
         }
     }
+
+    /// Returns whether an attendee should be treated as effectively "here now".
+    /// Preserves backend freshness as primary truth, with a short BLE override
+    /// when there is an active direct BCN identity match.
+    func isEffectivelyHereNow(
+        attendee: EventAttendee,
+        backendFreshnessWindow: TimeInterval = 60,
+        bleOverrideWindow: TimeInterval = 15
+    ) -> Bool {
+        let backendAge = Date().timeIntervalSince(attendee.lastSeen)
+        if backendAge < backendFreshnessWindow {
+            return true
+        }
+
+        guard let device = recentDirectBCNMatch(for: attendee, within: bleOverrideWindow) else {
+            return false
+        }
+
+        #if DEBUG
+        let prefix = String(attendee.id.uuidString.prefix(8)).uppercased()
+        let age = Int(Date().timeIntervalSince(device.lastSeen))
+        print("[Attendees] BLE override → treating \(prefix) as hereNow (device=\(device.name), age=\(age)s)")
+        #endif
+        return true
+    }
     
     // MARK: - Relationship Resolution
     
@@ -207,6 +232,33 @@ final class AttendeeStateResolver: ObservableObject {
         }
         
         return nil
+    }
+
+    /// Returns a direct resolved BCN identity match seen within a short window.
+    /// This excludes legacy BEACON-* heuristic matches by design.
+    private func recentDirectBCNMatch(
+        for attendee: EventAttendee,
+        within window: TimeInterval
+    ) -> DiscoveredBLEDevice? {
+        let attendeePrefix = String(attendee.id.uuidString.prefix(8)).lowercased()
+        let now = Date()
+
+        let matches = scanner.getFilteredDevices().filter { device in
+            guard let devicePrefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else {
+                return false
+            }
+            guard devicePrefix == attendeePrefix else { return false }
+            return now.timeIntervalSince(device.lastSeen) <= window
+        }
+
+        guard !matches.isEmpty else { return nil }
+
+        return matches.sorted { lhs, rhs in
+            let lhsRSSI = scanner.smoothedRSSI(for: lhs.id) ?? lhs.rssi
+            let rhsRSSI = scanner.smoothedRSSI(for: rhs.id) ?? rhs.rssi
+            if lhsRSSI != rhsRSSI { return lhsRSSI > rhsRSSI }
+            return lhs.lastSeen > rhs.lastSeen
+        }.first
     }
     
     // MARK: - Batch Resolution
