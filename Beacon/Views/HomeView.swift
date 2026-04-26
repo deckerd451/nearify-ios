@@ -17,27 +17,37 @@ struct HomeView: View {
     @State private var showEventBrief = false
     @State private var autoPresentedBriefEventId: String?
     @State private var briefConnectionDestination: BriefConnectionDestination?
+    @State private var showCheckInConfirmation = false
+    @State private var checkInDismissTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 0) {
-                    eventHeader
-                        .padding(.horizontal)
-                        .padding(.top, 16)
-                        .padding(.bottom, 24)
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        eventHeader
+                            .padding(.horizontal)
+                            .padding(.top, 16)
+                            .padding(.bottom, 24)
 
-                    if attendeesService.isLoading && attendeesService.attendees.isEmpty && eventJoin.isCheckedIn {
-                        loadingState.padding(.top, 60)
-                    } else if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
-                        joinedNotCheckedInState
-                    } else if !eventJoin.isCheckedIn {
-                        notJoinedState
-                    } else if attendeesService.attendees.isEmpty {
-                        emptyState.padding(.top, 60)
-                    } else {
-                        attendeeList
+                        if attendeesService.isLoading && attendeesService.attendees.isEmpty && eventJoin.isCheckedIn {
+                            loadingState.padding(.top, 60)
+                        } else if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
+                            joinedNotCheckedInState
+                        } else if !eventJoin.isCheckedIn {
+                            notJoinedState
+                        } else if attendeesService.attendees.isEmpty {
+                            emptyState.padding(.top, 60)
+                        } else {
+                            attendeeList
+                        }
                     }
+                }
+                if showCheckInConfirmation {
+                    checkInConfirmationCard
+                        .padding(.horizontal)
+                        .padding(.bottom, 24)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             .background(Color.black.ignoresSafeArea())
@@ -50,8 +60,15 @@ struct HomeView: View {
             .onChange(of: eventJoin.isCheckedIn) { _, _ in
                 maybePresentEventBrief()
             }
+            .onChange(of: eventJoin.isCheckedIn) { oldValue, newValue in
+                guard !oldValue, newValue else { return }
+                presentCheckInConfirmation()
+            }
             .onAppear {
                 maybePresentEventBrief()
+            }
+            .onDisappear {
+                checkInDismissTask?.cancel()
             }
             .confirmationDialog("Say Goodbye?", isPresented: $showLeaveConfirmation, titleVisibility: .visible) {
                 Button("Leave Event", role: .destructive) { Task { await eventJoin.leaveEvent() } }
@@ -192,9 +209,9 @@ struct HomeView: View {
                     .font(.system(size: 20, weight: .semibold))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(eventDisplayName)
+                    Text("You’re at \(eventDisplayName)")
                         .font(.headline.weight(.semibold))
-                    Text(joinedSubtitle)
+                    Text(nearbyCountLine)
                         .font(.caption)
                         .foregroundColor(VisualStyle.secondaryText)
                 }
@@ -250,12 +267,9 @@ struct HomeView: View {
         }
     }
 
-    private var joinedSubtitle: String {
+    private var nearbyCountLine: String {
         let count = attendeesService.attendeeCount
-        if count > 0 {
-            return "You’re live. \(count) nearby now."
-        }
-        return "You’re live. See who’s around you."
+        return count == 1 ? "1 person nearby" : "\(count) people nearby"
     }
 
     private var preCheckInCard: some View {
@@ -538,6 +552,50 @@ struct HomeView: View {
         guard autoPresentedBriefEventId != eventId else { return }
         autoPresentedBriefEventId = eventId
         showEventBrief = true
+    }
+
+    private var checkInConfirmationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("You’re checked in.\nNearify is now capturing who you meet.")
+                .font(.headline)
+                .foregroundColor(.white)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showCheckInConfirmation = false
+                }
+                switchTab(to: .people, source: .user)
+            } label: {
+                Text("See who’s here")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(VisualStyle.primaryAction))
+            }
+            .buttonStyle(PressableScaleButtonStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .elevatedCard(accent: VisualStyle.live, glow: 0.25)
+    }
+
+    private func presentCheckInConfirmation() {
+        checkInDismissTask?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+            showCheckInConfirmation = true
+        }
+
+        checkInDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    showCheckInConfirmation = false
+                }
+            }
+        }
     }
 }
 
