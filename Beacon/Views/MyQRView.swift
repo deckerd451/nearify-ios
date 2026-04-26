@@ -1,6 +1,7 @@
 import SwiftUI
 import Supabase
 import PhotosUI
+import UIKit
 
 struct MyQRView: View {
     let currentUser: User
@@ -14,6 +15,7 @@ struct MyQRView: View {
     @State private var authUserId: String?
     @State private var authProvider: String?
     @State private var showProfilePreview = false
+    @State private var showFullScreenQR = false
 
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var latelyService = DynamicProfileService.shared
@@ -56,6 +58,11 @@ struct MyQRView: View {
             }
             .sheet(isPresented: $showIntelligenceDebug) {
                 IntelligenceDebugView()
+            }
+            .fullScreenCover(isPresented: $showFullScreenQR) {
+                if let connectURL, let qrCodeImage {
+                    FullScreenQRView(connectURL: connectURL, qrImage: qrCodeImage)
+                }
             }
             .photosPicker(
                 isPresented: $showingPhotoPicker,
@@ -225,6 +232,11 @@ struct MyQRView: View {
                 showProfilePreview = true
             }
 
+            profileActionButton(systemImage: "qrcode", title: "My QR", buttonSize: layout.actionButtonSize) {
+                showFullScreenQR = true
+            }
+            .disabled(connectURL == nil)
+
             ShareLink(item: shareURL ?? fallbackShareText) {
                 VStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.up.fill")
@@ -239,11 +251,6 @@ struct MyQRView: View {
                 }
             }
             .buttonStyle(.plain)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    print("[MyProfileHero] share tapped")
-                }
-            )
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, CGFloat(layout.horizontalPadding))
@@ -343,14 +350,12 @@ struct MyQRView: View {
     // MARK: - 2. QR Code Section
 
     private var qrCodeSection: some View {
-        let personalQREventContext = PersonalQRContextResolver.shared.resolve()
-
         return Group {
             PersonalConnectQRCard(
                 title: "Your Nearify QR",
                 subtitle: "Share your profile instantly",
-                eventId: personalQREventContext?.eventId,
-                profileId: displayUser.id
+                connectURL: connectURL,
+                qrImage: qrCodeImage
             )
         }
     }
@@ -482,12 +487,19 @@ struct MyQRView: View {
         heroTraits.map(\.publicText).joined(separator: " · ")
     }
 
-    private var shareURL: URL? {
+    private var connectURL: URL? {
         guard let eventId = PersonalQRContextResolver.shared.resolve()?.eventId else {
             return nil
         }
         return QRService.makePersonalConnectWebURL(eventId: eventId, profileId: displayUser.id)
     }
+
+    private var qrCodeImage: UIImage? {
+        guard let connectURL else { return nil }
+        return QRService.generateQRCode(from: connectURL.absoluteString)
+    }
+
+    private var shareURL: URL? { connectURL }
 
     private var fallbackShareText: String {
         "Connect with me on Nearify: \(displayUser.name)"
@@ -617,6 +629,90 @@ struct MyQRView: View {
             }
         } catch {
             print("Failed to load auth details: \(error)")
+        }
+    }
+}
+
+private struct FullScreenQRView: View {
+    let connectURL: URL
+    let qrImage: UIImage
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var didCopy = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Your Nearify QR")
+                        .font(.headline)
+                        .foregroundColor(.white)
+
+                    Text("Share your profile instantly")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+
+                    HStack {
+                        Spacer(minLength: 0)
+                        Image(uiImage: qrImage)
+                            .interpolation(.none)
+                            .resizable()
+                            .frame(width: 300, height: 300)
+                            .padding(16)
+                            .background(RoundedRectangle(cornerRadius: 16).fill(Color.white))
+                        Spacer(minLength: 0)
+                    }
+
+                    Text(connectURL.absoluteString)
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                        .lineLimit(2)
+                        .textSelection(.enabled)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            UIPasteboard.general.string = connectURL.absoluteString
+                            didCopy = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                didCopy = false
+                            }
+                        } label: {
+                            Label(didCopy ? "Copied" : "Copy Link", systemImage: didCopy ? "checkmark.circle.fill" : "doc.on.doc")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.bordered)
+
+                        ShareLink(item: connectURL) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                )
+
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 22)
+            .background(Color.black.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
         }
     }
 }
