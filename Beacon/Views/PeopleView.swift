@@ -250,9 +250,24 @@ struct PeopleView: View {
                     }
                 }
 
-                // Distilled insight — the most important visible line
-                Text(person.distilledInsight)
-                    .font(.caption).foregroundColor(.gray).lineLimit(1)
+                if !person.topTraits.isEmpty {
+                    Text(person.topTraits.joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                } else {
+                    Text(person.distilledInsight)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .lineLimit(1)
+                }
+
+                if let why = person.whyThisMatters {
+                    Text("Why this matters: \(why)")
+                        .font(.caption2)
+                        .foregroundColor(.gray.opacity(0.9))
+                        .lineLimit(1)
+                }
             }
 
             Spacer()

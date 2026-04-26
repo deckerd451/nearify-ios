@@ -441,6 +441,8 @@ struct PeopleIntelligenceBuilder {
             primary = .viewProfile
             secondary = nil
         }
+        let topTraits = TraitReasoning.topTraits(for: rel, isHereNow: isHere)
+        let whyThisMatters = TraitReasoning.whyThisMattersLine(traits: topTraits)
 
         // Priority score — unified via InteractionScorer
         let scorerSignals = InteractionScorer.Signals(
@@ -494,6 +496,8 @@ struct PeopleIntelligenceBuilder {
             connectionStatus: rel.connectionStatus,
             isTargetIntent: isTarget,
             distilledInsight: insight,
+            topTraits: topTraits,
+            whyThisMatters: whyThisMatters,
             primaryAction: primary,
             secondaryAction: secondary,
             deepInsights: deep,
@@ -513,6 +517,8 @@ struct PeopleIntelligenceBuilder {
         presenceSource: PresenceSource = .backend
     ) -> PersonIntelligence {
         let isTarget = TargetIntentManager.shared.targetProfileId == attendee.id
+        let topTraits = TraitReasoning.topTraits(for: attendee)
+        let whyThisMatters = TraitReasoning.whyThisMattersLine(traits: topTraits)
         let insight = generateInsight(
             name: attendee.name,
             isHere: true,
@@ -570,6 +576,8 @@ struct PeopleIntelligenceBuilder {
             connectionStatus: isConnected ? .accepted : .none,
             isTargetIntent: isTarget,
             distilledInsight: insight,
+            topTraits: topTraits,
+            whyThisMatters: whyThisMatters,
             primaryAction: .find,
             secondaryAction: isConnected ? .message : .viewProfile,
             deepInsights: deep,
