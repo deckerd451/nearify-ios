@@ -346,13 +346,13 @@ struct FindAttendeeView: View {
         }
         switch findSignalState {
         case .searchingForDirectSignal:
-            return "Looking nearby"
+            return "Looking for signal"
         case .directSignalLocked:
             return "Live proximity"
         case .fallbackEventPresence:
-            return "Nearby at this event"
+            return "Recently seen at this event"
         case .signalLost:
-            return "Recently nearby"
+            return "No strong signal yet"
         }
     }
 
@@ -681,7 +681,7 @@ struct FindAttendeeView: View {
                         .font(.title2)
                         .foregroundColor(.yellow)
 
-                    Text(adaptiveSearchTitle(for: isBriefRecommendationMode ? "Connecting now" : "Signal suggests they may be nearby"))
+                    Text(adaptiveSearchTitle(for: isBriefRecommendationMode ? "Connecting now" : "Looking for a strong signal"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.yellow)
@@ -700,12 +700,12 @@ struct FindAttendeeView: View {
                         .font(.title2)
                         .foregroundColor(.orange)
 
-                    Text(adaptiveSearchTitle(for: isBriefRecommendationMode ? "They may be nearby" : "Using event presence"))
+                    Text(adaptiveSearchTitle(for: isBriefRecommendationMode ? "Recently seen at this event" : "Recently seen at this event"))
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.orange)
 
-                    Text(adaptiveSearchSubtitle(default: isBriefRecommendationMode ? "You can start walking over now while we refine their direction." : "Signal suggests they may be nearby at this event — walk naturally and look around."))
+                    Text(adaptiveSearchSubtitle(default: isBriefRecommendationMode ? "Move around to pick up their signal." : "No strong signal yet — move around to pick up their signal."))
                         .font(.caption)
                         .foregroundColor(.gray.opacity(0.7))
                         .multilineTextAlignment(.center)
@@ -719,12 +719,12 @@ struct FindAttendeeView: View {
                         .font(.title2)
                         .foregroundColor(.gray)
 
-                    Text("They may have moved")
+                    Text("No strong signal yet")
                         .font(.title3)
                         .fontWeight(.semibold)
                         .foregroundColor(.gray)
 
-                    Text("They may have moved — try looking around naturally")
+                    Text("I don’t have a strong signal yet — try moving around or scanning again")
                         .font(.caption)
                         .foregroundColor(.gray.opacity(0.7))
                         .multilineTextAlignment(.center)
@@ -887,12 +887,12 @@ struct FindAttendeeView: View {
                         .foregroundColor(.yellow.opacity(0.6))
 
                 case .fallbackEventPresence:
-                    Text("Signal suggests they may be active at this event")
+                    Text("Recently seen at this event")
                         .font(.caption2)
                         .foregroundColor(.orange.opacity(0.6))
 
                 case .signalLost:
-                    Text("Last seen nearby — keep looking around naturally")
+                    Text("Not in immediate range — move around to pick up their signal")
                         .font(.caption2)
                         .foregroundColor(.gray.opacity(0.6))
                 }
@@ -925,17 +925,18 @@ struct FindAttendeeView: View {
             return "Look up — you’re close"
         }
         switch findSignalState {
-        case .directSignalLocked(_, let deviceId):
+        case .directSignalLocked(let rssi, let deviceId):
             let trend = rssiTrend(for: deviceId) ?? 0
+            guard rssi >= -60 else { return "Recently active" }
             if abs(trend) >= 5 { return "Moving around the room" }
             if abs(trend) >= 2 { return "Signal fluctuating" }
             return "Recently active nearby"
         case .searchingForDirectSignal:
-            return "Recently active nearby"
+            return "Recently active"
         case .fallbackEventPresence:
-            return "Signal suggests proximity"
+            return "Recently seen at this event"
         case .signalLost:
-            return "Recently active nearby"
+            return "Recently active"
         }
     }
 
@@ -960,9 +961,9 @@ struct FindAttendeeView: View {
         case .searchingForDirectSignal:
             messages = ["Pause and look around", "Try turning slightly", "Signal is shifting…"]
         case .fallbackEventPresence:
-            messages = ["They may be nearby", "Move a bit closer", "Pause and look around"]
+            messages = ["Recently seen at this event", "Move around to pick up their signal", "Pause and look around"]
         case .signalLost:
-            messages = ["Signal is shifting…", "Try turning slightly", "They may be nearby"]
+            messages = ["No strong signal yet", "Try turning slightly", "Move around to pick up their signal"]
         }
         return messages[ambientMessageIndex % messages.count]
     }
