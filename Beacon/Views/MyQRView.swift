@@ -153,7 +153,7 @@ struct MyQRView: View {
                         .lineLimit(2)
                 }
             }
-            .padding(.horizontal, layout.horizontalPadding)
+            .padding(.horizontal, CGFloat(layout.horizontalPadding))
             .padding(.bottom, 24)
         }
         .frame(height: layout.heroHeight)
@@ -246,7 +246,7 @@ struct MyQRView: View {
             )
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, layout.horizontalPadding)
+        .padding(.horizontal, CGFloat(layout.horizontalPadding))
     }
 
     private func profileActionButton(systemImage: String, title: String, buttonSize: CGFloat, action: @escaping () -> Void) -> some View {
@@ -329,7 +329,7 @@ struct MyQRView: View {
             Spacer(minLength: 36)
         }
         .frame(maxWidth: layout.contentMaxWidth)
-        .padding(.horizontal, layout.horizontalPadding)
+        .padding(.horizontal, CGFloat(layout.horizontalPadding))
         .padding(.top, 10)
         .padding(.bottom, DesignTokens.scrollBottomPadding)
         .frame(maxWidth: .infinity)
