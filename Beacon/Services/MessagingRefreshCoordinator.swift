@@ -14,7 +14,7 @@ final class MessagingRefreshCoordinator {
 
     static let shared = MessagingRefreshCoordinator()
 
-    private let debounceWindow: TimeInterval = 1.4
+    private let debounceWindow: TimeInterval = 2.5
     private let promptDelay: TimeInterval = 0.12
     private let highPriorityReasons: Set<Reason> = [.messageSent, .incomingMessage]
 
@@ -23,10 +23,20 @@ final class MessagingRefreshCoordinator {
     private var isExecuting = false
     private var shouldRunFollowUp = false
     private var lastExecutionAt: Date = .distantPast
+    private var lastRequestAtByReason: [Reason: Date] = [:]
 
     private init() {}
 
     func requestRefresh(reason: Reason) {
+        let now = Date()
+
+        if let last = lastRequestAtByReason[reason],
+           now.timeIntervalSince(last) < debounceWindow {
+            print("[Messaging] refresh skipped (debounced)")
+            return
+        }
+        lastRequestAtByReason[reason] = now
+
         pendingReasons.insert(reason)
 
         if isExecuting {

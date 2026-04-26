@@ -209,6 +209,7 @@ struct ConversationView: View {
             // Messages may already be loaded by the caller, but refresh to be safe
             await messaging.fetchMessages(conversationId: preloaded.id)
             messaging.markConversationViewed(conversationId: preloaded.id)
+            scrollToLatestForOpenedThread()
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .conversationOpened)
             print("[Conversation] ✅ Messages refreshed for preloaded conversation")
             return
@@ -239,6 +240,7 @@ struct ConversationView: View {
             NotificationService.shared.activeConversationId = convo.id
             await messaging.fetchMessages(conversationId: convo.id)
             messaging.markConversationViewed(conversationId: convo.id)
+            scrollToLatestForOpenedThread()
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .conversationOpened)
             isLoading = false
             print("[Conversation] ✅ Lazy load complete: \(convo.id)")
@@ -287,6 +289,12 @@ struct ConversationView: View {
                 }
             }
         }
+    }
+
+    private func scrollToLatestForOpenedThread() {
+        isPinnedToBottom = true
+        requestScrollToBottom(animated: false, delay: 0.05)
+        print("[Messaging] opened thread → scrolled to latest")
     }
 }
 

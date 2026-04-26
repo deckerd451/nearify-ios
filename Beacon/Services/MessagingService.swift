@@ -26,6 +26,9 @@ final class MessagingService: ObservableObject {
     private var profileNameCache: [UUID: String] = [:]
     private var conversationLoadTask: Task<[Conversation], Never>?
     private var pendingConversationReload = false
+    private var processedIncomingMessageIds: Set<UUID> = []
+    private var processedIncomingOrder: [UUID] = []
+    private let maxProcessedIncomingIds = 2_000
 
     private init() {}
 
@@ -200,6 +203,8 @@ final class MessagingService: ObservableObject {
         createdAt: Date,
         conversation: Conversation?
     ) {
+        guard markIncomingMessageProcessedIfNeeded(id) else { return }
+
         let incoming = Message(
             id: id,
             conversationId: conversationId,
@@ -232,6 +237,73 @@ final class MessagingService: ObservableObject {
             let convo = conversations.remove(at: index)
             conversations.insert(convo, at: 0)
         }
+    }
+
+    struct ConversationPreview: Equatable {
+        let messageId: UUID
+        let content: String
+        let createdAt: Date?
+    }
+
+    func fetchConversationPreviews(conversationIds: [UUID]) async -> [UUID: ConversationPreview] {
+        guard !conversationIds.isEmpty else { return [:] }
+
+        struct ConversationMessageRow: Decodable {
+            let id: UUID
+            let conversationId: UUID
+            let content: String
+            let createdAt: Date?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case conversationId = "conversation_id"
+                case content
+                case createdAt = "created_at"
+            }
+        }
+
+        do {
+            let rows: [ConversationMessageRow] = try await supabase
+                .from("messages")
+                .select("id,conversation_id,content,created_at")
+                .in("conversation_id", values: conversationIds.map(\.uuidString))
+                .order("created_at", ascending: false)
+                .limit(500)
+                .execute()
+                .value
+
+            var previews: [UUID: ConversationPreview] = [:]
+            for row in rows where previews[row.conversationId] == nil {
+                previews[row.conversationId] = ConversationPreview(
+                    messageId: row.id,
+                    content: row.content,
+                    createdAt: row.createdAt
+                )
+            }
+            return previews
+        } catch {
+            print("[Messaging] ❌ Failed to fetch conversation previews: \(error)")
+            return [:]
+        }
+    }
+
+    private func markIncomingMessageProcessedIfNeeded(_ id: UUID) -> Bool {
+        if processedIncomingMessageIds.contains(id) {
+            return false
+        }
+
+        processedIncomingMessageIds.insert(id)
+        processedIncomingOrder.append(id)
+
+        if processedIncomingOrder.count > maxProcessedIncomingIds {
+            let overflow = processedIncomingOrder.count - maxProcessedIncomingIds
+            for _ in 0..<overflow {
+                let removed = processedIncomingOrder.removeFirst()
+                processedIncomingMessageIds.remove(removed)
+            }
+        }
+
+        return true
     }
 
     func markConversationViewed(conversationId: UUID) {
