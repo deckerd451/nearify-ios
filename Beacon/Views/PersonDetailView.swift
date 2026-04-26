@@ -5,6 +5,7 @@ struct PersonDetailView: View {
     let attendee: EventAttendee
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showingFindSheet = false
     @State private var showContactSaveSheet = false
@@ -17,90 +18,95 @@ struct PersonDetailView: View {
     @ObservedObject private var encounterService = EncounterService.shared
 
     var body: some View {
-        ZStack {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    heroHeader
+        GeometryReader { proxy in
+            let layout = layoutMetrics(for: proxy)
 
-                    VStack(spacing: 18) {
-                        if !topEarnedTraits.isEmpty {
-                            earnedTraitsHighlight
-                                .padding(.top, 20)
-                        }
+            ZStack {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroHeader(layout: layout)
 
-                        if let bio = attendee.bio, !bio.isEmpty {
-                            sectionCard(title: "Bio") {
-                                Text(bio)
-                                    .font(.body)
-                                    .foregroundStyle(.primary)
+                        VStack(spacing: 18) {
+                            if !topEarnedTraits.isEmpty {
+                                earnedTraitsHighlight
+                                    .padding(.top, layout.contentTopPadding)
                             }
-                        }
 
-                        if let skills = attendee.skills, !skills.isEmpty {
-                            sectionCard(title: "Skills") {
-                                tagSection(tags: skills, color: .blue)
+                            if let bio = attendee.bio, !bio.isEmpty {
+                                sectionCard(title: "Bio") {
+                                    Text(bio)
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                }
                             }
-                        }
 
-                        if let interests = attendee.interests, !interests.isEmpty {
-                            sectionCard(title: "Interests") {
-                                tagSection(tags: interests, color: .green)
+                            if let skills = attendee.skills, !skills.isEmpty {
+                                sectionCard(title: "Skills") {
+                                    tagSection(tags: skills, color: .blue)
+                                }
                             }
-                        }
 
-                        if let pub = publicProfile, !pub.latelyLines.isEmpty {
-                            sectionCard(title: "Lately") {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    ForEach(pub.latelyLines, id: \.self) { line in
-                                        Text(line)
-                                            .font(.subheadline)
-                                            .foregroundStyle(.primary)
+                            if let interests = attendee.interests, !interests.isEmpty {
+                                sectionCard(title: "Interests") {
+                                    tagSection(tags: interests, color: .green)
+                                }
+                            }
+
+                            if let pub = publicProfile, !pub.latelyLines.isEmpty {
+                                sectionCard(title: "Lately") {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        ForEach(pub.latelyLines, id: \.self) { line in
+                                            Text(line)
+                                                .font(.subheadline)
+                                                .foregroundStyle(.primary)
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        if let paragraph = publicProfile?.emergingStrengthsParagraph {
-                            sectionCard(title: "Emerging Strengths") {
-                                Text(paragraph)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.primary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                            if let paragraph = publicProfile?.emergingStrengthsParagraph {
+                                sectionCard(title: "Emerging Strengths") {
+                                    Text(paragraph)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
+
+                            statusRow
+
+                            Spacer(minLength: 40)
                         }
-
-                        statusRow
-
-                        Spacer(minLength: 40)
+                        .frame(maxWidth: layout.contentMaxWidth)
+                        .padding(.horizontal, layout.contentHorizontalPadding)
+                        .padding(.bottom, max(24, proxy.safeAreaInsets.bottom + 12))
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .fill(Color(.systemBackground))
+                                .ignoresSafeArea(edges: .bottom)
+                        )
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .fill(Color(.systemBackground))
-                            .ignoresSafeArea(edges: .bottom)
-                    )
-                    .offset(y: -20)
+                }
+
+                floatingTopControls(topInset: proxy.safeAreaInsets.top)
+
+                if showSavedConfirmation {
+                    VStack {
+                        Spacer()
+                        Text("Saved to your contacts with context from Nearify")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.green))
+                            .padding(.bottom, 14)
+                            .transition(.opacity)
+                    }
                 }
             }
-
-            floatingTopControls
-
-            if showSavedConfirmation {
-                VStack {
-                    Spacer()
-                    Text("Saved to your contacts with context from Nearify")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.green))
-                        .padding(.bottom, 14)
-                        .transition(.opacity)
-                }
-            }
+            .background(Color.black)
+            .ignoresSafeArea(edges: .top)
         }
-        .background(Color.black)
-        .ignoresSafeArea(edges: .top)
         .navigationBarBackButtonHidden(true)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingFindSheet) {
@@ -156,11 +162,11 @@ struct PersonDetailView: View {
         }
     }
 
-    private var heroHeader: some View {
+    private func heroHeader(layout: ProfileHeroLayoutMetrics) -> some View {
         ZStack(alignment: .bottomLeading) {
             heroBackground
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: layout.heroStackSpacing) {
                 VStack(alignment: .leading, spacing: 4) {
                     if let role = attendee.topTags.first {
                         Text(role.uppercased())
@@ -169,7 +175,7 @@ struct PersonDetailView: View {
                     }
 
                     Text(attendee.name)
-                        .font(.system(size: 42, weight: .bold, design: .rounded))
+                        .font(.system(size: layout.nameFontSize, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.75)
@@ -180,13 +186,16 @@ struct PersonDetailView: View {
                         .lineLimit(2)
                 }
 
-                actionButtons
+                actionButtons(layout: layout)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 26)
+            .padding(.horizontal, layout.heroHorizontalPadding)
+            .padding(.bottom, layout.heroBottomPadding)
         }
-        .frame(height: 390)
+        .frame(height: layout.heroHeight)
         .opacity(isHeroVisible ? 1 : 0)
+        .onAppear {
+            print("[ProfileHero] layout sizeClass=\(layout.sizeClassLabel) heroHeight=\(Int(layout.heroHeight.rounded()))")
+        }
     }
 
     @ViewBuilder
@@ -200,11 +209,11 @@ struct PersonDetailView: View {
                     image
                         .resizable()
                         .scaledToFill()
-                        .frame(maxWidth: .infinity)
-                        .overlay(Color.black.opacity(0.28))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .overlay(Color.black.opacity(0.3))
                         .overlay(
                             LinearGradient(
-                                colors: [Color.black.opacity(0.72), Color.black.opacity(0.15), .clear],
+                                colors: [Color.black.opacity(0.78), Color.black.opacity(0.22), .clear],
                                 startPoint: .bottom,
                                 endPoint: .top
                             )
@@ -243,7 +252,7 @@ struct PersonDetailView: View {
         )
     }
 
-    private var floatingTopControls: some View {
+    private func floatingTopControls(topInset: CGFloat) -> some View {
         VStack {
             HStack {
                 circularTopButton(systemImage: "chevron.left", label: "Back") {
@@ -259,7 +268,7 @@ struct PersonDetailView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 8)
+            .padding(.top, topInset + 8)
 
             Spacer()
         }
@@ -277,20 +286,20 @@ struct PersonDetailView: View {
         .accessibilityLabel(label)
     }
 
-    private var actionButtons: some View {
-        HStack(spacing: 22) {
-            profileActionButton(systemImage: "bubble.left.fill", title: "Message", accessibility: "Message \(attendee.name)") {
+    private func actionButtons(layout: ProfileHeroLayoutMetrics) -> some View {
+        HStack(spacing: layout.actionSpacing) {
+            profileActionButton(layout: layout, systemImage: "bubble.left.fill", title: "Message", accessibility: "Message \(attendee.name)") {
                 print("[ProfileHero] message tapped profileId=\(attendee.id)")
                 handleMessageTap()
             }
 
-            profileActionButton(systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts") {
+            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts") {
                 print("[ProfileHero] save tapped profileId=\(attendee.id)")
                 showContactSaveSheet = true
             }
 
             if showFindAction {
-                profileActionButton(systemImage: "location.fill", title: "Find", accessibility: "Find \(attendee.name) nearby") {
+                profileActionButton(layout: layout, systemImage: "location.fill", title: "Find", accessibility: "Find \(attendee.name) nearby") {
                     print("[ProfileHero] find tapped profileId=\(attendee.id)")
                     showingFindSheet = true
                 }
@@ -298,17 +307,17 @@ struct PersonDetailView: View {
         }
     }
 
-    private func profileActionButton(systemImage: String, title: String, accessibility: String, action: @escaping () -> Void) -> some View {
+    private func profileActionButton(layout: ProfileHeroLayoutMetrics, systemImage: String, title: String, accessibility: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: layout.actionIconSize, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
+                    .frame(width: layout.actionCircleSize, height: layout.actionCircleSize)
                     .background(.ultraThinMaterial, in: Circle())
 
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(layout.actionLabelFont)
                     .foregroundStyle(.white)
             }
         }
@@ -442,6 +451,50 @@ struct PersonDetailView: View {
             }
         }
     }
+
+    private func layoutMetrics(for proxy: GeometryProxy) -> ProfileHeroLayoutMetrics {
+        let isCompactWidth = horizontalSizeClass == .compact
+        let screenHeight = proxy.size.height
+
+        let heroHeight: CGFloat = {
+            if isCompactWidth {
+                return min(420, max(320, screenHeight * 0.42))
+            }
+            return min(360, screenHeight * 0.32)
+        }()
+
+        return ProfileHeroLayoutMetrics(
+            heroHeight: heroHeight,
+            heroBottomPadding: isCompactWidth ? 42 : 28,
+            heroHorizontalPadding: isCompactWidth ? 24 : 36,
+            heroStackSpacing: isCompactWidth ? 14 : 12,
+            nameFontSize: isCompactWidth ? 42 : 38,
+            actionCircleSize: isCompactWidth ? 68 : 60,
+            actionIconSize: isCompactWidth ? 28 : 25,
+            actionLabelFont: isCompactWidth ? .footnote.weight(.semibold) : .caption.weight(.semibold),
+            actionSpacing: isCompactWidth ? 36 : 28,
+            contentTopPadding: isCompactWidth ? 20 : 24,
+            contentHorizontalPadding: isCompactWidth ? 20 : 24,
+            contentMaxWidth: isCompactWidth ? nil : 780,
+            sizeClassLabel: isCompactWidth ? "compact" : "regular"
+        )
+    }
+}
+
+private struct ProfileHeroLayoutMetrics {
+    let heroHeight: CGFloat
+    let heroBottomPadding: CGFloat
+    let heroHorizontalPadding: CGFloat
+    let heroStackSpacing: CGFloat
+    let nameFontSize: CGFloat
+    let actionCircleSize: CGFloat
+    let actionIconSize: CGFloat
+    let actionLabelFont: Font
+    let actionSpacing: CGFloat
+    let contentTopPadding: CGFloat
+    let contentHorizontalPadding: CGFloat
+    let contentMaxWidth: CGFloat?
+    let sizeClassLabel: String
 }
 
 private struct PersonConversationDestination: Identifiable {
