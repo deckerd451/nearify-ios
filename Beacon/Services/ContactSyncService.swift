@@ -147,6 +147,14 @@ final class ContactSyncService {
         return defaults.bool(forKey: persistedKey(for: key))
     }
 
+    func hasSavedContact(profileId: UUID) -> Bool {
+        let identifierKey = persistedContactIdentifierKey(profileId: profileId)
+        guard let identifier = defaults.string(forKey: identifierKey), !identifier.isEmpty else {
+            return false
+        }
+        return true
+    }
+
     // MARK: - Note Builder
 
     func buildNote(from payload: ContactSyncPayload) -> String {

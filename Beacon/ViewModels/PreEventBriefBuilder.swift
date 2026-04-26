@@ -61,7 +61,7 @@ enum PreEventBriefBuilder {
         goal: String
     ) -> [PriorityPerson] {
         let sections = PeopleIntelligenceController.shared.sections
-        let rankedPeople = (sections.hereNow + sections.followUp + sections.notHere)
+        let rankedPeople = (sections.hereNow + sections.followUp + sections.yourPeople)
             .sorted { $0.priorityScore > $1.priorityScore }
 
         var chosenPeople: [PriorityPerson] = []
