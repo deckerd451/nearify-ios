@@ -4,15 +4,10 @@ import UIKit
 struct PersonalConnectQRCard: View {
     let title: String
     let subtitle: String
-    let eventId: UUID?
-    let profileId: UUID?
+    let connectURL: URL?
+    let qrImage: UIImage?
 
     @State private var didCopy = false
-
-    private var connectURL: URL? {
-        guard let eventId, let profileId else { return nil }
-        return QRService.makePersonalConnectWebURL(eventId: eventId, profileId: profileId)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -24,8 +19,8 @@ struct PersonalConnectQRCard: View {
                 .font(.caption)
                 .foregroundColor(.gray)
 
-            if let connectURL {
-                Image(uiImage: QRService.generateQRCode(from: connectURL.absoluteString))
+            if let connectURL, let qrImage {
+                Image(uiImage: qrImage)
                     .interpolation(.none)
                     .resizable()
                     .frame(width: 180, height: 180)
