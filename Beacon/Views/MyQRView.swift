@@ -222,15 +222,27 @@ struct MyQRView: View {
     }
 
     private func heroActions(layout: MyProfileLayoutMetrics) -> some View {
-        HStack(spacing: 22) {
-            profileActionButton(systemImage: "square.and.pencil", title: "Edit", buttonSize: layout.actionButtonSize) {
-                print("[MyProfileHero] edit tapped")
-                showingEditProfile = true
+        let spacing: CGFloat = 22
+        let padding: CGFloat = layout.horizontalPadding
+        let buttonSize: CGFloat = layout.actionButtonSize
+
+        return HStack(spacing: spacing) {
+            profileActionButton(
+                systemImage: "qrcode",
+                title: "QR",
+                buttonSize: buttonSize
+            ) {
+                print("[MyProfileHero] QR tapped")
             }
 
-            profileActionButton(systemImage: "eye.fill", title: "Preview", buttonSize: layout.actionButtonSize) {
-                showProfilePreview = true
+            profileActionButton(
+                systemImage: "square.and.arrow.up",
+                title: "Share",
+                buttonSize: buttonSize
+            ) {
+                print("[MyProfileHero] share tapped")
             }
+<<<<<<< HEAD
 
             profileActionButton(systemImage: "qrcode", title: "My QR", buttonSize: layout.actionButtonSize) {
                 showFullScreenQR = true
@@ -251,11 +263,12 @@ struct MyQRView: View {
                 }
             }
             .buttonStyle(.plain)
+=======
+>>>>>>> 8bb3fda (WIP: QR layout + hero actions)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, CGFloat(layout.horizontalPadding))
+        .padding(.horizontal, padding)
     }
-
     private func profileActionButton(systemImage: String, title: String, buttonSize: CGFloat, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
