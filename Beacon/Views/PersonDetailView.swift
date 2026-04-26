@@ -21,85 +21,29 @@ struct PersonDetailView: View {
         GeometryReader { proxy in
             let layout = layoutMetrics(for: proxy)
 
-            ZStack {
+            ZStack(alignment: .top) {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         heroHeader(layout: layout)
 
-                        VStack(spacing: 18) {
-                            if !topEarnedTraits.isEmpty {
-                                earnedTraitsHighlight
-                                    .padding(.top, layout.contentTopPadding)
-                            }
-
-                            if let bio = attendee.bio, !bio.isEmpty {
-                                sectionCard(title: "Bio") {
-                                    Text(bio)
-                                        .font(.body)
-                                        .foregroundStyle(.primary)
-                                }
-                            }
-
-                            if let skills = attendee.skills, !skills.isEmpty {
-                                sectionCard(title: "Skills") {
-                                    tagSection(tags: skills, color: .blue)
-                                }
-                            }
-
-                            if let interests = attendee.interests, !interests.isEmpty {
-                                sectionCard(title: "Interests") {
-                                    tagSection(tags: interests, color: .green)
-                                }
-                            }
-
-                            if let pub = publicProfile, !pub.latelyLines.isEmpty {
-                                sectionCard(title: "Lately") {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ForEach(pub.latelyLines, id: \.self) { line in
-                                            Text(line)
-                                                .font(.subheadline)
-                                                .foregroundStyle(.primary)
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let paragraph = publicProfile?.emergingStrengthsParagraph {
-                                sectionCard(title: "Emerging Strengths") {
-                                    Text(paragraph)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.primary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-
-                            statusRow
-
-                            Spacer(minLength: 40)
-                        }
-                        .frame(maxWidth: layout.contentMaxWidth)
-                        .padding(.horizontal, layout.contentHorizontalPadding)
-                        .padding(.bottom, max(24, proxy.safeAreaInsets.bottom + 12))
-                        .frame(maxWidth: .infinity)
-                        .background(
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .fill(Color(.systemBackground))
-                                .ignoresSafeArea(edges: .bottom)
-                        )
+                        contentCards(layout: layout)
                     }
                 }
+                .ignoresSafeArea(edges: .top)
 
                 floatingTopControls(topInset: proxy.safeAreaInsets.top)
 
                 if showSavedConfirmation {
                     VStack {
                         Spacer()
+
                         Text("Saved to your contacts with context from Nearify")
                             .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
                             .background(Capsule().fill(Color.green))
-                            .padding(.bottom, 14)
+                            .padding(.bottom, max(14, proxy.safeAreaInsets.bottom + 10))
                             .transition(.opacity)
                     }
                 }
@@ -115,10 +59,13 @@ struct PersonDetailView: View {
         .sheet(isPresented: $showContactSaveSheet) {
             ContactSaveSheet(draft: contactDraft) { didSave in
                 showContactSaveSheet = false
+
                 guard didSave else { return }
+
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showSavedConfirmation = true
                 }
+
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showSavedConfirmation = false
@@ -126,7 +73,7 @@ struct PersonDetailView: View {
                 }
             }
         }
-        .sheet(item: $activeConversation) { (destination: PersonConversationDestination) in
+        .sheet(item: $activeConversation) { destination in
             ConversationView(
                 targetProfileId: destination.targetProfileId,
                 preloadedConversation: destination.conversation,
@@ -151,6 +98,7 @@ struct PersonDetailView: View {
                 createdAt: nil,
                 updatedAt: nil
             )
+
             publicProfile = await DynamicProfileService.shared.generatePublicProfile(
                 for: attendee.id,
                 targetUser: targetUser
@@ -192,6 +140,7 @@ struct PersonDetailView: View {
             .padding(.bottom, layout.heroBottomPadding)
         }
         .frame(height: layout.heroHeight)
+        .clipped()
         .opacity(isHeroVisible ? 1 : 0)
         .onAppear {
             print("[ProfileHero] layout sizeClass=\(layout.sizeClassLabel) heroHeight=\(Int(layout.heroHeight.rounded()))")
@@ -205,6 +154,7 @@ struct PersonDetailView: View {
                 switch phase {
                 case .empty:
                     fallbackHeroBackground
+
                 case .success(let image):
                     image
                         .resizable()
@@ -213,14 +163,20 @@ struct PersonDetailView: View {
                         .overlay(Color.black.opacity(0.3))
                         .overlay(
                             LinearGradient(
-                                colors: [Color.black.opacity(0.78), Color.black.opacity(0.22), .clear],
+                                colors: [
+                                    Color.black.opacity(0.78),
+                                    Color.black.opacity(0.22),
+                                    .clear
+                                ],
                                 startPoint: .bottom,
                                 endPoint: .top
                             )
                         )
                         .clipped()
+
                 case .failure:
                     fallbackHeroBackground
+
                 @unknown default:
                     fallbackHeroBackground
                 }
@@ -233,7 +189,11 @@ struct PersonDetailView: View {
     private var fallbackHeroBackground: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.indigo, Color.blue.opacity(0.75), Color.teal.opacity(0.7)],
+                colors: [
+                    Color.indigo,
+                    Color.blue.opacity(0.75),
+                    Color.teal.opacity(0.7)
+                ],
                 startPoint: .bottomLeading,
                 endPoint: .topTrailing
             )
@@ -245,7 +205,10 @@ struct PersonDetailView: View {
         .overlay(Color.black.opacity(0.25))
         .overlay(
             LinearGradient(
-                colors: [Color.black.opacity(0.7), .clear],
+                colors: [
+                    Color.black.opacity(0.7),
+                    .clear
+                ],
                 startPoint: .bottom,
                 endPoint: .top
             )
@@ -253,61 +216,96 @@ struct PersonDetailView: View {
     }
 
     private func floatingTopControls(topInset: CGFloat) -> some View {
-        VStack {
-            HStack {
-                circularTopButton(systemImage: "chevron.left", label: "Back") {
-                    dismiss()
-                }
-
-                Spacer()
-
-                if attendee.id == AuthService.shared.currentUser?.id {
-                    circularTopButton(systemImage: "square.and.pencil", label: "Edit profile") {
-                        // Keep existing screen behavior: no-op for now
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, topInset + 8)
+        HStack {
+            backButton()
 
             Spacer()
+
+            editButton()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, topInset + 8)
+    }
+
+    private func backButton() -> some View {
+        circularTopButton(systemImage: "chevron.left", label: "Back") {
+            dismiss()
         }
     }
 
-    private func circularTopButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
+    @ViewBuilder
+    private func editButton() -> some View {
+        if attendee.id == AuthService.shared.currentUser?.id {
+            circularTopButton(systemImage: "square.and.pencil", label: "Edit profile") {
+                // Keep existing screen behavior: no-op for now
+            }
+        }
+    }
+
+    private func circularTopButton(
+        systemImage: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(width: 42, height: 42)
                 .background(.ultraThinMaterial, in: Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                )
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 
     private func actionButtons(layout: ProfileHeroLayoutMetrics) -> some View {
         HStack(spacing: layout.actionSpacing) {
-            profileActionButton(layout: layout, systemImage: "bubble.left.fill", title: "Message", accessibility: "Message \(attendee.name)") {
+            profileActionButton(
+                layout: layout,
+                systemImage: "bubble.left.fill",
+                title: "Message",
+                accessibility: "Message \(attendee.name)"
+            ) {
                 print("[ProfileHero] message tapped profileId=\(attendee.id)")
                 handleMessageTap()
             }
 
-            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts") {
+            profileActionButton(
+                layout: layout,
+                systemImage: "person.crop.circle.badge.plus",
+                title: "Save",
+                accessibility: "Save \(attendee.name) to contacts"
+            ) {
                 print("[ProfileHero] save tapped profileId=\(attendee.id)")
                 showContactSaveSheet = true
             }
 
             if showFindAction {
-                profileActionButton(layout: layout, systemImage: "location.fill", title: "Find", accessibility: "Find \(attendee.name) nearby") {
+                profileActionButton(
+                    layout: layout,
+                    systemImage: "location.fill",
+                    title: "Find",
+                    accessibility: "Find \(attendee.name) nearby"
+                ) {
                     print("[ProfileHero] find tapped profileId=\(attendee.id)")
                     showingFindSheet = true
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func profileActionButton(layout: ProfileHeroLayoutMetrics, systemImage: String, title: String, accessibility: String, action: @escaping () -> Void) -> some View {
+    private func profileActionButton(
+        layout: ProfileHeroLayoutMetrics,
+        systemImage: String,
+        title: String,
+        accessibility: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
@@ -325,6 +323,69 @@ struct PersonDetailView: View {
         .accessibilityLabel(accessibility)
     }
 
+    private func contentCards(layout: ProfileHeroLayoutMetrics) -> some View {
+        VStack(spacing: 18) {
+            if !topEarnedTraits.isEmpty {
+                earnedTraitsHighlight
+                    .padding(.top, layout.contentTopPadding)
+            }
+
+            if let bio = attendee.bio, !bio.isEmpty {
+                sectionCard(title: "Bio") {
+                    Text(bio)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            if let skills = attendee.skills, !skills.isEmpty {
+                sectionCard(title: "Skills") {
+                    tagSection(tags: skills, color: .blue)
+                }
+            }
+
+            if let interests = attendee.interests, !interests.isEmpty {
+                sectionCard(title: "Interests") {
+                    tagSection(tags: interests, color: .green)
+                }
+            }
+
+            if let pub = publicProfile, !pub.latelyLines.isEmpty {
+                sectionCard(title: "Lately") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(pub.latelyLines, id: \.self) { line in
+                            Text(line)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+
+            if let paragraph = publicProfile?.emergingStrengthsParagraph {
+                sectionCard(title: "Emerging Strengths") {
+                    Text(paragraph)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            statusRow
+
+            Spacer(minLength: 40)
+        }
+        .frame(maxWidth: layout.contentMaxWidth)
+        .padding(.horizontal, layout.contentHorizontalPadding)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(.systemBackground))
+                .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
     private var earnedTraitsHighlight: some View {
         sectionCard(title: "Earned Traits") {
             Text(topEarnedTraits.map(\.publicText).joined(separator: " · "))
@@ -338,6 +399,7 @@ struct PersonDetailView: View {
             Circle()
                 .fill(attendee.isActiveNow ? Color.green : Color.gray)
                 .frame(width: 8, height: 8)
+
             Text(attendee.lastSeenText)
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -345,10 +407,12 @@ struct PersonDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 8)
         .padding(.top, 4)
-
     }
 
-    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func sectionCard<Content: View>(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.caption)
@@ -425,13 +489,17 @@ struct PersonDetailView: View {
                 let eventId = await MainActor.run {
                     EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) }
                 }
-                let eventName = await MainActor.run { EventJoinService.shared.currentEventName }
+
+                let eventName = await MainActor.run {
+                    EventJoinService.shared.currentEventName
+                }
 
                 let conversation = try await MessagingService.shared.getOrCreateConversation(
                     with: attendee.id,
                     eventId: eventId,
                     eventName: eventName
                 )
+
                 await MessagingService.shared.fetchMessages(conversationId: conversation.id)
 
                 await MainActor.run {
@@ -459,8 +527,9 @@ struct PersonDetailView: View {
         let heroHeight: CGFloat = {
             if isCompactWidth {
                 return min(420, max(320, screenHeight * 0.42))
+            } else {
+                return min(360, max(300, screenHeight * 0.32))
             }
-            return min(360, screenHeight * 0.32)
         }()
 
         return ProfileHeroLayoutMetrics(
