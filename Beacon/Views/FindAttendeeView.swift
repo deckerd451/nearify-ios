@@ -66,6 +66,7 @@ struct FindAttendeeView: View {
     @State private var isSearchExpanded = false
     @State private var ambientMessageIndex = 0
     @State private var ambientMessageTask: Task<Void, Never>?
+    @State private var showContactSaveSheet = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -207,6 +208,24 @@ struct FindAttendeeView: View {
         .onDisappear {
             stopSignalTimer()
             stopAmbientMessageRotation()
+        }
+        .sheet(isPresented: $showContactSaveSheet) {
+            ContactSaveSheet(draft: attendeeContactDraft) { didSave in
+                showContactSaveSheet = false
+                guard didSave else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    transientConfirmationMessage = "Saved to your contacts with context from Nearify"
+                }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            transientConfirmationMessage = nil
+                        }
+                    }
+                }
+            }
         }
         .onChange(of: signalAge) {
             guard findState != .arrived else { return }
@@ -1081,6 +1100,16 @@ struct FindAttendeeView: View {
         EventJoinService.shared.currentEventID
     }
 
+    private var attendeeContactDraft: ContactDraftData {
+        ContactDraftData(
+            name: attendee.name,
+            eventName: EventJoinService.shared.currentEventName ?? "Nearify event",
+            interests: attendee.interests ?? [],
+            skills: attendee.skills ?? [],
+            earnedTraits: []
+        )
+    }
+
     @ViewBuilder
     private var arrivedActions: some View {
         if shouldShowConnectAction {
@@ -1111,6 +1140,24 @@ struct FindAttendeeView: View {
                 .foregroundColor(.green.opacity(0.9))
                 .padding(.top, 4)
         }
+
+        Button {
+            showContactSaveSheet = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle.badge.plus")
+                Text("Save to Contacts")
+                    .fontWeight(.semibold)
+            }
+            .font(.subheadline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.orange)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
 
         HStack(spacing: 10) {
             Button("Back") { dismiss() }

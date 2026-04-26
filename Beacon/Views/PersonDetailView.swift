@@ -5,7 +5,11 @@ struct PersonDetailView: View {
     let attendee: EventAttendee
     
     @State private var showingFindSheet = false
+    @State private var showContactSaveSheet = false
+    @State private var showSavedConfirmation = false
     @State private var publicProfile: PublicProfileSummary?
+
+    @ObservedObject private var encounterService = EncounterService.shared
     
     var body: some View {
         ScrollView {
@@ -110,6 +114,16 @@ struct PersonDetailView: View {
                 }
                 .padding(.top, 8)
                 
+                Button(action: { showContactSaveSheet = true }) {
+                    Label("Save to Contacts", systemImage: "person.crop.circle.badge.plus")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal, 32)
+
                 // Find Person button
                 Button(action: { showingFindSheet = true }) {
                     Label("Find Person", systemImage: "location.circle.fill")
@@ -122,13 +136,45 @@ struct PersonDetailView: View {
                 .padding(.horizontal, 32)
                 .padding(.top, 8)
                 
+                if meaningfulEncounterDuration >= 120 {
+                    Text("Meaningful encounter unlocked — save to contacts while context is fresh")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 32)
+                }
+
                 Spacer(minLength: 40)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if showSavedConfirmation {
+                Text("Saved to your contacts with context from Nearify")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green))
+                    .padding(.bottom, 14)
+                    .transition(.opacity)
             }
         }
         .navigationTitle(attendee.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingFindSheet) {
             FindAttendeeView(attendee: attendee)
+        }
+        .sheet(isPresented: $showContactSaveSheet) {
+            ContactSaveSheet(draft: contactDraft) { didSave in
+                showContactSaveSheet = false
+                guard didSave else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showSavedConfirmation = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showSavedConfirmation = false
+                    }
+                }
+            }
         }
         .task {
             // Build a lightweight User for the generation method
@@ -154,6 +200,20 @@ struct PersonDetailView: View {
         }
     }
     
+    private var meaningfulEncounterDuration: Int {
+        encounterService.activeEncounters[attendee.id]?.totalSeconds ?? 0
+    }
+
+    private var contactDraft: ContactDraftData {
+        ContactDraftData(
+            name: attendee.name,
+            eventName: EventJoinService.shared.currentEventName ?? "Nearify event",
+            interests: attendee.interests ?? [],
+            skills: attendee.skills ?? [],
+            earnedTraits: publicProfile?.earnedTraits.map(\.publicText) ?? []
+        )
+    }
+
     // MARK: - Tag Section
     
     private func tagSection(title: String, tags: [String], color: Color) -> some View {

@@ -419,15 +419,7 @@ final class EventJoinService: ObservableObject {
             sessionEncounters: encounterSnapshot
         )
 
-        let contactSyncContext = contactSyncContext(for: source)
-        await ContactSyncTrigger.runIfEligible(context: contactSyncContext) {
-            await self.runPostEventContactSync(
-                eventId: eventUUID,
-                eventName: eventName,
-                eventDate: sessionStartedAt ?? Date(),
-                sessionEncounters: encounterSnapshot
-            )
-        }
+        print("[ContactSync] automatic sync disabled — waiting for user initiated Save to Contacts")
 
         // Upload encounter fragments to backend (fire-and-forget)
         LocalEncounterStore.shared.uploadPendingFragments()
