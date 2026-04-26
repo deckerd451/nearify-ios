@@ -13,45 +13,45 @@ struct MyQRView: View {
     @State private var uploadError: String?
     @State private var authUserId: String?
     @State private var authProvider: String?
-    
+    @State private var showProfilePreview = false
+
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var latelyService = DynamicProfileService.shared
 
     @State private var showIntelligenceDebug = false
-    @State private var showActivityDetail = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: DesignTokens.sectionSpacing) {
-                    // ── 1. IDENTITY ──
-                    identitySection
+            GeometryReader { proxy in
+                let layout = layoutMetrics(for: proxy)
 
-                    // ── 2. CONNECTION TOOLS ──
-                    qrCodeSection
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        heroSection(layout: layout)
+                            .ignoresSafeArea(edges: .top)
 
-                    // ── 3. CREDIBILITY / BACKGROUND ──
-                    if hasSkillsOrInterests {
-                        attributesSection
-                    }
+                        heroActions(layout: layout)
+                            .padding(.top, 14)
+                            .padding(.bottom, 22)
 
-                    // ── 4. ACTIVITY INSIGHT (collapsed) ──
-                    if hasActivityInsight {
-                        activityInsightSection
+                        profileContent(layout: layout)
                     }
                 }
-                .padding(.horizontal)
-                .padding(.top, DesignTokens.titleToContent)
-                .padding(.bottom, DesignTokens.scrollBottomPadding)
+                .background(Color.black)
             }
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Sign Out") {
                         showingSignOutConfirmation = true
                     }
+                }
+            }
+            .sheet(isPresented: $showProfilePreview) {
+                NavigationStack {
+                    PersonDetailView(attendee: previewAttendee)
                 }
             }
             .sheet(isPresented: $showIntelligenceDebug) {
@@ -62,7 +62,7 @@ struct MyQRView: View {
                 selection: $selectedPhotoItem,
                 matching: .images
             )
-            .onChange(of: selectedPhotoItem) { oldValue, newValue in
+            .onChange(of: selectedPhotoItem) { _, newValue in
                 if let newValue {
                     Task { await uploadPhoto(newValue) }
                 }
@@ -79,63 +79,265 @@ struct MyQRView: View {
                 Text("Are you sure you want to sign out?")
             }
             .task {
+                print("[MyProfileHero] rendered")
                 await loadAuthDetails()
                 latelyService.refresh()
             }
         }
     }
 
-    // MARK: - 1. Identity Section
+    private func layoutMetrics(for proxy: GeometryProxy) -> MyProfileLayoutMetrics {
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        let width = proxy.size.width
 
-    private var identitySection: some View {
-        VStack(spacing: DesignTokens.sectionHeaderToContent) {
-            Button(action: { showingPhotoOptions = true }) {
-                ZStack(alignment: .bottomTrailing) {
-                    avatarView.frame(width: 100, height: 100)
-                    Image(systemName: displayUser.imageUrl != nil ? "pencil.circle.fill" : "camera.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.blue)
-                        .background(Circle().fill(Color.white))
-                }
-            }
-            .disabled(isUploadingPhoto)
-            .confirmationDialog("Profile Photo", isPresented: $showingPhotoOptions) {
-                Button(displayUser.imageUrl != nil ? "Change Photo" : "Add Photo") {
-                    showingPhotoPicker = true
-                }
-                if displayUser.imageUrl != nil {
-                    Button("Remove Photo", role: .destructive) {
-                        Task { await removePhoto() }
+        return MyProfileLayoutMetrics(
+            heroHeight: isPad ? 320 : 384,
+            actionButtonSize: isPad ? 68 : 64,
+            contentMaxWidth: isPad ? min(width - 48, 800) : .infinity,
+            horizontalPadding: isPad ? 24 : 20
+        )
+    }
+
+    private func heroSection(layout: MyProfileLayoutMetrics) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            heroBackground
+
+            VStack(alignment: .leading, spacing: 10) {
+                Button(action: { showingPhotoOptions = true }) {
+                    ZStack(alignment: .bottomTrailing) {
+                        avatarView
+                            .frame(width: 90, height: 90)
+
+                        Image(systemName: displayUser.imageUrl != nil ? "pencil.circle.fill" : "camera.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                            .background(Circle().fill(Color.black.opacity(0.6)))
                     }
                 }
-                Button("Cancel", role: .cancel) {}
-            }
-
-            if isUploadingPhoto {
-                ProgressView("Uploading…").font(.caption)
-            } else if let error = uploadError {
-                Text(error).font(.caption).foregroundColor(.red)
-                    .multilineTextAlignment(.center).padding(.horizontal)
-            }
-
-            Text(displayUser.name)
-                .font(.title2).fontWeight(.bold)
-                .contentShape(Rectangle())
-                .onLongPressGesture(minimumDuration: 1.0) {
-                    guard AppEnvironment.isDebugMode else { return }
-                    showIntelligenceDebug = true
+                .buttonStyle(.plain)
+                .disabled(isUploadingPhoto)
+                .confirmationDialog("Profile Photo", isPresented: $showingPhotoOptions) {
+                    Button(displayUser.imageUrl != nil ? "Change Photo" : "Add Photo") {
+                        showingPhotoPicker = true
+                    }
+                    if displayUser.imageUrl != nil {
+                        Button("Remove Photo", role: .destructive) {
+                            Task { await removePhoto() }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
                 }
 
-            if let bio = displayUser.bio, !bio.isEmpty {
-                Text(bio).font(.subheadline).foregroundColor(.secondary)
-                    .multilineTextAlignment(.center).padding(.horizontal)
+                Text(displayUser.name)
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 1.0) {
+                        guard AppEnvironment.isDebugMode else { return }
+                        showIntelligenceDebug = true
+                    }
+
+                if let identity = identityLine {
+                    Text(identity)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
+                }
+
+                if !heroTraitsLine.isEmpty {
+                    Text(heroTraitsLine)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, layout.horizontalPadding)
+            .padding(.bottom, 24)
+        }
+        .frame(height: layout.heroHeight)
+        .clipped()
+    }
+
+    @ViewBuilder
+    private var heroBackground: some View {
+        if let imageUrl = displayUser.imageUrl, let url = URL(string: imageUrl) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .empty:
+                    fallbackHeroBackground
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .overlay(Color.black.opacity(0.28))
+                        .overlay(
+                            LinearGradient(
+                                colors: [Color.black.opacity(0.76), Color.black.opacity(0.2), .clear],
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
+                        )
+                        .clipped()
+                case .failure:
+                    fallbackHeroBackground
+                @unknown default:
+                    fallbackHeroBackground
+                }
+            }
+        } else {
+            fallbackHeroBackground
+        }
+    }
+
+    private var fallbackHeroBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.indigo, Color.blue.opacity(0.75), Color.teal.opacity(0.7)],
+                startPoint: .bottomLeading,
+                endPoint: .topTrailing
+            )
+
+            Text(initials)
+                .font(.system(size: 88, weight: .bold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.25))
+        }
+        .overlay(Color.black.opacity(0.25))
+        .overlay(
+            LinearGradient(
+                colors: [Color.black.opacity(0.75), .clear],
+                startPoint: .bottom,
+                endPoint: .top
+            )
+        )
+    }
+
+    private func heroActions(layout: MyProfileLayoutMetrics) -> some View {
+        HStack(spacing: 22) {
+            profileActionButton(systemImage: "square.and.pencil", title: "Edit", buttonSize: layout.actionButtonSize) {
+                print("[MyProfileHero] edit tapped")
+                showingEditProfile = true
             }
 
-            Button(action: { showingEditProfile = true }) {
-                Label("Edit Profile", systemImage: "pencil")
-                    .font(.subheadline).fontWeight(.medium).foregroundColor(.blue)
+            profileActionButton(systemImage: "eye.fill", title: "Preview", buttonSize: layout.actionButtonSize) {
+                showProfilePreview = true
+            }
+
+            ShareLink(item: shareURL ?? fallbackShareText) {
+                VStack(spacing: 8) {
+                    Image(systemName: "square.and.arrow.up.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: layout.actionButtonSize, height: layout.actionButtonSize)
+                        .background(.ultraThinMaterial, in: Circle())
+
+                    Text("Share")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .buttonStyle(.plain)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    print("[MyProfileHero] share tapped")
+                }
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, layout.horizontalPadding)
+    }
+
+    private func profileActionButton(systemImage: String, title: String, buttonSize: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: buttonSize, height: buttonSize)
+                    .background(.ultraThinMaterial, in: Circle())
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
             }
         }
+        .buttonStyle(.plain)
+    }
+
+    private func profileContent(layout: MyProfileLayoutMetrics) -> some View {
+        VStack(spacing: 18) {
+            qrCodeSection
+
+            if !latelyService.latelyLines.isEmpty {
+                sectionCard(title: "Lately") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(latelyService.latelyLines, id: \.self) { line in
+                            Text(line)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+
+            if !remainingEarnedTraits.isEmpty {
+                sectionCard(title: "Earned Traits") {
+                    Text(remainingEarnedTraits.map(\.publicText).joined(separator: " · "))
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            if let skills = displayUser.skills, !skills.isEmpty {
+                sectionCard(title: "Skills") {
+                    tagSection(tags: skills, color: .blue)
+                }
+            }
+
+            if let interests = displayUser.interests, !interests.isEmpty {
+                sectionCard(title: "Interests") {
+                    tagSection(tags: interests, color: .green)
+                }
+            }
+
+            if let bio = displayUser.bio, !bio.isEmpty {
+                sectionCard(title: "Bio") {
+                    Text(bio)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let paragraph = latelyService.emergingStrengthsParagraph {
+                sectionCard(title: "Emerging Strengths") {
+                    Text(paragraph)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let error = uploadError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+
+            Spacer(minLength: 36)
+        }
+        .frame(maxWidth: layout.contentMaxWidth)
+        .padding(.horizontal, layout.horizontalPadding)
+        .padding(.top, 10)
+        .padding(.bottom, DesignTokens.scrollBottomPadding)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(.systemBackground))
+                .ignoresSafeArea(edges: .bottom)
+        )
     }
 
     // MARK: - 2. QR Code Section
@@ -145,107 +347,45 @@ struct MyQRView: View {
 
         return Group {
             PersonalConnectQRCard(
-                title: "Share your profile",
-                subtitle: "Let others connect with you instantly",
+                title: "Your Nearify QR",
+                subtitle: "Share your profile instantly",
                 eventId: personalQREventContext?.eventId,
                 profileId: displayUser.id
             )
         }
     }
 
-    // MARK: - 3. Attributes (Skills + Interests)
+    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .textCase(.uppercase)
 
-    private var hasSkillsOrInterests: Bool {
-        !(displayUser.skills ?? []).isEmpty || !(displayUser.interests ?? []).isEmpty
-    }
-
-    private var attributesSection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.elementSpacing) {
-            if let skills = displayUser.skills, !skills.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Skills").font(.caption).foregroundColor(.secondary).textCase(.uppercase)
-                    FlowLayout(spacing: 6) {
-                        ForEach(skills.prefix(6), id: \.self) { skill in
-                            Text(skill).font(.caption2)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.blue.opacity(0.1)))
-                                .foregroundColor(.blue)
-                        }
-                    }
-                }
-            }
-            if let interests = displayUser.interests, !interests.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Interests").font(.caption).foregroundColor(.secondary).textCase(.uppercase)
-                    FlowLayout(spacing: 6) {
-                        ForEach(interests.prefix(6), id: \.self) { interest in
-                            Text(interest).font(.caption2)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.green.opacity(0.1)))
-                                .foregroundColor(.green)
-                        }
-                    }
-                }
-            }
+            content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
     }
 
-    // MARK: - 4. Activity Insight (Collapsed)
-
-    private var hasActivityInsight: Bool {
-        !latelyService.latelyLines.isEmpty
-        || latelyService.emergingStrengthsParagraph != nil
-        || !latelyService.earnedTraits.isEmpty
-    }
-
-    private var activitySummaryLine: String {
-        if let first = latelyService.latelyLines.first { return first }
-        if let p = latelyService.emergingStrengthsParagraph { return String(p.prefix(80)) }
-        if let t = latelyService.earnedTraits.first { return t.publicText }
-        return "Your recent activity"
-    }
-
-    private var activityInsightSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(activitySummaryLine)
-                .font(.caption).foregroundColor(.secondary).lineLimit(2)
-
-            DisclosureGroup("Your activity", isExpanded: $showActivityDetail) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if !latelyService.latelyLines.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Lately").font(.caption2).foregroundColor(.secondary).textCase(.uppercase)
-                            ForEach(latelyService.latelyLines, id: \.self) { line in
-                                Text(line).font(.caption).foregroundColor(.primary)
-                            }
-                        }
-                    }
-                    if let paragraph = latelyService.emergingStrengthsParagraph {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Emerging Strengths").font(.caption2).foregroundColor(.secondary).textCase(.uppercase)
-                            Text(paragraph).font(.caption).foregroundColor(.primary)
-                        }
-                    }
-                    if !latelyService.earnedTraits.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Earned Traits").font(.caption2).foregroundColor(.secondary).textCase(.uppercase)
-                            ForEach(latelyService.earnedTraits) { trait in
-                                HStack(spacing: 6) {
-                                    Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundColor(.green)
-                                    Text(trait.publicText).font(.caption)
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 8)
+    private func tagSection(tags: [String], color: Color) -> some View {
+        FlowLayout(spacing: 8) {
+            ForEach(tags, id: \.self) { tag in
+                Text(tag)
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(color.opacity(0.12))
+                    )
+                    .foregroundColor(color)
             }
-            .font(.caption).foregroundColor(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
     }
 
     private var avatarView: some View {
@@ -273,7 +413,7 @@ struct MyQRView: View {
             }
         }
     }
-    
+
     private var initialsPlaceholder: some View {
         Circle()
             .fill(Color.blue.opacity(0.2))
@@ -284,7 +424,7 @@ struct MyQRView: View {
                     .foregroundColor(.blue)
             )
     }
-    
+
     private var initials: String {
         let components = displayUser.name.components(separatedBy: " ")
         if components.count >= 2 {
@@ -295,66 +435,118 @@ struct MyQRView: View {
             return String(displayUser.name.prefix(2)).uppercased()
         }
     }
-    
+
     /// Use the latest user from AuthService if available, otherwise use passed-in user
     private var displayUser: User {
         authService.currentUser ?? currentUser
     }
-    
+
+    private var previewAttendee: EventAttendee {
+        EventAttendee(
+            id: displayUser.id,
+            name: displayUser.name,
+            avatarUrl: displayUser.imageUrl,
+            bio: displayUser.bio,
+            skills: displayUser.skills,
+            interests: displayUser.interests,
+            energy: 1.0,
+            lastSeen: Date()
+        )
+    }
+
+    private var identityLine: String? {
+        let top = displayUser.skills?.first
+        let second = displayUser.interests?.first
+
+        switch (top, second) {
+        case let (lhs?, rhs?):
+            return "\(lhs) · \(rhs)"
+        case let (lhs?, nil):
+            return lhs
+        case let (nil, rhs?):
+            return rhs
+        default:
+            return nil
+        }
+    }
+
+    private var heroTraits: [EarnedTrait] {
+        Array(latelyService.earnedTraits.prefix(2))
+    }
+
+    private var remainingEarnedTraits: [EarnedTrait] {
+        Array(latelyService.earnedTraits.dropFirst(heroTraits.count))
+    }
+
+    private var heroTraitsLine: String {
+        heroTraits.map(\.publicText).joined(separator: " · ")
+    }
+
+    private var shareURL: URL? {
+        guard let eventId = PersonalQRContextResolver.shared.resolve()?.eventId else {
+            return nil
+        }
+        return QRService.makePersonalConnectWebURL(eventId: eventId, profileId: displayUser.id)
+    }
+
+    private var fallbackShareText: String {
+        "Connect with me on Nearify: \(displayUser.name)"
+    }
+
     // MARK: - Photo Management
-    
+
     private func uploadPhoto(_ item: PhotosPickerItem) async {
         print("[EditProfilePhoto] 📤 uploadPhoto() called")
         print("[EditProfilePhoto]    User ID: \(displayUser.id)")
-        
+
         isUploadingPhoto = true
         uploadError = nil
-        
+
         do {
             print("[EditProfilePhoto] 📥 Loading raw image data from picker...")
-            
+
             // Load raw image data from picker
             guard let rawData = try await item.loadTransferable(type: Data.self) else {
                 print("[EditProfilePhoto] ❌ Failed to load transferable data")
                 throw ProfileImageError.failedToLoadImage
             }
-            
+
             print("[EditProfilePhoto] ✅ Raw data loaded: \(rawData.count) bytes")
             print("[EditProfilePhoto] 🔄 Processing image...")
-            
+
             // Process image (resize and compress)
             let processedData = try ProfileImageService.shared.processImageData(rawData)
-            
+
             print("[EditProfilePhoto] ✅ Image processed: \(processedData.count) bytes")
             print("[EditProfilePhoto] ⬆️ Uploading to storage...")
-            
+
             // Upload to storage
             let result = try await ProfileImageService.shared.uploadProfileImage(
                 processedData,
                 for: displayUser.id
             )
-            
+
             print("[EditProfilePhoto] ✅ Upload successful!")
             print("[EditProfilePhoto]    Image URL: \(result.imageUrl)")
             print("[EditProfilePhoto]    Image Path: \(result.imagePath)")
             print("[EditProfilePhoto] 🔄 Refreshing profile...")
-            
+
             // Refresh profile
             await authService.refreshProfile()
-            
+
             print("[EditProfilePhoto] ✅ Profile refresh complete")
-            
+
             await MainActor.run {
                 isUploadingPhoto = false
                 selectedPhotoItem = nil
                 print("[EditProfilePhoto] ✅ Upload flow complete - UI updated")
             }
-            
+
         } catch {
             print("[EditProfilePhoto] ❌ Upload error: \(error)")
             print("[EditProfilePhoto]    Error type: \(type(of: error))")
             print("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
-            
+
             await MainActor.run {
                 isUploadingPhoto = false
                 uploadError = "Failed to upload: \(error.localizedDescription)"
@@ -362,58 +554,58 @@ struct MyQRView: View {
             }
         }
     }
-    
+
     private func removePhoto() async {
         print("[EditProfilePhoto] 🗑️ removePhoto() called")
         print("[EditProfilePhoto]    User ID: \(displayUser.id)")
         print("[EditProfilePhoto]    Current imagePath: \(displayUser.imagePath ?? "nil")")
-        
+
         isUploadingPhoto = true
         uploadError = nil
-        
+
         do {
             print("[EditProfilePhoto] 🔄 Calling removeProfileImage service...")
-            
+
             try await ProfileImageService.shared.removeProfileImage(
                 for: displayUser.id,
                 currentImagePath: displayUser.imagePath
             )
-            
+
             print("[EditProfilePhoto] ✅ Remove successful!")
             print("[EditProfilePhoto] 🔄 Refreshing profile...")
-            
+
             // Refresh profile
             await authService.refreshProfile()
-            
+
             print("[EditProfilePhoto] ✅ Profile refresh complete")
-            
+
             await MainActor.run {
                 isUploadingPhoto = false
                 print("[EditProfilePhoto] ✅ Remove flow complete - UI updated")
             }
-            
+
         } catch {
             print("[EditProfilePhoto] ❌ Remove error: \(error)")
             print("[EditProfilePhoto]    Error type: \(type(of: error))")
             print("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
-            
+
             await MainActor.run {
                 isUploadingPhoto = false
                 uploadError = "Failed to remove: \(error.localizedDescription)"
             }
         }
     }
-    
+
     // MARK: - Helpers
-    
+
     private func loadAuthDetails() async {
         do {
             let supabase = AppEnvironment.shared.supabaseClient
             let session = try await supabase.auth.session
-            
+
             await MainActor.run {
                 authUserId = session.user.id.uuidString
-                
+
                 if let provider = session.user.appMetadata["provider"]?.stringValue {
                     authProvider = provider
                 } else if case let .array(values)? = session.user.appMetadata["providers"] {
@@ -429,6 +621,13 @@ struct MyQRView: View {
     }
 }
 
+private struct MyProfileLayoutMetrics {
+    let heroHeight: CGFloat
+    let actionButtonSize: CGFloat
+    let contentMaxWidth: CGFloat
+    let horizontalPadding: CGFloat
+}
+
 // MARK: - Info Row Component
 
 struct InfoRow: View {
@@ -436,13 +635,13 @@ struct InfoRow: View {
     let value: String
     var monospace: Bool = false
     var valueColor: Color = .primary
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption)
                 .foregroundColor(.secondary)
-            
+
             Text(value)
                 .font(monospace ? .system(.caption, design: .monospaced) : .caption)
                 .foregroundColor(valueColor)
