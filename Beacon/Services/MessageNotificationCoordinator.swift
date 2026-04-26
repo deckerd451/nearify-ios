@@ -158,6 +158,9 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     private func markMessageProcessedIfNeeded(_ messageId: UUID) -> Bool {
         if processedMessageIds.contains(messageId) {
+            #if DEBUG
+            print("[Messaging] duplicate message ignored: \(messageId)")
+            #endif
             return false
         }
 
