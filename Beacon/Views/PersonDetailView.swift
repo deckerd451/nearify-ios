@@ -72,6 +72,7 @@ struct PersonDetailView: View {
         }
     }
 
+    @ViewBuilder
     private func savedConfirmation(bottomInset: CGFloat) -> some View {
         let eventName = EventJoinService.shared.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let saveMessage = eventName.flatMap { $0.isEmpty ? nil : $0 }

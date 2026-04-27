@@ -116,7 +116,10 @@ struct ContactDraftData {
         let supportsURLFieldInCurrentFlow = true
         if supportsURLFieldInCurrentFlow, let nearifyIdentityURL {
             let existingURLs = contact.urlAddresses
-            let nearifyURL = CNLabeledValue(label: "Nearify", value: nearifyIdentityURL as NSURL)
+            let nearifyURL = CNLabeledValue(
+                label: "Nearify",
+                value: CNUrlAddress(urlString: nearifyIdentityURL.absoluteString)
+            )
             contact.urlAddresses = existingURLs + [nearifyURL]
             contact.note = note
         } else {
