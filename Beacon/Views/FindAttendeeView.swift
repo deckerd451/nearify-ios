@@ -1120,15 +1120,20 @@ struct FindAttendeeView: View {
         }
 
         let avatarImageData = ContactAvatarResolver.cachedImageData(avatarUrl: attendee.avatarUrl)
+        let sanitizedPhone = sanitizedContactValue(attendee.publicPhone)
+        let sanitizedEmail = sanitizedContactValue(attendee.publicEmail)
+        let sanitizedLinkedIn = sanitizedContactValue(attendee.linkedInUrl)
+        let sanitizedWebsite = sanitizedContactValue(attendee.websiteUrl)
 
         return ContactDraftData(
             name: attendee.name,
             nearifyProfileIdentifier: attendee.id,
             eventName: EventJoinService.shared.currentEventName,
             imageData: avatarImageData,
-            phoneNumbers: [],
-            emailAddresses: [],
-            linkedInUrl: nil,
+            phoneNumbers: attendee.sharePhone == true ? [sanitizedPhone].compactMap { $0 } : [],
+            emailAddresses: attendee.shareEmail == true ? [sanitizedEmail].compactMap { $0 } : [],
+            linkedInUrl: sanitizedLinkedIn,
+            websiteUrl: sanitizedWebsite,
             socialProfiles: [],
             interactionLine: interactionLine,
             memoryCues: Array(((attendee.skills ?? []) + (attendee.interests ?? [])).prefix(2)),
@@ -1142,6 +1147,16 @@ struct FindAttendeeView: View {
             return
         }
         _ = await ThumbnailCache.shared.loadThumbnail(for: avatarUrl)
+    }
+
+    private func sanitizedContactValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let lowered = trimmed.lowercased()
+        let placeholders = ["n/a", "na", "none", "null", "-", "--", "tbd"]
+        return placeholders.contains(lowered) ? nil : trimmed
     }
 
     @ViewBuilder

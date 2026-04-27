@@ -11,6 +11,13 @@ struct EventAttendee: Identifiable, Equatable {
     let bio: String?
     let skills: [String]?
     let interests: [String]?
+    let publicEmail: String? = nil
+    let publicPhone: String? = nil
+    let linkedInUrl: String? = nil
+    let websiteUrl: String? = nil
+    let shareEmail: Bool? = nil
+    let sharePhone: Bool? = nil
+    let preferredContactMethod: String? = nil
     let energy: Double
     let lastSeen: Date
 
@@ -456,6 +463,13 @@ final class EventAttendeesService: ObservableObject {
                             bio: nil,
                             skills: nil,
                             interests: nil,
+                            publicEmail: nil,
+                            publicPhone: nil,
+                            linkedInUrl: nil,
+                            websiteUrl: nil,
+                            shareEmail: nil,
+                            sharePhone: nil,
+                            preferredContactMethod: nil,
                             energy: 0.5,
                             lastSeen: device.lastSeen
                         )
@@ -623,6 +637,13 @@ final class EventAttendeesService: ObservableObject {
                     bio: profile?.bio,
                     skills: nil,
                     interests: nil,
+                    publicEmail: profile?.publicEmail,
+                    publicPhone: profile?.publicPhone,
+                    linkedInUrl: profile?.linkedInUrl,
+                    websiteUrl: profile?.websiteUrl,
+                    shareEmail: profile?.shareEmail,
+                    sharePhone: profile?.sharePhone,
+                    preferredContactMethod: profile?.preferredContactMethod,
                     energy: 1.0,
                     lastSeen: row.lastSeenAt
                 )
@@ -638,6 +659,13 @@ final class EventAttendeesService: ObservableObject {
                         bio: baseAttendee.bio,
                         skills: baseAttendee.skills,
                         interests: baseAttendee.interests,
+                        publicEmail: baseAttendee.publicEmail,
+                        publicPhone: baseAttendee.publicPhone,
+                        linkedInUrl: baseAttendee.linkedInUrl,
+                        websiteUrl: baseAttendee.websiteUrl,
+                        shareEmail: baseAttendee.shareEmail,
+                        sharePhone: baseAttendee.sharePhone,
+                        preferredContactMethod: baseAttendee.preferredContactMethod,
                         energy: baseAttendee.energy,
                         lastSeen: now
                     )
@@ -718,7 +746,7 @@ final class EventAttendeesService: ObservableObject {
 
         let rows: [ProfileRow] = try await supabase
             .from("profiles")
-            .select("id, name, avatar_url, bio")
+            .select("id, name, avatar_url, bio, public_email, public_phone, linkedin_url, website_url, share_email, share_phone, preferred_contact_method")
             .in("id", values: cappedIds.map { $0.uuidString })
             .execute()
             .value
@@ -735,7 +763,14 @@ final class EventAttendeesService: ObservableObject {
                 ($0.id, ProfileInfo(
                     name: $0.name,
                     avatarUrl: $0.avatarUrl,
-                    bio: $0.bio
+                    bio: $0.bio,
+                    publicEmail: $0.publicEmail,
+                    publicPhone: $0.publicPhone,
+                    linkedInUrl: $0.linkedInUrl,
+                    websiteUrl: $0.websiteUrl,
+                    shareEmail: $0.shareEmail,
+                    sharePhone: $0.sharePhone,
+                    preferredContactMethod: $0.preferredContactMethod
                 ))
             }
         )
@@ -775,10 +810,24 @@ private struct ProfileRow: Codable {
     let name: String
     let avatarUrl: String?
     let bio: String?
+    let publicEmail: String?
+    let publicPhone: String?
+    let linkedInUrl: String?
+    let websiteUrl: String?
+    let shareEmail: Bool?
+    let sharePhone: Bool?
+    let preferredContactMethod: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, bio
         case avatarUrl = "avatar_url"
+        case publicEmail = "public_email"
+        case publicPhone = "public_phone"
+        case linkedInUrl = "linkedin_url"
+        case websiteUrl = "website_url"
+        case shareEmail = "share_email"
+        case sharePhone = "share_phone"
+        case preferredContactMethod = "preferred_contact_method"
     }
 }
 
@@ -786,4 +835,11 @@ private struct ProfileInfo {
     let name: String
     let avatarUrl: String?
     let bio: String?
+    let publicEmail: String?
+    let publicPhone: String?
+    let linkedInUrl: String?
+    let websiteUrl: String?
+    let shareEmail: Bool?
+    let sharePhone: Bool?
+    let preferredContactMethod: String?
 }
