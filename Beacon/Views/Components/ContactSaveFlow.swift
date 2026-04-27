@@ -18,6 +18,49 @@ struct ContactDraftData {
     let timeSpentLine: String?
     let followUpLine: String?
 
+
+    init(
+        name: String,
+        nearifyProfileIdentifier: UUID?,
+        eventName: String?,
+        imageData: Data?,
+        phoneNumbers: [String],
+        emailAddresses: [String],
+        linkedInUrl: String?,
+        socialProfiles: [CNLabeledValue<CNSocialProfile>],
+        interactionLine: String? = nil,
+        memoryCues: [String] = [],
+        whyThisPersonMatters: String? = nil,
+        sharedContextItems: [String]? = nil,
+        strongestInteractionLine: String? = nil,
+        relationshipStatusLine: String? = nil,
+        timeSpentLine: String? = nil,
+        followUpLine: String? = nil
+    ) {
+        self.name = name
+        self.nearifyProfileIdentifier = nearifyProfileIdentifier
+        self.eventName = eventName
+        self.imageData = imageData
+        self.phoneNumbers = phoneNumbers
+        self.emailAddresses = emailAddresses
+        self.linkedInUrl = linkedInUrl
+        self.socialProfiles = socialProfiles.map { profile in
+            (
+                label: profile.label,
+                username: profile.value.username,
+                service: profile.value.service,
+                urlString: profile.value.urlString
+            )
+        }
+
+        self.whyThisPersonMatters = whyThisPersonMatters
+        self.sharedContextItems = sharedContextItems ?? memoryCues
+        self.strongestInteractionLine = strongestInteractionLine ?? interactionLine
+        self.relationshipStatusLine = relationshipStatusLine
+        self.timeSpentLine = timeSpentLine
+        self.followUpLine = followUpLine
+    }
+
     var nearifyIdentityURL: URL? {
         guard let nearifyProfileIdentifier else { return nil }
         return URL(string: "nearify://profile/\(nearifyProfileIdentifier.uuidString.lowercased())")
