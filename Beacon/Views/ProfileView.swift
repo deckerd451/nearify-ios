@@ -178,15 +178,20 @@ struct ProfileView: View {
 
     private var profileContactDraft: ContactDraftData {
         let avatarImageData = ContactAvatarResolver.cachedImageData(avatarUrl: profile.imageUrl)
+        let sanitizedPublicPhone = sanitizedContactValue(profile.publicPhone)
+        let sanitizedPublicEmail = sanitizedContactValue(profile.publicEmail)
+        let sanitizedLinkedIn = sanitizedContactValue(profile.linkedInUrl)
+        let sanitizedWebsite = sanitizedContactValue(profile.websiteUrl)
 
         return ContactDraftData(
             name: profile.name,
             nearifyProfileIdentifier: profile.id,
             eventName: EventJoinService.shared.currentEventName,
             imageData: avatarImageData,
-            phoneNumbers: [],
-            emailAddresses: [profile.email].compactMap { $0 },
-            linkedInUrl: nil,
+            phoneNumbers: (profile.sharePhone == true ? [sanitizedPublicPhone].compactMap { $0 } : []),
+            emailAddresses: (profile.shareEmail == true ? [sanitizedPublicEmail].compactMap { $0 } : []),
+            linkedInUrl: sanitizedLinkedIn,
+            websiteUrl: sanitizedWebsite,
             socialProfiles: [],
             interactionLine: nil as String?,
             memoryCues: Array(((profile.interests ?? []) + (profile.skills ?? [])).prefix(2)),
@@ -261,6 +266,16 @@ struct ProfileView: View {
     private func openFindMode() {
         print("[Profile] 📍 Opening Find Mode for: \(profile.name)")
         showFindMode = true
+    }
+
+    private func sanitizedContactValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let lowered = trimmed.lowercased()
+        let placeholders = ["n/a", "na", "none", "null", "-", "--", "tbd"]
+        return placeholders.contains(lowered) ? nil : trimmed
     }
     
     /// Converts the User profile to an EventAttendee for Find Mode.

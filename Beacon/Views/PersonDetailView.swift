@@ -500,15 +500,20 @@ struct PersonDetailView: View {
         }()
 
         let avatarImageData = ContactAvatarResolver.cachedImageData(avatarUrl: attendee.avatarUrl)
+        let sanitizedPhone = sanitizedContactValue(attendee.publicPhone)
+        let sanitizedEmail = sanitizedContactValue(attendee.publicEmail)
+        let sanitizedLinkedIn = sanitizedContactValue(attendee.linkedInUrl)
+        let sanitizedWebsite = sanitizedContactValue(attendee.websiteUrl)
 
         return ContactDraftData(
             name: attendee.name,
             nearifyProfileIdentifier: attendee.id,
             eventName: EventJoinService.shared.currentEventName,
             imageData: avatarImageData,
-            phoneNumbers: [],
-            emailAddresses: [],
-            linkedInUrl: nil,
+            phoneNumbers: attendee.sharePhone == true ? [sanitizedPhone].compactMap { $0 } : [],
+            emailAddresses: attendee.shareEmail == true ? [sanitizedEmail].compactMap { $0 } : [],
+            linkedInUrl: sanitizedLinkedIn,
+            websiteUrl: sanitizedWebsite,
             socialProfiles: [],
             whyThisPersonMatters: whyCue,
             sharedContextItems: sharedContextItems,
@@ -517,6 +522,16 @@ struct PersonDetailView: View {
             timeSpentLine: meaningfulEncounterDuration >= 300 ? "\(max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))) min" : nil,
             followUpLine: followUpLine
         )
+    }
+
+    private func sanitizedContactValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let lowered = trimmed.lowercased()
+        let placeholders = ["n/a", "na", "none", "null", "-", "--", "tbd"]
+        return placeholders.contains(lowered) ? nil : trimmed
     }
 
     private func prefetchContactAvatarIfNeeded() async {

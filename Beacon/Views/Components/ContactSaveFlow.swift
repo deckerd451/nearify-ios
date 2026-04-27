@@ -10,6 +10,7 @@ struct ContactDraftData {
     let phoneNumbers: [String]
     let emailAddresses: [String]
     let linkedInUrl: String?
+    let websiteUrl: String?
     let socialProfiles: [(label: String?, username: String, service: String, urlString: String?)]
     let whyThisPersonMatters: String?
     let sharedContextItems: [String]
@@ -24,9 +25,10 @@ struct ContactDraftData {
         nearifyProfileIdentifier: UUID?,
         eventName: String?,
         imageData: Data?,
-        phoneNumbers: [String],
-        emailAddresses: [String],
-        linkedInUrl: String?,
+        phoneNumbers: [String] = [],
+        emailAddresses: [String] = [],
+        linkedInUrl: String? = nil,
+        websiteUrl: String? = nil,
         socialProfiles: [CNLabeledValue<CNSocialProfile>],
         interactionLine: String? = nil,
         memoryCues: [String] = [],
@@ -44,6 +46,7 @@ struct ContactDraftData {
         self.phoneNumbers = phoneNumbers
         self.emailAddresses = emailAddresses
         self.linkedInUrl = linkedInUrl
+        self.websiteUrl = websiteUrl
         self.socialProfiles = socialProfiles.map { profile in
             (
                 label: profile.label,
@@ -169,6 +172,13 @@ struct ContactDraftData {
 
         if !builtSocialProfiles.isEmpty {
             contact.socialProfiles = builtSocialProfiles
+        }
+
+        let validWebsiteURL = websiteUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let validWebsiteURL, !validWebsiteURL.isEmpty {
+            contact.urlAddresses = contact.urlAddresses + [
+                CNLabeledValue(label: CNLabelURLAddressHomePage, value: validWebsiteURL as NSString)
+            ]
         }
 
         let supportsURLFieldInCurrentFlow = true

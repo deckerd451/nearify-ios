@@ -14,6 +14,13 @@ struct User: Codable, Identifiable {
     let connectionCount: Int?
     let createdAt: Date?
     let updatedAt: Date?
+    let publicEmail: String? = nil
+    let publicPhone: String? = nil
+    let linkedInUrl: String? = nil
+    let websiteUrl: String? = nil
+    let shareEmail: Bool? = nil
+    let sharePhone: Bool? = nil
+    let preferredContactMethod: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -29,6 +36,13 @@ struct User: Codable, Identifiable {
         case connectionCount = "connection_count"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case publicEmail = "public_email"
+        case publicPhone = "public_phone"
+        case linkedInUrl = "linkedin_url"
+        case websiteUrl = "website_url"
+        case shareEmail = "share_email"
+        case sharePhone = "share_phone"
+        case preferredContactMethod = "preferred_contact_method"
     }
     
     // MARK: - Profile State Helpers

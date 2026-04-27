@@ -55,7 +55,7 @@ final class ProfileService {
         do {
             let profiles: [NearifyProfile] = try await supabase
                 .from("profiles")
-                .select("id,user_id,name,email,avatar_url,bio,skills,interests")
+                .select("id,user_id,name,email,avatar_url,bio,skills,interests,public_email,public_phone,linkedin_url,website_url,share_email,share_phone,preferred_contact_method")
                 .eq("user_id", value: userId.uuidString)
                 .limit(1)
                 .execute()
@@ -91,7 +91,7 @@ final class ProfileService {
         do {
             let profile: NearifyProfile = try await supabase
                 .from("profiles")
-                .select("id,user_id,name,email,avatar_url,bio,skills,interests")
+                .select("id,user_id,name,email,avatar_url,bio,skills,interests,public_email,public_phone,linkedin_url,website_url,share_email,share_phone,preferred_contact_method")
                 .eq("id", value: profileId.uuidString)
                 .single()
                 .execute()
@@ -126,7 +126,7 @@ final class ProfileService {
         do {
             let profiles: [NearifyProfile] = try await supabase
                 .from("profiles")
-                .select("id,user_id,name,email,avatar_url,bio,skills,interests")
+                .select("id,user_id,name,email,avatar_url,bio,skills,interests,public_email,public_phone,linkedin_url,website_url,share_email,share_phone,preferred_contact_method")
                 .in("id", values: uniqueIds.map { $0.uuidString })
                 .execute()
                 .value
@@ -176,7 +176,14 @@ final class ProfileService {
         avatarUrl: String? = nil,
         clearAvatar: Bool = false,
         skills: [String]? = nil,
-        interests: [String]? = nil
+        interests: [String]? = nil,
+        publicEmail: String? = nil,
+        publicPhone: String? = nil,
+        linkedInUrl: String? = nil,
+        websiteUrl: String? = nil,
+        shareEmail: Bool? = nil,
+        sharePhone: Bool? = nil,
+        preferredContactMethod: String? = nil
     ) async throws {
         print("[Profile] 💾 Updating public.profiles row: \(profileId)")
         print("[Profile]    name: \(name ?? "nil")")
@@ -184,6 +191,13 @@ final class ProfileService {
         print("[Profile]    avatar_url: \(clearAvatar ? "(clearing)" : avatarUrl ?? "(unchanged)")")
         print("[Profile]    skills: \(skills ?? [])")
         print("[Profile]    interests: \(interests ?? [])")
+        print("[Profile]    public_email: \(publicEmail ?? "nil")")
+        print("[Profile]    public_phone: \(publicPhone ?? "nil")")
+        print("[Profile]    linkedin_url: \(linkedInUrl ?? "nil")")
+        print("[Profile]    website_url: \(websiteUrl ?? "nil")")
+        print("[Profile]    share_email: \(shareEmail.map { String($0) } ?? "nil")")
+        print("[Profile]    share_phone: \(sharePhone.map { String($0) } ?? "nil")")
+        print("[Profile]    preferred_contact_method: \(preferredContactMethod ?? "nil")")
 
         let payload = ProfileUpdatePayload(
             name: name,
@@ -191,7 +205,14 @@ final class ProfileService {
             avatar_url: avatarUrl,
             includeAvatarUrl: avatarUrl != nil || clearAvatar,
             skills: skills,
-            interests: interests
+            interests: interests,
+            public_email: publicEmail,
+            public_phone: publicPhone,
+            linkedin_url: linkedInUrl,
+            website_url: websiteUrl,
+            share_email: shareEmail,
+            share_phone: sharePhone,
+            preferred_contact_method: preferredContactMethod
         )
 
         try await supabase
@@ -219,7 +240,14 @@ final class ProfileService {
             profileCompleted: true,
             connectionCount: nil,
             createdAt: nil,
-            updatedAt: nil
+            updatedAt: nil,
+            publicEmail: profile.public_email,
+            publicPhone: profile.public_phone,
+            linkedInUrl: profile.linkedin_url,
+            websiteUrl: profile.website_url,
+            shareEmail: profile.share_email,
+            sharePhone: profile.share_phone,
+            preferredContactMethod: profile.preferred_contact_method
         )
     }
 }
@@ -239,6 +267,13 @@ private struct ProfileUpdatePayload: Encodable {
     let includeAvatarUrl: Bool
     let skills: [String]?
     let interests: [String]?
+    let public_email: String?
+    let public_phone: String?
+    let linkedin_url: String?
+    let website_url: String?
+    let share_email: Bool?
+    let share_phone: Bool?
+    let preferred_contact_method: String?
 
     /// Only encodes avatar_url when explicitly requested (upload or clear).
     /// Prevents name/bio-only edits from accidentally nulling the avatar.
@@ -252,10 +287,19 @@ private struct ProfileUpdatePayload: Encodable {
         }
         try container.encodeIfPresent(skills, forKey: .skills)
         try container.encodeIfPresent(interests, forKey: .interests)
+        try container.encodeIfPresent(public_email, forKey: .public_email)
+        try container.encodeIfPresent(public_phone, forKey: .public_phone)
+        try container.encodeIfPresent(linkedin_url, forKey: .linkedin_url)
+        try container.encodeIfPresent(website_url, forKey: .website_url)
+        try container.encodeIfPresent(share_email, forKey: .share_email)
+        try container.encodeIfPresent(share_phone, forKey: .share_phone)
+        try container.encodeIfPresent(preferred_contact_method, forKey: .preferred_contact_method)
     }
 
     private enum CodingKeys: String, CodingKey {
         case name, bio, avatar_url, skills, interests
+        case public_email, public_phone, linkedin_url, website_url
+        case share_email, share_phone, preferred_contact_method
     }
 }
 
@@ -270,6 +314,13 @@ struct NearifyProfile: Decodable {
     let bio: String?
     let skills: [String]?
     let interests: [String]?
+    let public_email: String?
+    let public_phone: String?
+    let linkedin_url: String?
+    let website_url: String?
+    let share_email: Bool?
+    let share_phone: Bool?
+    let preferred_contact_method: String?
 }
 
 struct ResolvedProfileResult {
