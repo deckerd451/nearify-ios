@@ -14,13 +14,57 @@ struct User: Codable, Identifiable {
     let connectionCount: Int?
     let createdAt: Date?
     let updatedAt: Date?
-    let publicEmail: String? = nil
-    let publicPhone: String? = nil
-    let linkedInUrl: String? = nil
-    let websiteUrl: String? = nil
-    let shareEmail: Bool? = nil
-    let sharePhone: Bool? = nil
-    let preferredContactMethod: String? = nil
+    let publicEmail: String?
+    let publicPhone: String?
+    let linkedInUrl: String?
+    let websiteUrl: String?
+    let shareEmail: Bool?
+    let sharePhone: Bool?
+    let preferredContactMethod: String?
+
+    init(
+        id: UUID,
+        userId: UUID?,
+        name: String,
+        email: String?,
+        bio: String?,
+        skills: [String]?,
+        interests: [String]?,
+        imageUrl: String?,
+        imagePath: String?,
+        profileCompleted: Bool?,
+        connectionCount: Int?,
+        createdAt: Date?,
+        updatedAt: Date?,
+        publicEmail: String? = nil,
+        publicPhone: String? = nil,
+        linkedInUrl: String? = nil,
+        websiteUrl: String? = nil,
+        shareEmail: Bool? = nil,
+        sharePhone: Bool? = nil,
+        preferredContactMethod: String? = nil
+    ) {
+        self.id = id
+        self.userId = userId
+        self.name = name
+        self.email = email
+        self.bio = bio
+        self.skills = skills
+        self.interests = interests
+        self.imageUrl = imageUrl
+        self.imagePath = imagePath
+        self.profileCompleted = profileCompleted
+        self.connectionCount = connectionCount
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.publicEmail = publicEmail
+        self.publicPhone = publicPhone
+        self.linkedInUrl = linkedInUrl
+        self.websiteUrl = websiteUrl
+        self.shareEmail = shareEmail
+        self.sharePhone = sharePhone
+        self.preferredContactMethod = preferredContactMethod
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
