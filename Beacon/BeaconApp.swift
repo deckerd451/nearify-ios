@@ -70,6 +70,7 @@ struct BeaconApp: App {
 
                                     if let banner = messageCoordinator.banner {
                                         IncomingMessageBannerView(banner: banner) {
+                                            messageCoordinator.markNotificationOpened(messageId: banner.id)
                                             messageCoordinator.dismissBanner()
                                             Task {
                                                 let convo = await MessagingService.shared.fetchConversationsSnapshot().first(where: { $0.id == banner.conversationId })
