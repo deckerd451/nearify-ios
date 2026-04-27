@@ -445,12 +445,30 @@ struct PersonDetailView: View {
     }
 
     private var contactDraft: ContactDraftData {
+        let interactionLine: String?
+        if meaningfulEncounterDuration >= 30 {
+            let minutes = max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))
+            let strength: String = meaningfulEncounterDuration >= 900 ? "strong interaction" : (meaningfulEncounterDuration >= 240 ? "good interaction" : "light interaction")
+            interactionLine = "Spent ~\(minutes) minutes together — \(strength)"
+        } else {
+            interactionLine = nil
+        }
+
+        let cues = Array((publicProfile?.earnedTraits.map(\.publicText) ?? []
+            + (attendee.skills ?? [])
+            + (attendee.interests ?? [])).prefix(2))
+
         ContactDraftData(
             name: attendee.name,
-            eventName: EventJoinService.shared.currentEventName ?? "Nearify event",
-            interests: attendee.interests ?? [],
-            skills: attendee.skills ?? [],
-            earnedTraits: publicProfile?.earnedTraits.map(\.publicText) ?? []
+            eventName: EventJoinService.shared.currentEventName,
+            imageData: nil,
+            phoneNumbers: [],
+            emailAddresses: [],
+            linkedInUrl: nil,
+            socialProfiles: [],
+            interactionLine: interactionLine,
+            memoryCues: cues,
+            followUpLine: meaningfulEncounterDuration >= 240 ? "Follow up: reconnect next time" : nil
         )
     }
 

@@ -173,10 +173,15 @@ struct ProfileView: View {
     private var profileContactDraft: ContactDraftData {
         ContactDraftData(
             name: profile.name,
-            eventName: EventJoinService.shared.currentEventName ?? "Nearify event",
-            interests: profile.interests ?? [],
-            skills: profile.skills ?? [],
-            earnedTraits: []
+            eventName: EventJoinService.shared.currentEventName,
+            imageData: nil,
+            phoneNumbers: [],
+            emailAddresses: [profile.email].compactMap { $0 },
+            linkedInUrl: nil,
+            socialProfiles: [],
+            interactionLine: nil,
+            memoryCues: Array(((profile.interests ?? []) + (profile.skills ?? [])).prefix(2)),
+            followUpLine: nil
         )
     }
 
