@@ -13,13 +13,23 @@ final class MessagingRefreshCoordinator {
         case controlledPoll = "controlled-poll"
     }
 
+    enum Mode: String {
+        case interactive = "interactive"
+        case quiet = "quiet"
+
+        var isNotificationEligible: Bool {
+            self == .interactive
+        }
+    }
+
     static let shared = MessagingRefreshCoordinator()
 
     private let debounceWindow: TimeInterval = 2.5
+    private let tabChangeDebounceWindow: TimeInterval = 5.0
     private let promptDelay: TimeInterval = 0.12
     private let highPriorityReasons: Set<Reason> = [.messageSent, .notificationOpened, .manualConversationOpen]
 
-    private var pendingReasons: Set<Reason> = []
+    private var pendingReasons: [Reason: Mode] = [:]
     private var pendingTask: Task<Void, Never>?
     private var isExecuting = false
     private var shouldRunFollowUp = false
@@ -28,17 +38,19 @@ final class MessagingRefreshCoordinator {
 
     private init() {}
 
-    func requestRefresh(reason: Reason) {
+    func requestRefresh(reason: Reason, mode: Mode = .interactive) {
         let now = Date()
+        let debounce = (reason == .tabChange) ? tabChangeDebounceWindow : debounceWindow
 
         if let last = lastRequestAtByReason[reason],
-           now.timeIntervalSince(last) < debounceWindow {
+           now.timeIntervalSince(last) < debounce {
             print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
             return
         }
         lastRequestAtByReason[reason] = now
 
-        pendingReasons.insert(reason)
+        let existingMode = pendingReasons[reason] ?? .quiet
+        pendingReasons[reason] = mergedMode(existingMode, mode)
 
         if isExecuting {
             shouldRunFollowUp = true
@@ -77,19 +89,34 @@ final class MessagingRefreshCoordinator {
         guard !pendingReasons.isEmpty else { return }
 
         isExecuting = true
-        let reasons = pendingReasons
+        let reasonsWithModes = pendingReasons
         pendingReasons.removeAll()
 
         _ = await MessagingService.shared.fetchConversationsSnapshot()
+
+        for (reason, mode) in reasonsWithModes {
+            await MessageNotificationCoordinator.shared.processRefresh(reason: reason, mode: mode)
+        }
+
         lastExecutionAt = Date()
         isExecuting = false
 
-        let reasonSummary = reasons.map(\.rawValue).sorted().joined(separator: ",")
+        let reasonSummary = reasonsWithModes
+            .map { "\($0.key.rawValue):\($0.value.rawValue)" }
+            .sorted()
+            .joined(separator: ",")
         print("[MessagingRefresh] executed reason=\(reasonSummary)")
 
         if shouldRunFollowUp || !pendingReasons.isEmpty {
             shouldRunFollowUp = false
             schedule(triggerReason: .controlledPoll)
         }
+    }
+
+    private func mergedMode(_ lhs: Mode, _ rhs: Mode) -> Mode {
+        if lhs.isNotificationEligible || rhs.isNotificationEligible {
+            return .interactive
+        }
+        return .quiet
     }
 }
