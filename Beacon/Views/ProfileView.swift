@@ -180,7 +180,7 @@ struct ProfileView: View {
             return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
         }()
 
-        ContactDraftData(
+        return ContactDraftData(
             name: profile.name,
             nearifyProfileIdentifier: profile.id,
             eventName: EventJoinService.shared.currentEventName,
