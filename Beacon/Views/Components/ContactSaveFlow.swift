@@ -118,7 +118,7 @@ struct ContactDraftData {
             let existingURLs = contact.urlAddresses
             let nearifyURL = CNLabeledValue(
                 label: "Nearify",
-                value: CNUrlAddress(urlString: nearifyIdentityURL.absoluteString)
+                value: nearifyIdentityURL.absoluteString as NSString
             )
             contact.urlAddresses = existingURLs + [nearifyURL]
             contact.note = note
