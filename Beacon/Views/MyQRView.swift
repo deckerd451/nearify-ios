@@ -45,7 +45,11 @@ struct MyQRView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button("Edit Profile") {
+                        showingEditProfile = true
+                    }
+
                     Button("Sign Out") {
                         showingSignOutConfirmation = true
                     }
