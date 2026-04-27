@@ -73,10 +73,14 @@ struct PersonDetailView: View {
     }
 
     private func savedConfirmation(bottomInset: CGFloat) -> some View {
+        let eventName = EventJoinService.shared.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let saveMessage = eventName.flatMap { $0.isEmpty ? nil : $0 }
+            .map { "Saved with context from \($0)" } ?? "Saved with Nearify context"
+
         VStack {
             Spacer()
 
-            Text("Saved to your contacts with context from Nearify")
+            Text(saveMessage)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14)
@@ -449,7 +453,7 @@ struct PersonDetailView: View {
         if meaningfulEncounterDuration >= 30 {
             let minutes = max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))
             let strength: String = meaningfulEncounterDuration >= 900 ? "strong interaction" : (meaningfulEncounterDuration >= 240 ? "good interaction" : "light interaction")
-            interactionLine = "Spent ~\(minutes) minutes together — \(strength)"
+            interactionLine = "Spent ~\(minutes) min — \(strength)"
         } else {
             interactionLine = nil
         }
@@ -457,11 +461,17 @@ struct PersonDetailView: View {
         let cues = Array((publicProfile?.earnedTraits.map(\.publicText) ?? []
             + (attendee.skills ?? [])
             + (attendee.interests ?? [])).prefix(2))
+        let avatarImageData: Data? = {
+            guard let avatarUrl = attendee.avatarUrl,
+                  let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
+            return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
+        }()
 
         return ContactDraftData(
             name: attendee.name,
+            nearifyProfileIdentifier: attendee.id,
             eventName: EventJoinService.shared.currentEventName,
-            imageData: nil,
+            imageData: avatarImageData,
             phoneNumbers: [],
             emailAddresses: [],
             linkedInUrl: nil,
