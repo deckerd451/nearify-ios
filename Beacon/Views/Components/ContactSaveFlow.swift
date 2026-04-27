@@ -4,28 +4,35 @@ import ContactsUI
 
 struct ContactDraftData {
     let name: String
-    let eventName: String
-    let interests: [String]
-    let skills: [String]
-    let earnedTraits: [String]
+    let eventName: String?
+    let imageData: Data?
+    let phoneNumbers: [String]
+    let emailAddresses: [String]
+    let linkedInUrl: String?
+    let socialProfiles: [(label: String?, username: String, service: String, urlString: String?)]
+    let interactionLine: String?
+    let memoryCues: [String]
+    let followUpLine: String?
 
     var note: String {
-        var lines: [String] = ["Met at \(eventName) via Nearify"]
+        let normalizedEvent = eventName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let eventLine = "Met at \((normalizedEvent?.isEmpty == false) ? normalizedEvent! : "a Nearify event")\nvia Nearify"
 
-        if !interests.isEmpty {
-            lines.append("")
-            lines.append("Interests: \(interests.joined(separator: ", "))")
+        var sections: [String] = [eventLine]
+
+        if let interactionLine, !interactionLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(interactionLine)
         }
 
-        if !skills.isEmpty {
-            lines.append("Skills: \(skills.joined(separator: ", "))")
+        if !memoryCues.isEmpty {
+            sections.append(memoryCues.prefix(2).joined(separator: " · "))
         }
 
-        if !earnedTraits.isEmpty {
-            lines.append("Earned traits: \(earnedTraits.joined(separator: ", "))")
+        if let followUpLine, !followUpLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(followUpLine)
         }
 
-        return lines.joined(separator: "\n")
+        return sections.joined(separator: "\n\n")
     }
 
     var mutableContact: CNMutableContact {
@@ -44,8 +51,66 @@ struct ContactDraftData {
             contact.givenName = name
         }
 
+        if let imageData, !imageData.isEmpty {
+            contact.imageData = imageData
+        }
+
+        let validPhones = phoneNumbers
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !validPhones.isEmpty {
+            contact.phoneNumbers = validPhones.map {
+                CNLabeledValue(label: CNLabelPhoneNumberMobile, value: CNPhoneNumber(stringValue: $0))
+            }
+        }
+
+        let validEmails = emailAddresses
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !validEmails.isEmpty {
+            contact.emailAddresses = validEmails.map {
+                CNLabeledValue(label: CNLabelWork, value: $0 as NSString)
+            }
+        }
+
+        var builtSocialProfiles: [CNLabeledValue<CNSocialProfile>] = []
+        if let linkedInUrl,
+           let profile = Self.makeSocialProfile(username: nil, service: CNSocialProfileServiceLinkedIn, urlString: linkedInUrl) {
+            builtSocialProfiles.append(CNLabeledValue(label: CNLabelURLAddressHomePage, value: profile))
+        }
+
+        for social in socialProfiles {
+            if let profile = Self.makeSocialProfile(
+                username: social.username,
+                service: social.service,
+                urlString: social.urlString
+            ) {
+                builtSocialProfiles.append(CNLabeledValue(label: social.label, value: profile))
+            }
+        }
+
+        if !builtSocialProfiles.isEmpty {
+            contact.socialProfiles = builtSocialProfiles
+        }
+
         contact.note = note
         return contact
+    }
+
+    private static func makeSocialProfile(username: String?, service: String, urlString: String?) -> CNSocialProfile? {
+        let trimmedUsername = username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedURL = urlString?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard (trimmedUsername?.isEmpty == false) || (trimmedURL?.isEmpty == false) else {
+            return nil
+        }
+
+        return CNSocialProfile(
+            urlString: trimmedURL,
+            username: trimmedUsername,
+            userIdentifier: nil,
+            service: service
+        )
     }
 }
 

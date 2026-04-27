@@ -48,6 +48,7 @@ struct FindAttendeeView: View {
 
     @ObservedObject private var stateResolver = AttendeeStateResolver.shared
     @ObservedObject private var scanner = BLEScannerService.shared
+    @ObservedObject private var encounterService = EncounterService.shared
 
     @State private var signalAge: TimeInterval = 0
     @State private var signalTimer: Timer?
@@ -1102,12 +1103,27 @@ struct FindAttendeeView: View {
     }
 
     private var attendeeContactDraft: ContactDraftData {
+        let encounterSeconds = encounterService.activeEncounters[attendee.id]?.totalSeconds ?? 0
+        let interactionLine: String?
+        if encounterSeconds >= 30 {
+            let minutes = max(1, Int(round(Double(encounterSeconds) / 60.0)))
+            let strength = encounterSeconds >= 900 ? "strong interaction" : (encounterSeconds >= 240 ? "good interaction" : "light interaction")
+            interactionLine = "Spent ~\(minutes) minutes together — \(strength)"
+        } else {
+            interactionLine = nil
+        }
+
         ContactDraftData(
             name: attendee.name,
-            eventName: EventJoinService.shared.currentEventName ?? "Nearify event",
-            interests: attendee.interests ?? [],
-            skills: attendee.skills ?? [],
-            earnedTraits: []
+            eventName: EventJoinService.shared.currentEventName,
+            imageData: nil,
+            phoneNumbers: [],
+            emailAddresses: [],
+            linkedInUrl: nil,
+            socialProfiles: [],
+            interactionLine: interactionLine,
+            memoryCues: Array(((attendee.skills ?? []) + (attendee.interests ?? [])).prefix(2)),
+            followUpLine: encounterSeconds >= 240 ? "Follow up: reconnect next time" : nil
         )
     }
 
