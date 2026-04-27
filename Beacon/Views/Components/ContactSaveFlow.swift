@@ -11,8 +11,11 @@ struct ContactDraftData {
     let emailAddresses: [String]
     let linkedInUrl: String?
     let socialProfiles: [(label: String?, username: String, service: String, urlString: String?)]
-    let interactionLine: String?
-    let memoryCues: [String]
+    let whyThisPersonMatters: String?
+    let sharedContextItems: [String]
+    let strongestInteractionLine: String?
+    let relationshipStatusLine: String?
+    let timeSpentLine: String?
     let followUpLine: String?
 
     var nearifyIdentityURL: URL? {
@@ -23,16 +26,28 @@ struct ContactDraftData {
     private var contextBulletLines: [String] {
         var lines: [String] = []
 
-        if let interactionLine, !interactionLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lines.append("• \(interactionLine)")
+        if let whyThisPersonMatters, !whyThisPersonMatters.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• Why this person matters: \(whyThisPersonMatters)")
         }
 
-        if !memoryCues.isEmpty {
-            lines.append("• \(memoryCues.prefix(2).joined(separator: " · "))")
+        if !sharedContextItems.isEmpty {
+            lines.append("• Shared context: \(sharedContextItems.prefix(3).joined(separator: " · "))")
+        }
+
+        if let strongestInteractionLine, !strongestInteractionLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• Strongest interaction: \(strongestInteractionLine)")
+        }
+
+        if let relationshipStatusLine, !relationshipStatusLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• \(relationshipStatusLine)")
+        }
+
+        if let timeSpentLine, !timeSpentLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• Time spent together: \(timeSpentLine)")
         }
 
         if let followUpLine, !followUpLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lines.append("• \(followUpLine)")
+            lines.append("• Follow up: \(followUpLine)")
         }
 
         return lines

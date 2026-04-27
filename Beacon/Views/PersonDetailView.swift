@@ -450,18 +450,54 @@ struct PersonDetailView: View {
     }
 
     private var contactDraft: ContactDraftData {
-        let interactionLine: String?
-        if meaningfulEncounterDuration >= 30 {
-            let minutes = max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))
-            let strength: String = meaningfulEncounterDuration >= 900 ? "strong interaction" : (meaningfulEncounterDuration >= 240 ? "good interaction" : "light interaction")
-            interactionLine = "Spent ~\(minutes) min — \(strength)"
-        } else {
-            interactionLine = nil
+        let connectedOnNearify = AttendeeStateResolver.shared.connectedIds.contains(attendee.id)
+        let hasConversation = MessagingService.shared.conversations.contains { conversation in
+            guard let myId = AuthService.shared.currentUser?.id else { return false }
+            return conversation.otherParticipant(for: myId) == attendee.id
         }
 
         let cues = Array((publicProfile?.earnedTraits.map(\.publicText) ?? []
             + (attendee.skills ?? [])
             + (attendee.interests ?? [])).prefix(2))
+        let whyCue = cues.first?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let sharedContextItems = Array(((attendee.skills ?? []) + (attendee.interests ?? [])).prefix(3))
+
+        let strongestInteractionLine: String?
+        if meaningfulEncounterDuration >= 30 {
+            let minutes = max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))
+            strongestInteractionLine = "\(minutes) min together"
+        } else {
+            strongestInteractionLine = nil
+        }
+
+        let relationshipStatusLine: String?
+        if connectedOnNearify && hasConversation {
+            relationshipStatusLine = "Already connected and in conversation"
+        } else if connectedOnNearify {
+            relationshipStatusLine = "Connected on Nearify"
+        } else if hasConversation {
+            relationshipStatusLine = "Already messaged on Nearify"
+        } else {
+            relationshipStatusLine = nil
+        }
+
+        let followUpLine: String? = {
+            if hasConversation, let eventName = EventJoinService.shared.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines), !eventName.isEmpty {
+                return "continue conversation from \(eventName)"
+            }
+
+            if let primaryContext = sharedContextItems.first?.trimmingCharacters(in: .whitespacesAndNewlines), !primaryContext.isEmpty {
+                return "ask about \(primaryContext.lowercased())"
+            }
+
+            if let eventName = EventJoinService.shared.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines), !eventName.isEmpty {
+                return "reconnect at the next \(eventName) event"
+            }
+
+            return nil
+        }()
+
         let avatarImageData: Data? = {
             guard let avatarUrl = attendee.avatarUrl,
                   let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
@@ -477,9 +513,12 @@ struct PersonDetailView: View {
             emailAddresses: [],
             linkedInUrl: nil,
             socialProfiles: [],
-            interactionLine: interactionLine,
-            memoryCues: cues,
-            followUpLine: meaningfulEncounterDuration >= 240 ? "Follow up: reconnect next time" : nil
+            whyThisPersonMatters: whyCue,
+            sharedContextItems: sharedContextItems,
+            strongestInteractionLine: strongestInteractionLine,
+            relationshipStatusLine: relationshipStatusLine,
+            timeSpentLine: meaningfulEncounterDuration >= 300 ? "\(max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))) min" : nil,
+            followUpLine: followUpLine
         )
     }
 
