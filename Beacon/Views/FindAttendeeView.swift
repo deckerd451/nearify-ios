@@ -57,10 +57,9 @@ struct FindAttendeeView: View {
     @State private var proximityLockStartedAt: Date?
     @State private var arrivedRSSI: Int?
     @State private var hasTriggeredArrivedHaptic = false
-    @State private var isSavingConnection = false
-    @State private var isCheckingConnectionStatus = false
-    @State private var isAlreadyConnected = false
-    @State private var hasSavedConnection = false
+    @State private var isSubmittingContactRequest = false
+    @State private var isResolvingIncomingRequest = false
+    @State private var encounterConnectionState: ConnectionService.EncounterConnectionState = .none
     @State private var transientConfirmationMessage: String?
     @State private var viewAppearedAt: Date?
     @State private var hasEnteredExtendedSearchState = false
@@ -195,7 +194,6 @@ struct FindAttendeeView: View {
             viewAppearedAt = Date()
             startSignalTimer()
             startAmbientMessageRotation()
-            hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
             #if DEBUG
             let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
             print("[FindAttendee] 📡 Opened for: \(attendee.name) (prefix: \(prefix))")
@@ -235,7 +233,10 @@ struct FindAttendeeView: View {
             }
         }
         .onChange(of: signalAge) {
-            guard findState != .arrived else { return }
+            if findState == .arrived {
+                refreshEncounterConnectionStateIfNeeded()
+                return
+            }
 
             // Track if we ever had a direct signal (for signalLost detection)
             if case .directSignalLocked = findSignalState {
@@ -624,23 +625,6 @@ struct FindAttendeeView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title2)
                     .foregroundColor(.green)
-
-                Text("You found each other")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.green)
-
-                Text("Look up — you’re close")
-                    .font(.caption)
-                    .foregroundColor(.gray.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-
-                Text("Say hi 👋")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.white.opacity(0.8))
-                    .padding(.top, 2)
-
                 arrivedActions
             } else {
                 switch findState {
@@ -1092,7 +1076,6 @@ struct FindAttendeeView: View {
     private func enterArrivedState(rssi: Int) {
         findState = .arrived
         arrivedRSSI = rssi
-        hasSavedConnection = ConnectionPromptStateStore.shared.isSaved(profileId: attendee.id, eventId: currentEventId)
         stopSignalTimer()
         stopAmbientMessageRotation()
         if !hasTriggeredArrivedHaptic {
@@ -1101,11 +1084,7 @@ struct FindAttendeeView: View {
         }
         print("[FindAttendee] ARRIVED → stopping seek loop")
         print("[FindAttendee] ARRIVED state reached for \(attendee.name) (RSSI: \(rssi))")
-        refreshConnectionStatusIfNeeded()
-    }
-
-    private var currentEventId: String? {
-        EventJoinService.shared.currentEventID
+        refreshEncounterConnectionState()
     }
 
     private var attendeeContactDraft: ContactDraftData {
@@ -1161,52 +1140,115 @@ struct FindAttendeeView: View {
 
     @ViewBuilder
     private var arrivedActions: some View {
-        if shouldShowConnectAction {
+        Text(arrivedPrimaryHeader)
+            .font(.title3)
+            .fontWeight(.semibold)
+            .foregroundColor(arrivedHeaderColor)
+
+        Text(arrivedSecondaryText)
+            .font(.caption)
+            .foregroundColor(.gray.opacity(0.8))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+
+        switch encounterConnectionState {
+        case .none:
             Button {
-                saveConnection()
+                // Primary social CTA only; no data sharing.
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
             } label: {
                 HStack(spacing: 6) {
-                    if isSavingConnection {
-                        ProgressView().tint(.black)
-                    }
-                    Text("Connect")
+                    Image(systemName: "hand.wave")
+                    Text("Say hi")
                         .fontWeight(.semibold)
                 }
                 .font(.subheadline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
-                .background(Color.green)
+                .background(Color.green.opacity(0.9))
                 .foregroundColor(.black)
                 .cornerRadius(10)
             }
-            .disabled(isSavingConnection)
             .padding(.horizontal, 16)
             .padding(.top, 4)
-        } else if isAlreadyConnected {
-            Text("You're already connected in Nearify")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.green.opacity(0.9))
-                .padding(.top, 4)
-        }
 
-        Button {
-            showContactSaveSheet = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "person.crop.circle.badge.plus")
-                Text("Save to Contacts")
-                    .fontWeight(.semibold)
+            Button {
+                sendContactRequest()
+            } label: {
+                HStack(spacing: 6) {
+                    if isSubmittingContactRequest {
+                        ProgressView().tint(.white)
+                    }
+                    Image(systemName: "paperplane.fill")
+                    Text("Request contact")
+                        .fontWeight(.semibold)
+                }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.white.opacity(0.14))
+                .foregroundColor(.white)
+                .cornerRadius(10)
             }
-            .font(.subheadline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(Color.orange)
-            .foregroundColor(.white)
-            .cornerRadius(10)
+            .disabled(isSubmittingContactRequest)
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
+
+        case .outgoingPending:
+            requestStatePill(title: "Request sent", subtitle: "Waiting for approval…", color: .orange)
+
+        case .incomingPending:
+            requestStatePill(title: "\(attendee.name) wants to connect", subtitle: "You were nearby just now", color: .cyan)
+
+            HStack(spacing: 10) {
+                Button {
+                    approveIncomingRequest()
+                } label: {
+                    if isResolvingIncomingRequest {
+                        ProgressView().tint(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    } else {
+                        Text("Share contact")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                }
+                .background(Color.green)
+                .cornerRadius(10)
+                .disabled(isResolvingIncomingRequest)
+
+                Button("Not now") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        transientConfirmationMessage = "Okay — request still pending"
+                    }
+                }
+                .buttonStyle(fallbackButtonStyle(prominent: true))
+                .disabled(isResolvingIncomingRequest)
+            }
+            .padding(.horizontal, 16)
+
+        case .connected:
+            Button {
+                showContactSaveSheet = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                    Text("Save to Contacts")
+                        .fontWeight(.semibold)
+                }
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.orange)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 2)
 
         HStack(spacing: 10) {
             Button("Back") { dismiss() }
@@ -1218,51 +1260,6 @@ struct FindAttendeeView: View {
         .padding(.top, 2)
     }
 
-    private func saveConnection() {
-        guard !isSavingConnection else { return }
-        isSavingConnection = true
-
-        Task {
-            do {
-                let result = try await ConnectionService.shared.createConnectionIfNeeded(to: attendee.id.uuidString)
-                await MainActor.run {
-                    switch result {
-                    case .created:
-                        hasSavedConnection = true
-                        ConnectionPromptStateStore.shared.markSaved(profileId: attendee.id, eventId: currentEventId)
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            transientConfirmationMessage = "Saved — find them later in People"
-                        }
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    case .alreadyExists:
-                        isAlreadyConnected = true
-                    }
-                }
-
-                if case .created = result {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    await MainActor.run {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            transientConfirmationMessage = nil
-                        }
-                    }
-                }
-            } catch {
-                #if DEBUG
-                print("[FindAttendee] Failed to save connection for \(attendee.name): \(error.localizedDescription)")
-                #endif
-            }
-
-            await MainActor.run {
-                isSavingConnection = false
-            }
-        }
-    }
-
-    private var shouldShowConnectAction: Bool {
-        findState == .arrived && !hasSavedConnection && !isAlreadyConnected && !isCheckingConnectionStatus
-    }
-
     private func resetArrivedStateForExploration() {
         findState = .searching
         proximityLockStartedAt = nil
@@ -1272,25 +1269,108 @@ struct FindAttendeeView: View {
         startAmbientMessageRotation()
     }
 
-    private func refreshConnectionStatusIfNeeded() {
-        guard !hasSavedConnection else {
-            isAlreadyConnected = false
-            return
-        }
-
-        guard !isCheckingConnectionStatus else { return }
-        isCheckingConnectionStatus = true
-
+    private func sendContactRequest() {
+        guard !isSubmittingContactRequest else { return }
+        isSubmittingContactRequest = true
         Task {
-            let connected = await ConnectionService.shared.isConnected(with: attendee.id)
-            await MainActor.run {
-                isAlreadyConnected = connected
-                if findState == .arrived {
-                    print("[FindAttendee] arrived connected=\(connected)")
+            defer {
+                Task { @MainActor in isSubmittingContactRequest = false }
+            }
+
+            do {
+                let result = try await ConnectionService.shared.createConnectionRequest(to: attendee.id.uuidString)
+                await MainActor.run {
+                    switch result {
+                    case .created, .alreadyPendingOutgoing:
+                        encounterConnectionState = .outgoingPending
+                    case .alreadyPendingIncoming:
+                        encounterConnectionState = .connected
+                    case .alreadyConnected:
+                        encounterConnectionState = .connected
+                    }
                 }
-                isCheckingConnectionStatus = false
+            } catch {
+                #if DEBUG
+                print("[FindAttendee] Failed to request connection for \(attendee.name): \(error.localizedDescription)")
+                #endif
             }
         }
+    }
+
+    private func approveIncomingRequest() {
+        guard !isResolvingIncomingRequest else { return }
+        isResolvingIncomingRequest = true
+        Task {
+            defer {
+                Task { @MainActor in isResolvingIncomingRequest = false }
+            }
+
+            do {
+                try await ConnectionService.shared.approveConnectionRequest(with: attendee.id)
+                await MainActor.run {
+                    encounterConnectionState = .connected
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            } catch {
+                #if DEBUG
+                print("[FindAttendee] Failed to approve request for \(attendee.name): \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
+    private func refreshEncounterConnectionState() {
+        Task {
+            do {
+                let state = try await ConnectionService.shared.fetchEncounterConnectionState(with: attendee.id)
+                await MainActor.run {
+                    encounterConnectionState = state
+                }
+            } catch {
+                #if DEBUG
+                print("[FindAttendee] Failed to refresh connection state for \(attendee.name): \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
+    private func refreshEncounterConnectionStateIfNeeded() {
+        guard !isSubmittingContactRequest, !isResolvingIncomingRequest else { return }
+        refreshEncounterConnectionState()
+    }
+
+    private var arrivedPrimaryHeader: String {
+        switch encounterConnectionState {
+        case .connected:
+            return "You found each other"
+        default:
+            return "You’re close to \(attendee.name)"
+        }
+    }
+
+    private var arrivedSecondaryText: String {
+        switch encounterConnectionState {
+        case .connected:
+            return "You’re now connected in Nearify"
+        default:
+            return "Look up — you’re nearby"
+        }
+    }
+
+    private var arrivedHeaderColor: Color {
+        encounterConnectionState == .connected ? .green : .white
+    }
+
+    private func requestStatePill(title: String, subtitle: String, color: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(color)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundColor(.gray.opacity(0.85))
+        }
+        .padding(.vertical, 10)
     }
 }
 
