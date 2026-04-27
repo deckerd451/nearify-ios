@@ -189,7 +189,7 @@ struct ProfileView: View {
             emailAddresses: [profile.email].compactMap { $0 },
             linkedInUrl: nil,
             socialProfiles: [],
-            interactionLine: nil,
+            interactionLine: nil as String?,
             memoryCues: Array(((profile.interests ?? []) + (profile.skills ?? [])).prefix(2)),
             followUpLine: nil
         )
