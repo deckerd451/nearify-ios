@@ -458,7 +458,7 @@ struct PersonDetailView: View {
             + (attendee.skills ?? [])
             + (attendee.interests ?? [])).prefix(2))
 
-        ContactDraftData(
+        return ContactDraftData(
             name: attendee.name,
             eventName: EventJoinService.shared.currentEventName,
             imageData: nil,

@@ -1113,7 +1113,7 @@ struct FindAttendeeView: View {
             interactionLine = nil
         }
 
-        ContactDraftData(
+        return ContactDraftData(
             name: attendee.name,
             eventName: EventJoinService.shared.currentEventName,
             imageData: nil,
