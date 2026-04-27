@@ -23,9 +23,18 @@ final class MessageNotificationCoordinator: ObservableObject {
     private var lastProcessedAt: Date?
     private var isPolling = false
 
+    /// Session-scoped dedupe for notifications that were either delivered or intentionally suppressed.
+    private var notifiedMessageIds: Set<UUID> = []
+    private var notifiedMessageOrder: [UUID] = []
+    private let maxNotifiedMessageIds = 2_000
+
+    /// Prevent duplicate rendering/processing from poll overlap.
     private var processedMessageIds: Set<UUID> = []
     private var processedMessageOrder: [UUID] = []
     private let maxProcessedMessageIds = 2_000
+
+    /// Baseline to prevent notifications for historical bootstrap content.
+    private var notificationBaselineDate = Date()
 
     private static let cursorDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -34,11 +43,12 @@ final class MessageNotificationCoordinator: ObservableObject {
         return formatter
     }()
 
-    private init() {}
+    private init() {
+        notificationBaselineDate = Date()
+    }
 
     func start() {
         guard pollTask == nil else { return }
-
         pollTask = Task { [weak self] in
             await self?.monitorLoop()
         }
@@ -58,15 +68,31 @@ final class MessageNotificationCoordinator: ObservableObject {
         start()
     }
 
+    func markNotificationOpened(messageId: UUID?) {
+        if let messageId {
+            markMessageNotified(messageId)
+        }
+        MessagingRefreshCoordinator.shared.requestRefresh(reason: .notificationOpened)
+    }
+
+    func markConversationMessagesAsNotified(conversationId: UUID, messages: [Message]) {
+        let ids = messages.filter { $0.conversationId == conversationId }.map(\.id)
+        guard !ids.isEmpty else { return }
+        ids.forEach(markMessageNotified)
+    }
+
     private func monitorLoop() async {
         while !Task.isCancelled {
-            await pollOnce()
+            await pollOnce(reason: .controlledPoll)
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
     }
 
-    private func pollOnce() async {
-        guard !isPolling else { return }
+    private func pollOnce(reason: MessagingRefreshCoordinator.Reason) async {
+        guard !isPolling else {
+            print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
+            return
+        }
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
         isPolling = true
@@ -88,7 +114,6 @@ final class MessageNotificationCoordinator: ObservableObject {
 
             if lastProcessedAt == nil {
                 if let newest = rows.last?.createdAt {
-                    // Bootstrap baseline so we don't notify historical messages.
                     lastProcessedAt = newest
                 }
                 return
@@ -105,17 +130,16 @@ final class MessageNotificationCoordinator: ObservableObject {
                     continue
                 }
 
-                let conversation = conversations.first { $0.id == row.conversationId }
-
-                await handleIncoming(
-                    messageId: row.id,
+                let message = Message(
+                    id: row.id,
                     conversationId: row.conversationId,
                     senderProfileId: row.senderProfileId,
-                    senderName: await resolveName(for: row.senderProfileId),
-                    preview: row.content,
-                    createdAt: row.createdAt,
-                    conversation: conversation
+                    content: row.content,
+                    createdAt: row.createdAt
                 )
+
+                let conversation = conversations.first { $0.id == row.conversationId }
+                await handleIncoming(message: message, refreshReason: reason, conversation: conversation)
             }
 
             if let newestSeenAt {
@@ -178,6 +202,20 @@ final class MessageNotificationCoordinator: ObservableObject {
         return true
     }
 
+    private func markMessageNotified(_ messageId: UUID) {
+        guard !notifiedMessageIds.contains(messageId) else { return }
+        notifiedMessageIds.insert(messageId)
+        notifiedMessageOrder.append(messageId)
+
+        if notifiedMessageOrder.count > maxNotifiedMessageIds {
+            let overflow = notifiedMessageOrder.count - maxNotifiedMessageIds
+            for _ in 0..<overflow {
+                let removed = notifiedMessageOrder.removeFirst()
+                notifiedMessageIds.remove(removed)
+            }
+        }
+    }
+
     private func resolveName(for profileId: UUID) async -> String {
         if let cached = MessagingService.shared.cachedProfileName(for: profileId) {
             return cached
@@ -192,52 +230,61 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     private func handleIncoming(
-        messageId: UUID,
-        conversationId: UUID,
-        senderProfileId: UUID,
-        senderName: String,
-        preview: String,
-        createdAt: Date,
+        message: Message,
+        refreshReason: MessagingRefreshCoordinator.Reason,
         conversation: Conversation?
     ) async {
-        let appState = UIApplication.shared.applicationState
-
         MessagingService.shared.handleIncomingMessage(
-            id: messageId,
-            conversationId: conversationId,
-            senderProfileId: senderProfileId,
-            content: preview,
-            createdAt: createdAt,
+            id: message.id,
+            conversationId: message.conversationId,
+            senderProfileId: message.senderProfileId,
+            content: message.content,
+            createdAt: message.createdAt ?? Date(),
             conversation: conversation
         )
-        MessagingRefreshCoordinator.shared.requestRefresh(reason: .incomingMessage)
 
-        let isActiveConversation = MessagingService.shared.activeConversationId == conversationId
+        let context = MessagingNotificationContext(
+            currentUserProfileId: AuthService.shared.currentUser?.id,
+            activeConversationId: MessagingService.shared.activeConversationId,
+            appLifecycleState: MessagingAppLifecycleState.from(UIApplication.shared.applicationState),
+            notificationBaselineDate: notificationBaselineDate,
+            notifiedMessageIds: notifiedMessageIds,
+            refreshReason: refreshReason
+        )
 
-        if appState == .active {
-            guard !isActiveConversation else {
-                return
+        let decision = MessageNotificationEligibility.decision(for: message, context: context)
+        switch decision {
+        case .blocked(let reason):
+            print("[NotifyGate] blocked message=\(message.id) reason=\(reason.rawValue)")
+            if reason == .activeConversation || reason == .beforeBaseline || reason == .tabChangeRefresh {
+                markMessageNotified(message.id)
             }
+            return
+        case .allowed:
+            print("[NotifyGate] allowed message=\(message.id) reason=\(refreshReason.rawValue)")
+        }
 
+        markMessageNotified(message.id)
+        let senderName = await resolveName(for: message.senderProfileId)
+
+        switch context.appLifecycleState {
+        case .foreground:
             banner = InAppBanner(
-                id: messageId,
-                conversationId: conversationId,
-                senderProfileId: senderProfileId,
+                id: message.id,
+                conversationId: message.conversationId,
+                senderProfileId: message.senderProfileId,
                 senderName: senderName,
-                preview: String(preview.prefix(72))
+                preview: String(message.content.prefix(72))
             )
-
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-        } else {
-            guard !isActiveConversation else {
-                return
-            }
-
+        case .background:
             NotificationService.shared.sendMessageNotification(
-                messageId: messageId,
+                messageId: message.id,
                 fromName: senderName,
-                preview: preview
+                preview: message.content
             )
+        case .inactive:
+            break
         }
 
         FeedService.shared.requestRefresh(reason: "incoming-message")

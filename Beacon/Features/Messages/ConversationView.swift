@@ -209,8 +209,12 @@ struct ConversationView: View {
             // Messages may already be loaded by the caller, but refresh to be safe
             await messaging.fetchMessages(conversationId: preloaded.id)
             messaging.markConversationViewed(conversationId: preloaded.id)
+            MessageNotificationCoordinator.shared.markConversationMessagesAsNotified(
+                conversationId: preloaded.id,
+                messages: messaging.currentMessages
+            )
             scrollToLatestForOpenedThread()
-            MessagingRefreshCoordinator.shared.requestRefresh(reason: .conversationOpened)
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .manualConversationOpen)
             print("[Conversation] ✅ Messages refreshed for preloaded conversation")
             return
         }
@@ -240,8 +244,12 @@ struct ConversationView: View {
             NotificationService.shared.activeConversationId = convo.id
             await messaging.fetchMessages(conversationId: convo.id)
             messaging.markConversationViewed(conversationId: convo.id)
+            MessageNotificationCoordinator.shared.markConversationMessagesAsNotified(
+                conversationId: convo.id,
+                messages: messaging.currentMessages
+            )
             scrollToLatestForOpenedThread()
-            MessagingRefreshCoordinator.shared.requestRefresh(reason: .conversationOpened)
+            MessagingRefreshCoordinator.shared.requestRefresh(reason: .manualConversationOpen)
             isLoading = false
             print("[Conversation] ✅ Lazy load complete: \(convo.id)")
         } catch {

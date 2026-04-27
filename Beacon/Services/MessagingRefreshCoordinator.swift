@@ -8,15 +8,16 @@ final class MessagingRefreshCoordinator {
         case appActive = "app-active"
         case tabChange = "tab-change"
         case messageSent = "message-sent"
-        case incomingMessage = "incoming-message"
-        case conversationOpened = "conversation-opened"
+        case notificationOpened = "notification-opened"
+        case manualConversationOpen = "manual-conversation-open"
+        case controlledPoll = "controlled-poll"
     }
 
     static let shared = MessagingRefreshCoordinator()
 
     private let debounceWindow: TimeInterval = 2.5
     private let promptDelay: TimeInterval = 0.12
-    private let highPriorityReasons: Set<Reason> = [.messageSent, .incomingMessage]
+    private let highPriorityReasons: Set<Reason> = [.messageSent, .notificationOpened, .manualConversationOpen]
 
     private var pendingReasons: Set<Reason> = []
     private var pendingTask: Task<Void, Never>?
@@ -32,7 +33,7 @@ final class MessagingRefreshCoordinator {
 
         if let last = lastRequestAtByReason[reason],
            now.timeIntervalSince(last) < debounceWindow {
-            print("[Messaging] refresh skipped (debounced)")
+            print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
             return
         }
         lastRequestAtByReason[reason] = now
@@ -41,6 +42,7 @@ final class MessagingRefreshCoordinator {
 
         if isExecuting {
             shouldRunFollowUp = true
+            print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
             return
         }
 
@@ -61,13 +63,14 @@ final class MessagingRefreshCoordinator {
         pendingTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            await self?.executeRefresh()
+            await self?.executeRefresh(triggerReason: triggerReason)
         }
     }
 
-    private func executeRefresh() async {
+    private func executeRefresh(triggerReason: Reason) async {
         guard !isExecuting else {
             shouldRunFollowUp = true
+            print("[MessagingRefresh] coalesced reason=\(triggerReason.rawValue)")
             return
         }
 
@@ -81,14 +84,12 @@ final class MessagingRefreshCoordinator {
         lastExecutionAt = Date()
         isExecuting = false
 
-        #if DEBUG
-        let reasonSummary = reasons.map(\.rawValue).sorted().joined(separator: ", ")
-        print("[MessagingRefresh] EXECUTED: \(reasonSummary)")
-        #endif
+        let reasonSummary = reasons.map(\.rawValue).sorted().joined(separator: ",")
+        print("[MessagingRefresh] executed reason=\(reasonSummary)")
 
         if shouldRunFollowUp || !pendingReasons.isEmpty {
             shouldRunFollowUp = false
-            schedule(triggerReason: .appActive)
+            schedule(triggerReason: .controlledPoll)
         }
     }
 }
