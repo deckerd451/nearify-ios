@@ -13,6 +13,47 @@ struct EventAttendee: Identifiable, Equatable {
     let interests: [String]?
     let energy: Double
     let lastSeen: Date
+    let publicEmail: String?
+    let publicPhone: String?
+    let linkedInUrl: String?
+    let websiteUrl: String?
+    let shareEmail: Bool?
+    let sharePhone: Bool?
+    let preferredContactMethod: String?
+
+    init(
+        id: UUID,
+        name: String,
+        avatarUrl: String?,
+        bio: String?,
+        skills: [String]?,
+        interests: [String]?,
+        energy: Double,
+        lastSeen: Date,
+        publicEmail: String? = nil,
+        publicPhone: String? = nil,
+        linkedInUrl: String? = nil,
+        websiteUrl: String? = nil,
+        shareEmail: Bool? = nil,
+        sharePhone: Bool? = nil,
+        preferredContactMethod: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.avatarUrl = avatarUrl
+        self.bio = bio
+        self.skills = skills
+        self.interests = interests
+        self.energy = energy
+        self.lastSeen = lastSeen
+        self.publicEmail = publicEmail
+        self.publicPhone = publicPhone
+        self.linkedInUrl = linkedInUrl
+        self.websiteUrl = websiteUrl
+        self.shareEmail = shareEmail
+        self.sharePhone = sharePhone
+        self.preferredContactMethod = preferredContactMethod
+    }
 
     var isActiveNow: Bool {
         Date().timeIntervalSince(lastSeen) < 60
