@@ -27,7 +27,7 @@ final class PeopleIntelligenceController: ObservableObject {
     static let shared = PeopleIntelligenceController()
 
     @Published private(set) var sections = PeopleIntelligenceBuilder.Sections(
-        hereNow: [], followUp: [], notHere: []
+        hereNow: [], followUp: [], yourPeople: []
     )
 
     private var lastSignature: PeopleBuildSignature?
@@ -153,7 +153,7 @@ final class PeopleIntelligenceController: ObservableObject {
         sections = result
 
         #if DEBUG
-        print("[People] rebuild: EXECUTED (reason: \(reason)) → hereNow=\(result.hereNow.count) followUp=\(result.followUp.count) notHere=\(result.notHere.count)")
+        print("[People] rebuild: EXECUTED (reason: \(reason)) → hereNow=\(result.hereNow.count) followUp=\(result.followUp.count) yourPeople=\(result.yourPeople.count)")
         #endif
     }
 
@@ -207,11 +207,11 @@ struct PeopleIntelligenceBuilder {
     struct Sections {
         let hereNow: [PersonIntelligence]
         let followUp: [PersonIntelligence]
-        let notHere: [PersonIntelligence]
+        let yourPeople: [PersonIntelligence]
     }
 
     /// Build with optional event-context filtering.
-    /// When `eventContext` is set, the "notHere" section only includes people
+    /// When `eventContext` is set, the "Your People" section only includes people
     /// with history at that event — not the full global network.
     static func build(eventContext: PeopleEventContext? = nil) -> Sections {
         let relationships = RelationshipMemoryService.shared.relationships
@@ -225,7 +225,7 @@ struct PeopleIntelligenceBuilder {
         // Current user's profile ID — required for self-exclusion.
         // If unavailable, return empty sections rather than risk showing self.
         guard let myId = AuthService.shared.currentUser?.id else {
-            return Sections(hereNow: [], followUp: [], notHere: [])
+            return Sections(hereNow: [], followUp: [], yourPeople: [])
         }
 
         let attendeeIds = Set(attendees.map(\.id))
@@ -233,7 +233,7 @@ struct PeopleIntelligenceBuilder {
         // Build intelligence for each relationship
         var hereNow: [PersonIntelligence] = []
         var followUp: [PersonIntelligence] = []
-        var notHere: [PersonIntelligence] = []
+        var yourPeople: [PersonIntelligence] = []
         var processedIds = Set<UUID>()
 
         // Pre-compute BLE-detected profile prefixes for fast lookup.
@@ -287,6 +287,11 @@ struct PeopleIntelligenceBuilder {
             let isTarget = targetIntent.targetProfileId == rel.profileId
             let encounter = encounters[rel.profileId]
             let isConnected = connectedIds.contains(rel.profileId)
+            let hasHighQualityEncounter =
+                rel.totalOverlapSeconds >= 600
+                || (encounter?.totalSeconds ?? 0) >= 600
+                || rel.encounterCount >= 2
+            let isSavedContact = ContactSyncService.shared.hasSavedContact(profileId: rel.profileId)
 
             let model = buildModel(
                 rel: rel, isHere: isHere, isTarget: isTarget,
@@ -305,11 +310,11 @@ struct PeopleIntelligenceBuilder {
                     let hasEventHistory = rel.eventContexts.contains(ctx.eventName)
                         || rel.encounterCount >= 2
                         || connectedIds.contains(rel.profileId)
-                    if hasEventHistory {
-                        notHere.append(model)
+                    if hasEventHistory && (isConnected || hasHighQualityEncounter || isSavedContact) {
+                        yourPeople.append(model)
                     }
-                } else {
-                    notHere.append(model)
+                } else if isConnected || hasHighQualityEncounter || isSavedContact {
+                    yourPeople.append(model)
                 }
             }
         }
@@ -373,9 +378,9 @@ struct PeopleIntelligenceBuilder {
         // Sort each section by priority — BLE-detected people score higher
         hereNow.sort { $0.priorityScore > $1.priorityScore }
         followUp.sort { $0.priorityScore > $1.priorityScore }
-        notHere.sort { $0.priorityScore > $1.priorityScore }
+        yourPeople.sort { $0.priorityScore > $1.priorityScore }
 
-        return Sections(hereNow: hereNow, followUp: followUp, notHere: notHere)
+        return Sections(hereNow: hereNow, followUp: followUp, yourPeople: yourPeople)
     }
 
     // MARK: - Build from RelationshipMemory
@@ -500,6 +505,8 @@ struct PeopleIntelligenceBuilder {
             whyThisMatters: whyThisMatters,
             primaryAction: primary,
             secondaryAction: secondary,
+            surfacedTraits: Array(rel.sharedInterests.prefix(2)),
+            hasMeaningfulTimeTogether: rel.totalOverlapSeconds >= 600,
             deepInsights: deep,
             priorityScore: score,
             liveEventName: isHere ? eventName : nil,
@@ -580,6 +587,8 @@ struct PeopleIntelligenceBuilder {
             whyThisMatters: whyThisMatters,
             primaryAction: .find,
             secondaryAction: isConnected ? .message : .viewProfile,
+            surfacedTraits: Array(((attendee.interests ?? []) + (attendee.skills ?? [])).prefix(2)),
+            hasMeaningfulTimeTogether: (encounter?.totalSeconds ?? 0) >= 600,
             deepInsights: deep,
             priorityScore: score,
             liveEventName: eventName,

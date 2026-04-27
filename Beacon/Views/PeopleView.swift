@@ -11,12 +11,13 @@ struct PeopleView: View {
     @ObservedObject private var navigationState = NavigationState.shared
     @ObservedObject private var controller = PeopleIntelligenceController.shared
 
-    @State private var expandedPersonId: UUID?
     @State private var activeConversation: PeopleConversationTarget?
     @State private var profileSheetTarget: ProfileSheetTarget?
     @State private var findTarget: EventAttendee?
+    @State private var contactSaveTarget: PersonIntelligence?
     @State private var isOpeningConversation = false
     @State private var highlightedProfileId: UUID?
+    @State private var savedConfirmationProfileId: UUID?
 
     /// Sections are read from the controller, which handles debouncing
     /// and change detection. No direct computation in the view.
@@ -25,7 +26,7 @@ struct PeopleView: View {
     }
 
     private var isEmpty: Bool {
-        sections.hereNow.isEmpty && sections.followUp.isEmpty && sections.notHere.isEmpty
+        sections.hereNow.isEmpty && sections.followUp.isEmpty && sections.yourPeople.isEmpty
     }
 
     var body: some View {
@@ -89,6 +90,24 @@ struct PeopleView: View {
                     #endif
                 }
         }
+        .sheet(item: $contactSaveTarget) { person in
+            ContactSaveSheet(draft: contactDraft(for: person)) { didSave in
+                if didSave {
+                    markSavedContact(person.id)
+                    savedConfirmationProfileId = person.id
+                }
+                contactSaveTarget = nil
+            }
+        }
+        .alert(
+            "Saved to Contacts ✓",
+            isPresented: Binding(
+                get: { savedConfirmationProfileId != nil },
+                set: { if !$0 { savedConfirmationProfileId = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        }
     }
 
     // MARK: - Sectioned List
@@ -118,11 +137,11 @@ struct PeopleView: View {
                         )
                     }
 
-                    if !sections.notHere.isEmpty {
+                    if !sections.yourPeople.isEmpty {
                         sectionBlock(
-                            title: "Follow Up", icon: "sparkles",
-                            color: .white.opacity(0.6), subtitle: "People you've interacted with",
-                            people: sections.notHere
+                            title: "Your People", icon: "sparkles",
+                            color: .white.opacity(0.6), subtitle: "People you've met before",
+                            people: sections.yourPeople
                         )
                     }
                 }
@@ -131,7 +150,6 @@ struct PeopleView: View {
             }
             .onChange(of: navigationState.peopleFocusTarget) { _, target in
                 guard let target = target else { return }
-                expandedPersonId = target.profileId
                 withAnimation(.easeInOut(duration: 0.4)) {
                     proxy.scrollTo(target.profileId, anchor: .center)
                     highlightedProfileId = target.profileId
@@ -144,6 +162,16 @@ struct PeopleView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     navigationState.peopleFocusTarget = nil
                 }
+            }
+            .onAppear {
+                #if DEBUG
+                print("[People] rendering Your People: \(sections.yourPeople.count) users")
+                #endif
+            }
+            .onChange(of: sections.yourPeople.count) { _, count in
+                #if DEBUG
+                print("[People] rendering Your People: \(count) users")
+                #endif
             }
         }
     }
@@ -174,32 +202,17 @@ struct PeopleView: View {
         }
     }
 
-    // MARK: - Person Card (Surface + Deep)
+    // MARK: - Person Card
 
     private func personCard(_ person: PersonIntelligence, sectionColor: Color) -> some View {
-        let isExpanded = expandedPersonId == person.id
-
         return VStack(alignment: .leading, spacing: 0) {
             // ── Surface Layer ──
             Button {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    expandedPersonId = isExpanded ? nil : person.id
-                    #if DEBUG
-                    if !isExpanded {
-                        print("[People] expanded intelligence for \(person.name)")
-                    }
-                    #endif
-                }
+                profileSheetTarget = ProfileSheetTarget(profileId: person.id)
             } label: {
                 surfaceRow(person, sectionColor: sectionColor)
             }
             .buttonStyle(.plain)
-
-            // ── Deep Layer (expandable) ──
-            if isExpanded && !person.deepInsights.isEmpty {
-                Divider().background(Color.white.opacity(0.06)).padding(.horizontal, 14)
-                deepLayer(person, sectionColor: sectionColor)
-            }
 
             // ── Actions ──
             actionRow(person, sectionColor: sectionColor)
@@ -250,6 +263,27 @@ struct PeopleView: View {
                     }
                 }
 
+                // Distilled insight — the most important visible line
+                Text(person.distilledInsight)
+                    .font(.caption).foregroundColor(.gray).lineLimit(1)
+
+                Text(contextLine(for: person))
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.75))
+                    .lineLimit(1)
+
+                if !person.surfacedTraits.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(person.surfacedTraits.prefix(2), id: \.self) { trait in
+                            Text(trait)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Capsule())
+                        }
+                    }
                 if !person.topTraits.isEmpty {
                     Text(person.topTraits.joined(separator: " · "))
                         .font(.caption)
@@ -271,10 +305,6 @@ struct PeopleView: View {
             }
 
             Spacer()
-
-            // Expand indicator
-            Image(systemName: expandedPersonId == person.id ? "chevron.up" : "chevron.down")
-                .font(.system(size: 10)).foregroundColor(.gray.opacity(0.4))
         }
         .padding(.vertical, 10).padding(.horizontal, 14)
     }
@@ -309,10 +339,10 @@ struct PeopleView: View {
 
     private func actionRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
         HStack(spacing: 10) {
-            actionButton(person.primaryAction, person: person, color: sectionColor)
-
-            if let secondary = person.secondaryAction {
-                actionButton(secondary, person: person, color: .white.opacity(0.5))
+            actionButton(.message, person: person, color: sectionColor)
+            actionButton(.save, person: person, color: .white.opacity(0.85))
+            if person.presence == .hereNow {
+                actionButton(.find, person: person, color: .green)
             }
         }
         .padding(.top, 4)
@@ -394,16 +424,20 @@ struct PeopleView: View {
             #endif
             openConversation(profileId: person.id, name: person.name)
 
-        case .viewProfile:
+        case .save:
             #if DEBUG
-            print("[PeopleAction] View Profile tapped for \(person.name)")
+            print("[People] save contact triggered for [\(person.id.uuidString)]")
             #endif
+            if isAlreadySavedToContacts(person.id) {
+                savedConfirmationProfileId = person.id
+            } else {
+                contactSaveTarget = person
+            }
+
+        case .viewProfile:
             profileSheetTarget = ProfileSheetTarget(profileId: person.id)
 
         case .keepWatching:
-            #if DEBUG
-            print("[PeopleAction] Keep Watching tapped for \(person.name)")
-            #endif
             break
         }
     }
@@ -488,6 +522,39 @@ struct PeopleView: View {
     }
 
     // MARK: - Helpers
+
+    private func contextLine(for person: PersonIntelligence) -> String {
+        if person.hasMeaningfulTimeTogether {
+            return "You spent meaningful time together"
+        }
+
+        if let eventName = person.liveEventName ?? person.lastEventName {
+            return "Met at \(eventName)"
+        }
+
+        return "Met via Nearify"
+    }
+
+    private func isAlreadySavedToContacts(_ profileId: UUID) -> Bool {
+        let key = "people.saved.contact.\(profileId.uuidString.lowercased())"
+        return UserDefaults.standard.bool(forKey: key)
+            || ContactSyncService.shared.hasSavedContact(profileId: profileId)
+    }
+
+    private func markSavedContact(_ profileId: UUID) {
+        let key = "people.saved.contact.\(profileId.uuidString.lowercased())"
+        UserDefaults.standard.set(true, forKey: key)
+    }
+
+    private func contactDraft(for person: PersonIntelligence) -> ContactDraftData {
+        ContactDraftData(
+            name: person.name,
+            eventName: person.liveEventName ?? person.lastEventName ?? "Nearify",
+            interests: [],
+            skills: [],
+            earnedTraits: Array(person.surfacedTraits.prefix(2))
+        )
+    }
 
     private func initials(_ name: String) -> String {
         let parts = name.components(separatedBy: " ")

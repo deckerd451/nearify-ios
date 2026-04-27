@@ -642,7 +642,7 @@ struct NetworkView: View {
         var usedIds = Set<UUID>()
 
         let connectedFromFollowUp = oldModel.followUp
-        let connectedFromNotHere = oldModel.notHere.filter { $0.connectionStatus == .accepted }
+        let connectedFromNotHere = oldModel.yourPeople.filter { $0.connectionStatus == .accepted }
         let connectedMerged = dedupedPeople(connectedFromFollowUp + connectedFromNotHere, usedIds: &usedIds)
 
         if !connectedMerged.isEmpty {

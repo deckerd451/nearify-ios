@@ -48,6 +48,8 @@ struct PersonIntelligence: Identifiable {
     let whyThisMatters: String?
     let primaryAction: PersonAction
     let secondaryAction: PersonAction?
+    let surfacedTraits: [String]
+    let hasMeaningfulTimeTogether: Bool
 
     // Deep layer
     let deepInsights: [DeepInsight]
@@ -67,6 +69,7 @@ enum PersonAction {
     case message
     case viewProfile
     case keepWatching
+    case save
 
     var label: String {
         switch self {
@@ -74,6 +77,7 @@ enum PersonAction {
         case .message:      return "Message"
         case .viewProfile:  return "View Profile"
         case .keepWatching: return "Keep Watching"
+        case .save:         return "Save"
         }
     }
 
@@ -83,6 +87,7 @@ enum PersonAction {
         case .message:      return "bubble.left"
         case .viewProfile:  return "person"
         case .keepWatching: return "eye"
+        case .save:         return "person.crop.circle.badge.plus"
         }
     }
 }
