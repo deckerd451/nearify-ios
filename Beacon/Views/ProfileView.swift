@@ -163,7 +163,10 @@ struct ProfileView: View {
                 ContactSaveSheet(draft: profileContactDraft) { didSave in
                     showContactSaveSheet = false
                     guard didSave else { return }
-                    showSuccessBanner(message: "Saved to your contacts with context from Nearify")
+                    let eventName = EventJoinService.shared.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let saveMessage = eventName.flatMap { $0.isEmpty ? nil : $0 }
+                        .map { "Saved with context from \($0)" } ?? "Saved with Nearify context"
+                    showSuccessBanner(message: saveMessage)
                 }
             }
         }
@@ -171,10 +174,17 @@ struct ProfileView: View {
     
 
     private var profileContactDraft: ContactDraftData {
+        let avatarImageData: Data? = {
+            guard let avatarUrl = profile.imageUrl,
+                  let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
+            return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
+        }()
+
         ContactDraftData(
             name: profile.name,
+            nearifyProfileIdentifier: profile.id,
             eventName: EventJoinService.shared.currentEventName,
-            imageData: nil,
+            imageData: avatarImageData,
             phoneNumbers: [],
             emailAddresses: [profile.email].compactMap { $0 },
             linkedInUrl: nil,

@@ -4,6 +4,7 @@ import ContactsUI
 
 struct ContactDraftData {
     let name: String
+    let nearifyProfileIdentifier: UUID?
     let eventName: String?
     let imageData: Data?
     let phoneNumbers: [String]
@@ -14,22 +15,41 @@ struct ContactDraftData {
     let memoryCues: [String]
     let followUpLine: String?
 
+    var nearifyIdentityURL: URL? {
+        guard let nearifyProfileIdentifier else { return nil }
+        return URL(string: "nearify://profile/\(nearifyProfileIdentifier.uuidString.lowercased())")
+    }
+
+    private var contextBulletLines: [String] {
+        var lines: [String] = []
+
+        if let interactionLine, !interactionLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• \(interactionLine)")
+        }
+
+        if !memoryCues.isEmpty {
+            lines.append("• \(memoryCues.prefix(2).joined(separator: " · "))")
+        }
+
+        if let followUpLine, !followUpLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("• \(followUpLine)")
+        }
+
+        return lines
+    }
+
+    private var nearifyIdentifierFallbackLine: String? {
+        guard let nearifyProfileIdentifier else { return nil }
+        return "NearifyID: \(nearifyProfileIdentifier.uuidString.lowercased())"
+    }
+
     var note: String {
         let normalizedEvent = eventName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let eventLine = "Met at \((normalizedEvent?.isEmpty == false) ? normalizedEvent! : "a Nearify event")\nvia Nearify"
 
         var sections: [String] = [eventLine]
-
-        if let interactionLine, !interactionLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            sections.append(interactionLine)
-        }
-
-        if !memoryCues.isEmpty {
-            sections.append(memoryCues.prefix(2).joined(separator: " · "))
-        }
-
-        if let followUpLine, !followUpLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            sections.append(followUpLine)
+        if !contextBulletLines.isEmpty {
+            sections.append(contextBulletLines.joined(separator: "\n"))
         }
 
         return sections.joined(separator: "\n\n")
@@ -93,7 +113,20 @@ struct ContactDraftData {
             contact.socialProfiles = builtSocialProfiles
         }
 
-        contact.note = note
+        let supportsURLFieldInCurrentFlow = true
+        if supportsURLFieldInCurrentFlow, let nearifyIdentityURL {
+            let existingURLs = contact.urlAddresses
+            let nearifyURL = CNLabeledValue(label: "Nearify", value: nearifyIdentityURL as NSURL)
+            contact.urlAddresses = existingURLs + [nearifyURL]
+            contact.note = note
+        } else {
+            if let fallbackLine = nearifyIdentifierFallbackLine {
+                contact.note = [note, fallbackLine].joined(separator: "\n\n")
+            } else {
+                contact.note = note
+            }
+        }
+
         return contact
     }
 

@@ -214,8 +214,11 @@ struct FindAttendeeView: View {
             ContactSaveSheet(draft: attendeeContactDraft) { didSave in
                 showContactSaveSheet = false
                 guard didSave else { return }
+                let eventName = EventJoinService.shared.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let saveMessage = eventName.flatMap { $0.isEmpty ? nil : $0 }
+                    .map { "Saved with context from \($0)" } ?? "Saved with Nearify context"
                 withAnimation(.easeInOut(duration: 0.2)) {
-                    transientConfirmationMessage = "Saved to your contacts with context from Nearify"
+                    transientConfirmationMessage = saveMessage
                 }
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 Task {
@@ -1108,15 +1111,22 @@ struct FindAttendeeView: View {
         if encounterSeconds >= 30 {
             let minutes = max(1, Int(round(Double(encounterSeconds) / 60.0)))
             let strength = encounterSeconds >= 900 ? "strong interaction" : (encounterSeconds >= 240 ? "good interaction" : "light interaction")
-            interactionLine = "Spent ~\(minutes) minutes together — \(strength)"
+            interactionLine = "Spent ~\(minutes) min — \(strength)"
         } else {
             interactionLine = nil
         }
 
+        let avatarImageData: Data? = {
+            guard let avatarUrl = attendee.avatarUrl,
+                  let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
+            return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
+        }()
+
         return ContactDraftData(
             name: attendee.name,
+            nearifyProfileIdentifier: attendee.id,
             eventName: EventJoinService.shared.currentEventName,
-            imageData: nil,
+            imageData: avatarImageData,
             phoneNumbers: [],
             emailAddresses: [],
             linkedInUrl: nil,
