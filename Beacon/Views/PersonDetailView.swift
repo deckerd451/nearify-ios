@@ -69,6 +69,7 @@ struct PersonDetailView: View {
         }
         .task {
             await loadPublicProfile()
+            await prefetchContactAvatarIfNeeded()
         }
     }
 
@@ -498,11 +499,7 @@ struct PersonDetailView: View {
             return nil
         }()
 
-        let avatarImageData: Data? = {
-            guard let avatarUrl = attendee.avatarUrl,
-                  let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
-            return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
-        }()
+        let avatarImageData = ContactAvatarResolver.cachedImageData(avatarUrl: attendee.avatarUrl)
 
         return ContactDraftData(
             name: attendee.name,
@@ -520,6 +517,14 @@ struct PersonDetailView: View {
             timeSpentLine: meaningfulEncounterDuration >= 300 ? "\(max(1, Int(round(Double(meaningfulEncounterDuration) / 60.0)))) min" : nil,
             followUpLine: followUpLine
         )
+    }
+
+    private func prefetchContactAvatarIfNeeded() async {
+        guard let avatarUrl = attendee.avatarUrl,
+              ThumbnailCache.shared.thumbnail(for: avatarUrl) == nil else {
+            return
+        }
+        _ = await ThumbnailCache.shared.loadThumbnail(for: avatarUrl)
     }
 
     private func handleMessageTap() {

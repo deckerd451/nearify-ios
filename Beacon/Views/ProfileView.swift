@@ -159,6 +159,9 @@ struct ProfileView: View {
             .sheet(isPresented: $showFindMode) {
                 FindAttendeeView(attendee: profileToAttendee())
             }
+            .task(id: profile.imageUrl) {
+                await prefetchContactAvatarIfNeeded()
+            }
             .sheet(isPresented: $showContactSaveSheet) {
                 ContactSaveSheet(draft: profileContactDraft) { didSave in
                     showContactSaveSheet = false
@@ -174,11 +177,7 @@ struct ProfileView: View {
     
 
     private var profileContactDraft: ContactDraftData {
-        let avatarImageData: Data? = {
-            guard let avatarUrl = profile.imageUrl,
-                  let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
-            return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
-        }()
+        let avatarImageData = ContactAvatarResolver.cachedImageData(avatarUrl: profile.imageUrl)
 
         return ContactDraftData(
             name: profile.name,
@@ -193,6 +192,14 @@ struct ProfileView: View {
             memoryCues: Array(((profile.interests ?? []) + (profile.skills ?? [])).prefix(2)),
             followUpLine: nil
         )
+    }
+
+    private func prefetchContactAvatarIfNeeded() async {
+        guard let avatarUrl = profile.imageUrl,
+              ThumbnailCache.shared.thumbnail(for: avatarUrl) == nil else {
+            return
+        }
+        _ = await ThumbnailCache.shared.loadThumbnail(for: avatarUrl)
     }
 
     private func createConnection() {

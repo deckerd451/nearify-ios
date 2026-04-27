@@ -208,6 +208,21 @@ struct ContactDraftData {
     }
 }
 
+enum ContactAvatarResolver {
+    static func cachedImageData(avatarUrl: String?) -> Data? {
+        guard let avatarUrl,
+              let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl),
+              let imageData = cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9),
+              !imageData.isEmpty else {
+            print("[Contact] no cached avatar available")
+            return nil
+        }
+
+        print("[Contact] attached avatar imageData")
+        return imageData
+    }
+}
+
 struct ContactSaveSheet: UIViewControllerRepresentable {
     let draft: ContactDraftData
     let onComplete: (Bool) -> Void

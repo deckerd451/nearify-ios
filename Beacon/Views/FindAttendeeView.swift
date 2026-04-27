@@ -210,6 +210,9 @@ struct FindAttendeeView: View {
             stopSignalTimer()
             stopAmbientMessageRotation()
         }
+        .task(id: attendee.avatarUrl) {
+            await prefetchContactAvatarIfNeeded()
+        }
         .sheet(isPresented: $showContactSaveSheet) {
             ContactSaveSheet(draft: attendeeContactDraft) { didSave in
                 showContactSaveSheet = false
@@ -1116,11 +1119,7 @@ struct FindAttendeeView: View {
             interactionLine = nil
         }
 
-        let avatarImageData: Data? = {
-            guard let avatarUrl = attendee.avatarUrl,
-                  let cachedImage = ThumbnailCache.shared.thumbnail(for: avatarUrl) else { return nil }
-            return cachedImage.pngData() ?? cachedImage.jpegData(compressionQuality: 0.9)
-        }()
+        let avatarImageData = ContactAvatarResolver.cachedImageData(avatarUrl: attendee.avatarUrl)
 
         return ContactDraftData(
             name: attendee.name,
@@ -1135,6 +1134,14 @@ struct FindAttendeeView: View {
             memoryCues: Array(((attendee.skills ?? []) + (attendee.interests ?? [])).prefix(2)),
             followUpLine: encounterSeconds >= 240 ? "Follow up: reconnect next time" : nil
         )
+    }
+
+    private func prefetchContactAvatarIfNeeded() async {
+        guard let avatarUrl = attendee.avatarUrl,
+              ThumbnailCache.shared.thumbnail(for: avatarUrl) == nil else {
+            return
+        }
+        _ = await ThumbnailCache.shared.loadThumbnail(for: avatarUrl)
     }
 
     @ViewBuilder
