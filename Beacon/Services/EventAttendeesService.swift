@@ -11,15 +11,49 @@ struct EventAttendee: Identifiable, Equatable {
     let bio: String?
     let skills: [String]?
     let interests: [String]?
-    let publicEmail: String? = nil
-    let publicPhone: String? = nil
-    let linkedInUrl: String? = nil
-    let websiteUrl: String? = nil
-    let shareEmail: Bool? = nil
-    let sharePhone: Bool? = nil
-    let preferredContactMethod: String? = nil
     let energy: Double
     let lastSeen: Date
+    let publicEmail: String?
+    let publicPhone: String?
+    let linkedInUrl: String?
+    let websiteUrl: String?
+    let shareEmail: Bool?
+    let sharePhone: Bool?
+    let preferredContactMethod: String?
+
+    init(
+        id: UUID,
+        name: String,
+        avatarUrl: String?,
+        bio: String?,
+        skills: [String]?,
+        interests: [String]?,
+        energy: Double,
+        lastSeen: Date,
+        publicEmail: String? = nil,
+        publicPhone: String? = nil,
+        linkedInUrl: String? = nil,
+        websiteUrl: String? = nil,
+        shareEmail: Bool? = nil,
+        sharePhone: Bool? = nil,
+        preferredContactMethod: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.avatarUrl = avatarUrl
+        self.bio = bio
+        self.skills = skills
+        self.interests = interests
+        self.energy = energy
+        self.lastSeen = lastSeen
+        self.publicEmail = publicEmail
+        self.publicPhone = publicPhone
+        self.linkedInUrl = linkedInUrl
+        self.websiteUrl = websiteUrl
+        self.shareEmail = shareEmail
+        self.sharePhone = sharePhone
+        self.preferredContactMethod = preferredContactMethod
+    }
 
     // MARK: - Event Presence State
     //
@@ -463,15 +497,15 @@ final class EventAttendeesService: ObservableObject {
                             bio: nil,
                             skills: nil,
                             interests: nil,
+                            energy: 0.5,
+                            lastSeen: device.lastSeen,
                             publicEmail: nil,
                             publicPhone: nil,
                             linkedInUrl: nil,
                             websiteUrl: nil,
                             shareEmail: nil,
                             sharePhone: nil,
-                            preferredContactMethod: nil,
-                            energy: 0.5,
-                            lastSeen: device.lastSeen
+                            preferredContactMethod: nil
                         )
                         injected.append(attendee)
 
@@ -626,7 +660,7 @@ final class EventAttendeesService: ObservableObject {
             #endif
 
             var seenProfileIds = Set<UUID>()
-            let newAttendees: [EventAttendee] = orderedActiveRows.compactMap { row in
+            let newAttendees: [EventAttendee] = orderedActiveRows.compactMap { row -> EventAttendee? in
                 guard seenProfileIds.insert(row.profileId).inserted else { return nil }
 
                 let profile = profilesById[row.profileId]
@@ -637,15 +671,15 @@ final class EventAttendeesService: ObservableObject {
                     bio: profile?.bio,
                     skills: nil,
                     interests: nil,
+                    energy: 1.0,
+                    lastSeen: row.lastSeenAt,
                     publicEmail: profile?.publicEmail,
                     publicPhone: profile?.publicPhone,
                     linkedInUrl: profile?.linkedInUrl,
                     websiteUrl: profile?.websiteUrl,
                     shareEmail: profile?.shareEmail,
                     sharePhone: profile?.sharePhone,
-                    preferredContactMethod: profile?.preferredContactMethod,
-                    energy: 1.0,
-                    lastSeen: row.lastSeenAt
+                    preferredContactMethod: profile?.preferredContactMethod
                 )
 
                 // Preserve backend freshness logic, but promote to live "here now"
@@ -659,15 +693,15 @@ final class EventAttendeesService: ObservableObject {
                         bio: baseAttendee.bio,
                         skills: baseAttendee.skills,
                         interests: baseAttendee.interests,
+                        energy: baseAttendee.energy,
+                        lastSeen: now,
                         publicEmail: baseAttendee.publicEmail,
                         publicPhone: baseAttendee.publicPhone,
                         linkedInUrl: baseAttendee.linkedInUrl,
                         websiteUrl: baseAttendee.websiteUrl,
                         shareEmail: baseAttendee.shareEmail,
                         sharePhone: baseAttendee.sharePhone,
-                        preferredContactMethod: baseAttendee.preferredContactMethod,
-                        energy: baseAttendee.energy,
-                        lastSeen: now
+                        preferredContactMethod: baseAttendee.preferredContactMethod
                     )
                 }
 
