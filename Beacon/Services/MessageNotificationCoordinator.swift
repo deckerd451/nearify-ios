@@ -83,12 +83,16 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     private func monitorLoop() async {
         while !Task.isCancelled {
-            await pollOnce(reason: .controlledPoll)
+            await pollOnce(reason: .controlledPoll, mode: .interactive)
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
     }
 
-    private func pollOnce(reason: MessagingRefreshCoordinator.Reason) async {
+    func processRefresh(reason: MessagingRefreshCoordinator.Reason, mode: MessagingRefreshCoordinator.Mode) async {
+        await pollOnce(reason: reason, mode: mode)
+    }
+
+    private func pollOnce(reason: MessagingRefreshCoordinator.Reason, mode: MessagingRefreshCoordinator.Mode) async {
         guard !isPolling else {
             print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
             return
@@ -120,13 +124,17 @@ final class MessageNotificationCoordinator: ObservableObject {
             }
 
             var newestSeenAt = lastProcessedAt
+            var quietDuplicateCount = 0
 
             for row in rows {
                 if newestSeenAt == nil || row.createdAt > newestSeenAt! {
                     newestSeenAt = row.createdAt
                 }
 
-                guard markMessageProcessedIfNeeded(row.id) else {
+                guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: mode.isNotificationEligible) else {
+                    if !mode.isNotificationEligible {
+                        quietDuplicateCount += 1
+                    }
                     continue
                 }
 
@@ -139,7 +147,16 @@ final class MessageNotificationCoordinator: ObservableObject {
                 )
 
                 let conversation = conversations.first { $0.id == row.conversationId }
-                await handleIncoming(message: message, refreshReason: reason, conversation: conversation)
+                await handleIncoming(
+                    message: message,
+                    refreshReason: reason,
+                    mode: mode,
+                    conversation: conversation
+                )
+            }
+
+            if !mode.isNotificationEligible && quietDuplicateCount > 0 {
+                print("[Messaging] quiet refresh skipped \(quietDuplicateCount) duplicate messages")
             }
 
             if let newestSeenAt {
@@ -180,11 +197,13 @@ final class MessageNotificationCoordinator: ObservableObject {
         }
     }
 
-    private func markMessageProcessedIfNeeded(_ messageId: UUID) -> Bool {
+    private func markMessageProcessedIfNeeded(_ messageId: UUID, shouldLogDuplicate: Bool) -> Bool {
         if processedMessageIds.contains(messageId) {
-            #if DEBUG
-            print("[Messaging] duplicate message ignored: \(messageId)")
-            #endif
+            if shouldLogDuplicate {
+                #if DEBUG
+                print("[Messaging] duplicate message ignored: \(messageId)")
+                #endif
+            }
             return false
         }
 
@@ -232,6 +251,7 @@ final class MessageNotificationCoordinator: ObservableObject {
     private func handleIncoming(
         message: Message,
         refreshReason: MessagingRefreshCoordinator.Reason,
+        mode: MessagingRefreshCoordinator.Mode,
         conversation: Conversation?
     ) async {
         MessagingService.shared.handleIncomingMessage(
@@ -242,6 +262,8 @@ final class MessageNotificationCoordinator: ObservableObject {
             createdAt: message.createdAt ?? Date(),
             conversation: conversation
         )
+
+        guard mode.isNotificationEligible else { return }
 
         let context = MessagingNotificationContext(
             currentUserProfileId: AuthService.shared.currentUser?.id,
