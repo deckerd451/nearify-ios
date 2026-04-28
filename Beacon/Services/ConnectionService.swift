@@ -29,6 +29,7 @@ final class ConnectionService {
         case outgoingPending
         case incomingPending
         case connected
+        case ignored
     }
 
     enum ConnectionRequestResult {
@@ -66,7 +67,21 @@ final class ConnectionService {
             case id
             case requesterProfileId = "requester_profile_id"
             case addresseeProfileId = "addressee_profile_id"
+        case status
+        }
+    }
+
+    private struct UpdatePayload: Encodable {
+        let requesterProfileId: UUID?
+        let addresseeProfileId: UUID?
+        let status: String
+        let updatedAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case requesterProfileId = "requester_profile_id"
+            case addresseeProfileId = "addressee_profile_id"
             case status
+            case updatedAt = "updated_at"
         }
     }
 
@@ -180,7 +195,7 @@ final class ConnectionService {
         case .incomingPending:
             try await approveConnectionRequest(with: toId)
             return .alreadyPendingIncoming
-        case .none:
+        case .none, .ignored:
             break
         }
 
@@ -188,17 +203,61 @@ final class ConnectionService {
             EventJoinService.shared.currentEventID
         }
 
-        try await supabase
+        let myId = currentUser.id.uuidString
+        let targetId = toId.uuidString
+        let orFilter = bidirectionalFilter(myId: myId, targetId: targetId)
+
+        let existingRows: [ConnectionIdRow] = try await supabase
             .from("connections")
-            .insert(
-                CreatePayload(
-                    requesterProfileId: currentUser.id,
-                    addresseeProfileId: toId,
-                    eventId: eventId,
-                    status: "pending"
-                )
-            )
+            .select("id")
+            .or(orFilter)
+            .order("created_at", ascending: false)
+            .limit(1)
             .execute()
+            .value
+
+        if let rowId = existingRows.first?.id {
+            do {
+                try await supabase
+                    .from("connections")
+                    .update(
+                        UpdatePayload(
+                            requesterProfileId: currentUser.id,
+                            addresseeProfileId: toId,
+                            status: "pending",
+                            updatedAt: ISO8601DateFormatter().string(from: Date())
+                        )
+                    )
+                    .eq("id", value: rowId.uuidString)
+                    .execute()
+            } catch {
+                try await supabase
+                    .from("connections")
+                    .insert(
+                        CreatePayload(
+                            requesterProfileId: currentUser.id,
+                            addresseeProfileId: toId,
+                            eventId: eventId,
+                            status: "pending"
+                        )
+                    )
+                    .execute()
+            }
+        } else {
+            try await supabase
+                .from("connections")
+                .insert(
+                    CreatePayload(
+                        requesterProfileId: currentUser.id,
+                        addresseeProfileId: toId,
+                        eventId: eventId,
+                        status: "pending"
+                    )
+                )
+                .execute()
+        }
+
+        print("[ContactShare] request sent requester=\(currentUser.id.uuidString) receiver=\(toId.uuidString)")
 
         Task {
             await FeedService.shared.requestRefresh(reason: "connection-request-created")
@@ -300,6 +359,10 @@ final class ConnectionService {
             }
         }
 
+        if status == "ignored" || status == "blocked" {
+            return .ignored
+        }
+
         return .none
     }
 
@@ -319,6 +382,20 @@ final class ConnectionService {
             .eq("status", value: "pending")
             .execute()
 
+        let pendingRows: [ConnectionIdRow] = (try? await supabase
+            .from("connections")
+            .select("id")
+            .eq("requester_profile_id", value: requesterId)
+            .eq("addressee_profile_id", value: currentId)
+            .eq("status", value: "accepted")
+            .order("updated_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value) ?? []
+        if let rowId = pendingRows.first?.id {
+            print("[ContactShare] accepted request=\(rowId.uuidString)")
+        }
+
         Task {
             await NotificationService.shared.onConnectionCreated(
                 profileId: profileId,
@@ -326,6 +403,41 @@ final class ConnectionService {
             )
             await FeedService.shared.requestRefresh(reason: "connection-request-approved")
             await AttendeeStateResolver.shared.refreshConnections()
+        }
+    }
+
+    func ignoreConnectionRequest(with profileId: UUID) async throws {
+        guard let currentUser = AuthService.shared.currentUser else {
+            throw ConnectionError.notAuthenticated
+        }
+
+        let currentId = currentUser.id.uuidString
+        let requesterId = profileId.uuidString
+
+        try await supabase
+            .from("connections")
+            .update(["status": "ignored"])
+            .eq("requester_profile_id", value: requesterId)
+            .eq("addressee_profile_id", value: currentId)
+            .eq("status", value: "pending")
+            .execute()
+
+        let rows: [ConnectionIdRow] = (try? await supabase
+            .from("connections")
+            .select("id")
+            .eq("requester_profile_id", value: requesterId)
+            .eq("addressee_profile_id", value: currentId)
+            .eq("status", value: "ignored")
+            .order("updated_at", ascending: false)
+            .limit(1)
+            .execute()
+            .value) ?? []
+        if let rowId = rows.first?.id {
+            print("[ContactShare] ignored request=\(rowId.uuidString)")
+        }
+
+        Task {
+            await FeedService.shared.requestRefresh(reason: "connection-request-ignored")
         }
     }
 
