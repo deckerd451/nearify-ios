@@ -19,7 +19,10 @@ struct MainTabView: View {
     @Binding var selectedTab: AppTab
 
     @StateObject private var deepLinkManager = DeepLinkManager.shared
+    @StateObject private var contactShareService = ContactShareService.shared
     @State private var isConsumingPendingEvent = false
+    @State private var incomingRequesterName = "Someone nearby"
+
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -59,7 +62,29 @@ struct MainTabView: View {
             #if DEBUG
             print("🚨 MainTabView appeared")
             #endif
+            ContactShareService.shared.start(for: currentUser.id)
             replayPendingEventIfNeeded(source: "onAppear")
+        }
+        .onDisappear {
+            ContactShareService.shared.stop()
+        }
+        .sheet(item: Binding(
+            get: { contactShareService.incomingPendingRequest },
+            set: { newValue in
+                if newValue == nil {
+                    contactShareService.incomingPendingRequest = nil
+                }
+            }
+        )) { request in
+            incomingRequestSheet(for: request)
+        }
+        .onChange(of: contactShareService.incomingPendingRequest?.id) { _, _ in
+            Task {
+                await refreshIncomingRequesterName()
+            }
+        }
+        .onChange(of: currentUser.id) { _, newId in
+            ContactShareService.shared.start(for: newId)
         }
         .onReceive(deepLinkManager.$pendingEventId.removeDuplicates()) { pendingEventId in
             guard pendingEventId != nil else { return }
@@ -74,6 +99,57 @@ struct MainTabView: View {
             #if DEBUG
             print("[TAB-WRITE] \(oldValue) → \(newValue)")
             #endif
+        }
+    }
+
+    @ViewBuilder
+    private func incomingRequestSheet(for request: ContactShareRequest) -> some View {
+        VStack(spacing: 14) {
+            Text("\(incomingRequesterName) wants to connect")
+                .font(.headline)
+
+            Text("You were nearby at \(EventJoinService.shared.currentEventName ?? "this event"). Share your approved contact info?")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+
+            HStack(spacing: 10) {
+                Button("Share Contact") {
+                    Task {
+                        await contactShareService.approve(request)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Not Now") {
+                    Task {
+                        await contactShareService.ignore(request)
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(24)
+        .presentationDetents([.height(250)])
+    }
+
+    private func refreshIncomingRequesterName() async {
+        guard let request = contactShareService.incomingPendingRequest else {
+            await MainActor.run {
+                incomingRequesterName = "Someone nearby"
+            }
+            return
+        }
+
+        if let profile = try? await ProfileService.shared.fetchProfileById(request.requesterProfileId) {
+            await MainActor.run {
+                incomingRequesterName = profile.name
+            }
+        } else {
+            await MainActor.run {
+                incomingRequesterName = "Someone nearby"
+            }
         }
     }
 

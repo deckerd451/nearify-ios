@@ -58,7 +58,6 @@ struct FindAttendeeView: View {
     @State private var arrivedRSSI: Int?
     @State private var hasTriggeredArrivedHaptic = false
     @State private var isSubmittingContactRequest = false
-    @State private var isResolvingIncomingRequest = false
     @State private var encounterConnectionState: ConnectionService.EncounterConnectionState = .none
     @State private var transientConfirmationMessage: String?
     @State private var viewAppearedAt: Date?
@@ -68,7 +67,6 @@ struct FindAttendeeView: View {
     @State private var ambientMessageTask: Task<Void, Never>?
     @State private var connectionPollTask: Task<Void, Never>?
     @State private var showContactSaveSheet = false
-    @State private var showIncomingRequestSheet = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -234,9 +232,6 @@ struct FindAttendeeView: View {
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showIncomingRequestSheet) {
-            incomingRequestSheet
         }
         .onChange(of: encounterConnectionState) {
             handleConnectionStateChange()
@@ -1253,64 +1248,26 @@ struct FindAttendeeView: View {
             }
 
             do {
-                let result = try await ConnectionService.shared.createConnectionRequest(to: attendee.id.uuidString)
+                let currentEventId = await MainActor.run {
+                    EventJoinService.shared.currentEventID
+                }.flatMap(UUID.init(uuidString:))
+
+                guard let requesterId = AuthService.shared.currentUser?.id else { return }
+
+                try await ContactShareService.shared.requestContact(
+                    requesterProfileId: requesterId,
+                    addresseeProfileId: attendee.id,
+                    eventId: currentEventId
+                )
+
                 await MainActor.run {
-                    switch result {
-                    case .created, .alreadyPendingOutgoing:
-                        encounterConnectionState = .outgoingPending
-                    case .alreadyPendingIncoming:
-                        encounterConnectionState = .connected
-                    case .alreadyConnected:
-                        encounterConnectionState = .connected
-                    }
+                    encounterConnectionState = .outgoingPending
+                    print("[ContactShare] waiting for approval target=\(attendee.id.uuidString)")
+                    startConnectionPolling()
                 }
             } catch {
                 #if DEBUG
                 print("[FindAttendee] Failed to request connection for \(attendee.name): \(error.localizedDescription)")
-                #endif
-            }
-        }
-    }
-
-    private func approveIncomingRequest() {
-        guard !isResolvingIncomingRequest else { return }
-        isResolvingIncomingRequest = true
-        Task {
-            defer {
-                Task { @MainActor in isResolvingIncomingRequest = false }
-            }
-
-            do {
-                try await ConnectionService.shared.approveConnectionRequest(with: attendee.id)
-                await MainActor.run {
-                    encounterConnectionState = .connected
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                }
-            } catch {
-                #if DEBUG
-                print("[FindAttendee] Failed to approve request for \(attendee.name): \(error.localizedDescription)")
-                #endif
-            }
-        }
-    }
-
-    private func ignoreIncomingRequest() {
-        guard !isResolvingIncomingRequest else { return }
-        isResolvingIncomingRequest = true
-        Task {
-            defer {
-                Task { @MainActor in isResolvingIncomingRequest = false }
-            }
-
-            do {
-                try await ConnectionService.shared.ignoreConnectionRequest(with: attendee.id)
-                await MainActor.run {
-                    encounterConnectionState = .ignored
-                    showIncomingRequestSheet = false
-                }
-            } catch {
-                #if DEBUG
-                print("[FindAttendee] Failed to ignore request for \(attendee.name): \(error.localizedDescription)")
                 #endif
             }
         }
@@ -1332,7 +1289,7 @@ struct FindAttendeeView: View {
     }
 
     private func refreshEncounterConnectionStateIfNeeded() {
-        guard !isSubmittingContactRequest, !isResolvingIncomingRequest else { return }
+        guard !isSubmittingContactRequest else { return }
         refreshEncounterConnectionState()
     }
 
@@ -1382,43 +1339,12 @@ struct FindAttendeeView: View {
         .padding(.vertical, 10)
     }
 
-    @ViewBuilder
-    private var incomingRequestSheet: some View {
-        VStack(spacing: 14) {
-            Text("\(attendee.name) wants to connect")
-                .font(.headline)
-            Text("You were nearby at \(EventJoinService.shared.currentEventName ?? "this event"). Share your approved contact info?")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-
-            HStack(spacing: 10) {
-                Button("Share Contact") {
-                    approveIncomingRequest()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isResolvingIncomingRequest)
-
-                Button("Not Now") {
-                    ignoreIncomingRequest()
-                }
-                .buttonStyle(.bordered)
-                .disabled(isResolvingIncomingRequest)
-            }
-        }
-        .padding(24)
-        .presentationDetents([.height(250)])
-    }
-
     private func handleConnectionStateChange() {
         switch encounterConnectionState {
         case .outgoingPending:
             startConnectionPolling()
         case .incomingPending:
             stopConnectionPolling()
-            print("[ContactShare] incoming request requester=\(attendee.id.uuidString)")
-            showIncomingRequestSheet = true
         case .connected, .ignored, .none:
             stopConnectionPolling()
         }
@@ -1429,10 +1355,33 @@ struct FindAttendeeView: View {
         connectionPollTask = Task {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
+
+                guard let currentUserId = AuthService.shared.currentUser?.id else {
+                    await MainActor.run { stopConnectionPolling() }
+                    return
+                }
+
+                let status = await ContactShareService.shared.statusBetween(
+                    currentUserId,
+                    attendee.id
+                )
+
                 await MainActor.run {
-                    if findState != .arrived || encounterConnectionState != .outgoingPending {
+                    guard findState == .arrived, encounterConnectionState == .outgoingPending else {
                         stopConnectionPolling()
-                    } else {
+                        return
+                    }
+
+                    switch status {
+                    case "accepted":
+                        encounterConnectionState = .connected
+                        print("[ContactShare] outgoing accepted target=\(attendee.id.uuidString)")
+                    case "ignored":
+                        encounterConnectionState = .ignored
+                        print("[ContactShare] outgoing ignored target=\(attendee.id.uuidString)")
+                    case "pending":
+                        break
+                    default:
                         refreshEncounterConnectionStateIfNeeded()
                     }
                 }
