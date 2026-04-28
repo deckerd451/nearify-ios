@@ -22,10 +22,6 @@ final class ContactShareService: ObservableObject {
         installAppStateObservers()
     }
 
-    deinit {
-        removeAppStateObservers()
-    }
-
     func start(for profileId: UUID) {
         if currentProfileId == profileId, pollTask != nil {
             return
@@ -34,6 +30,10 @@ final class ContactShareService: ObservableObject {
         stop()
 
         currentProfileId = profileId
+        if appStateObservers.isEmpty {
+            installAppStateObservers()
+        }
+        isAppActive = UIApplication.shared.applicationState == .active
         pollTask = Task { [weak self] in
             guard let self else { return }
             print("[ContactShare] polling started profile=\(profileId.uuidString)")
@@ -50,6 +50,7 @@ final class ContactShareService: ObservableObject {
     func stop() {
         pollTask?.cancel()
         pollTask = nil
+        removeAppStateObservers()
         currentProfileId = nil
         incomingPendingRequest = nil
         outgoingPendingRequests = [:]
@@ -229,13 +230,17 @@ final class ContactShareService: ObservableObject {
 
         appStateObservers.append(
             center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.isAppActive = true
+                Task { @MainActor in
+                    self?.isAppActive = true
+                }
             }
         )
 
         appStateObservers.append(
             center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.isAppActive = false
+                Task { @MainActor in
+                    self?.isAppActive = false
+                }
             }
         )
     }
