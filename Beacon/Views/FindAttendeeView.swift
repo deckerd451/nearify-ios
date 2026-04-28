@@ -66,7 +66,9 @@ struct FindAttendeeView: View {
     @State private var isSearchExpanded = false
     @State private var ambientMessageIndex = 0
     @State private var ambientMessageTask: Task<Void, Never>?
+    @State private var connectionPollTask: Task<Void, Never>?
     @State private var showContactSaveSheet = false
+    @State private var showIncomingRequestSheet = false
 
     @Environment(\.dismiss) private var dismiss
 
@@ -207,6 +209,7 @@ struct FindAttendeeView: View {
         .onDisappear {
             stopSignalTimer()
             stopAmbientMessageRotation()
+            stopConnectionPolling()
         }
         .task(id: attendee.avatarUrl) {
             await prefetchContactAvatarIfNeeded()
@@ -231,6 +234,12 @@ struct FindAttendeeView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showIncomingRequestSheet) {
+            incomingRequestSheet
+        }
+        .onChange(of: encounterConnectionState) {
+            handleConnectionStateChange()
         }
         .onChange(of: signalAge) {
             if findState == .arrived {
@@ -1154,12 +1163,14 @@ struct FindAttendeeView: View {
         switch encounterConnectionState {
         case .none:
             Button {
-                // Primary social CTA only; no data sharing.
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                sendContactRequest()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "hand.wave")
-                    Text("Say hi")
+                    if isSubmittingContactRequest {
+                        ProgressView().tint(.white)
+                    }
+                    Image(systemName: "paperplane.fill")
+                    Text("Request Contact")
                         .fontWeight(.semibold)
                 }
                 .font(.subheadline)
@@ -1169,69 +1180,26 @@ struct FindAttendeeView: View {
                 .foregroundColor(.black)
                 .cornerRadius(10)
             }
+            .disabled(isSubmittingContactRequest)
             .padding(.horizontal, 16)
             .padding(.top, 4)
 
-            Button {
-                sendContactRequest()
-            } label: {
-                HStack(spacing: 6) {
-                    if isSubmittingContactRequest {
-                        ProgressView().tint(.white)
-                    }
-                    Image(systemName: "paperplane.fill")
-                    Text("Request contact")
-                        .fontWeight(.semibold)
-                }
-                .font(.subheadline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.14))
-                .foregroundColor(.white)
-                .cornerRadius(10)
-            }
-            .disabled(isSubmittingContactRequest)
-            .padding(.horizontal, 16)
-            .padding(.top, 2)
-
         case .outgoingPending:
-            requestStatePill(title: "Request sent", subtitle: "Waiting for approval…", color: .orange)
+            requestStatePill(title: "Request sent", subtitle: "Waiting for \(attendee.name) to approve contact sharing", color: .orange)
 
         case .incomingPending:
-            requestStatePill(title: "\(attendee.name) wants to connect", subtitle: "You were nearby just now", color: .cyan)
+            requestStatePill(title: "\(attendee.name) wants to connect", subtitle: "Share your approved contact info?", color: .cyan)
 
-            HStack(spacing: 10) {
-                Button {
-                    approveIncomingRequest()
-                } label: {
-                    if isResolvingIncomingRequest {
-                        ProgressView().tint(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                    } else {
-                        Text("Share contact")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                    }
-                }
-                .background(Color.green)
-                .cornerRadius(10)
-                .disabled(isResolvingIncomingRequest)
-
-                Button("Not now") {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        transientConfirmationMessage = "Okay — request still pending"
-                    }
-                }
-                .buttonStyle(fallbackButtonStyle(prominent: true))
-                .disabled(isResolvingIncomingRequest)
-            }
-            .padding(.horizontal, 16)
+        case .ignored:
+            requestStatePill(title: "Not shared", subtitle: "No contact info was exchanged", color: .gray)
 
         case .connected:
             Button {
+                guard encounterConnectionState == .connected else {
+                    print("[ContactShare] save blocked reason=not-approved")
+                    return
+                }
+                print("[ContactShare] save unlocked status=accepted")
                 showContactSaveSheet = true
             } label: {
                 HStack(spacing: 6) {
@@ -1250,14 +1218,21 @@ struct FindAttendeeView: View {
             .padding(.top, 2)
         }
 
-        HStack(spacing: 10) {
+        if encounterConnectionState == .ignored {
             Button("Back") { dismiss() }
                 .buttonStyle(fallbackButtonStyle(prominent: true))
-            Button("Keep exploring") { resetArrivedStateForExploration() }
-                .buttonStyle(fallbackButtonStyle(prominent: true))
+                .padding(.horizontal, 16)
+                .padding(.top, 2)
+        } else {
+            HStack(spacing: 10) {
+                Button("Back") { dismiss() }
+                    .buttonStyle(fallbackButtonStyle(prominent: true))
+                Button("Keep exploring") { resetArrivedStateForExploration() }
+                    .buttonStyle(fallbackButtonStyle(prominent: true))
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 2)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 2)
     }
 
     private func resetArrivedStateForExploration() {
@@ -1319,6 +1294,28 @@ struct FindAttendeeView: View {
         }
     }
 
+    private func ignoreIncomingRequest() {
+        guard !isResolvingIncomingRequest else { return }
+        isResolvingIncomingRequest = true
+        Task {
+            defer {
+                Task { @MainActor in isResolvingIncomingRequest = false }
+            }
+
+            do {
+                try await ConnectionService.shared.ignoreConnectionRequest(with: attendee.id)
+                await MainActor.run {
+                    encounterConnectionState = .ignored
+                    showIncomingRequestSheet = false
+                }
+            } catch {
+                #if DEBUG
+                print("[FindAttendee] Failed to ignore request for \(attendee.name): \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
     private func refreshEncounterConnectionState() {
         Task {
             do {
@@ -1341,19 +1338,31 @@ struct FindAttendeeView: View {
 
     private var arrivedPrimaryHeader: String {
         switch encounterConnectionState {
-        case .connected:
+        case .none:
             return "You found each other"
-        default:
-            return "You’re close to \(attendee.name)"
+        case .outgoingPending:
+            return "Request sent"
+        case .incomingPending:
+            return "\(attendee.name) wants to connect"
+        case .connected:
+            return "You’re connected"
+        case .ignored:
+            return "Not shared"
         }
     }
 
     private var arrivedSecondaryText: String {
         switch encounterConnectionState {
+        case .none:
+            return "Say hi first — then request contact if it feels right"
+        case .outgoingPending:
+            return "Waiting for \(attendee.name) to approve contact sharing"
+        case .incomingPending:
+            return "Share your approved contact info?"
         case .connected:
-            return "You’re now connected in Nearify"
-        default:
-            return "Look up — you’re nearby"
+            return "Contact sharing approved"
+        case .ignored:
+            return "No contact info was exchanged"
         }
     }
 
@@ -1371,6 +1380,69 @@ struct FindAttendeeView: View {
                 .foregroundColor(.gray.opacity(0.85))
         }
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var incomingRequestSheet: some View {
+        VStack(spacing: 14) {
+            Text("\(attendee.name) wants to connect")
+                .font(.headline)
+            Text("You were nearby at \(EventJoinService.shared.currentEventName ?? "this event"). Share your approved contact info?")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+
+            HStack(spacing: 10) {
+                Button("Share Contact") {
+                    approveIncomingRequest()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isResolvingIncomingRequest)
+
+                Button("Not Now") {
+                    ignoreIncomingRequest()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isResolvingIncomingRequest)
+            }
+        }
+        .padding(24)
+        .presentationDetents([.height(250)])
+    }
+
+    private func handleConnectionStateChange() {
+        switch encounterConnectionState {
+        case .outgoingPending:
+            startConnectionPolling()
+        case .incomingPending:
+            stopConnectionPolling()
+            print("[ContactShare] incoming request requester=\(attendee.id.uuidString)")
+            showIncomingRequestSheet = true
+        case .connected, .ignored, .none:
+            stopConnectionPolling()
+        }
+    }
+
+    private func startConnectionPolling() {
+        guard connectionPollTask == nil else { return }
+        connectionPollTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await MainActor.run {
+                    if findState != .arrived || encounterConnectionState != .outgoingPending {
+                        stopConnectionPolling()
+                    } else {
+                        refreshEncounterConnectionStateIfNeeded()
+                    }
+                }
+            }
+        }
+    }
+
+    private func stopConnectionPolling() {
+        connectionPollTask?.cancel()
+        connectionPollTask = nil
     }
 }
 
