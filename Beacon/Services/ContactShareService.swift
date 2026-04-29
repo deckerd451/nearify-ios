@@ -230,16 +230,18 @@ final class ContactShareService: ObservableObject {
 
         appStateObservers.append(
             center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.isAppActive = true
+                guard let service = self else { return }
+                Task { @MainActor [service] in
+                    service.isAppActive = true
                 }
             }
         )
 
         appStateObservers.append(
             center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    self?.isAppActive = false
+                guard let service = self else { return }
+                Task { @MainActor [service] in
+                    service.isAppActive = false
                 }
             }
         )
