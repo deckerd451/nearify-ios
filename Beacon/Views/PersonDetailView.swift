@@ -285,7 +285,7 @@ struct PersonDetailView: View {
     private func contactActionButton(layout: ProfileHeroLayoutMetrics) -> some View {
         switch contactShareStatus {
         case .accepted:
-            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts") {
+            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: "Save Contact", accessibility: "Save \(attendee.name) to contacts") {
                 guard contactShareStatus == .accepted else {
                     print("[ContactShare] save blocked reason=not-approved source=attendee-card")
                     return
@@ -599,6 +599,8 @@ struct PersonDetailView: View {
 
         Task {
             do {
+                _ = try await ConnectionService.shared.createConnectionIfNeeded(to: attendee.id.uuidString)
+                print("[MessagingGate] auto-connected target=\(attendee.id.uuidString)")
                 let eventId = await MainActor.run {
                     EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) }
                 }
@@ -612,6 +614,7 @@ struct PersonDetailView: View {
                     eventId: eventId,
                     eventName: eventName
                 )
+                print("[MessagingGate] opening conversation target=\(attendee.id.uuidString)")
 
                 await MessagingService.shared.fetchMessages(conversationId: conversation.id)
 
