@@ -14,6 +14,7 @@ struct PersonDetailView: View {
     @State private var isHeroVisible = false
     @State private var isOpeningConversation = false
     @State private var activeConversation: PersonConversationDestination?
+    @State private var contactShareStatus: AttendeeContactActionState = .none
 
     @ObservedObject private var encounterService = EncounterService.shared
 
@@ -70,6 +71,13 @@ struct PersonDetailView: View {
         .task {
             await loadPublicProfile()
             await prefetchContactAvatarIfNeeded()
+            await refreshContactShareStatus()
+        }
+        .onChange(of: ContactShareService.shared.incomingPendingRequest?.id) { _, _ in
+            Task { await refreshContactShareStatus() }
+        }
+        .onChange(of: ContactShareService.shared.outgoingPendingRequests[attendee.id]?.id) { _, _ in
+            Task { await refreshContactShareStatus() }
         }
     }
 
@@ -255,15 +263,7 @@ struct PersonDetailView: View {
                 handleMessageTap()
             }
 
-            profileActionButton(
-                layout: layout,
-                systemImage: "person.crop.circle.badge.plus",
-                title: "Save",
-                accessibility: "Save \(attendee.name) to contacts"
-            ) {
-                print("[ProfileHero] save tapped profileId=\(attendee.id)")
-                showContactSaveSheet = true
-            }
+            contactActionButton(layout: layout)
 
             if showFindAction {
                 profileActionButton(
@@ -278,6 +278,55 @@ struct PersonDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private func contactActionButton(layout: ProfileHeroLayoutMetrics) -> some View {
+        switch contactShareStatus {
+        case .accepted:
+            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: "Save", accessibility: "Save \(attendee.name) to contacts") {
+                guard contactShareStatus == .accepted else {
+                    print("[ContactShare] save blocked reason=not-approved source=attendee-card")
+                    return
+                }
+                print("[ContactShare] save unlocked source=attendee-card")
+                print("[ProfileHero] save tapped profileId=\(attendee.id)")
+                showContactSaveSheet = true
+            }
+        case .outgoingPending:
+            profileActionButton(layout: layout, systemImage: "clock.badge.checkmark", title: "Pending", accessibility: "Pending contact request for \(attendee.name)") {}
+                .disabled(true)
+                .opacity(0.7)
+        case .incomingPending:
+            profileActionButton(layout: layout, systemImage: "checkmark.shield", title: "Approve", accessibility: "Approve contact request from \(attendee.name)") {
+                if let pending = ContactShareService.shared.incomingPendingRequest,
+                   pending.requesterProfileId == attendee.id {
+                    Task {
+                        await ContactShareService.shared.approve(pending)
+                        await refreshContactShareStatus()
+                    }
+                }
+            }
+        case .ignoredOrDeclined, .none:
+            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: contactShareStatus == .ignoredOrDeclined ? "Request Again" : "Request Contact", accessibility: "Request contact sharing with \(attendee.name)") {
+                Task {
+                    guard let currentUserId = AuthService.shared.currentUser?.id else { return }
+                    let eventId = EventJoinService.shared.currentEventID.flatMap(UUID.init(uuidString:))
+                    do {
+                        try await ContactShareService.shared.requestContact(
+                            requesterProfileId: currentUserId,
+                            addresseeProfileId: attendee.id,
+                            eventId: eventId
+                        )
+                        print("[ContactShare] request sent source=attendee-card receiver=\(attendee.id.uuidString)")
+                        await refreshContactShareStatus()
+                    } catch {
+                        print("[ContactShare] request failed source=attendee-card receiver=\(attendee.id.uuidString) error=\(error.localizedDescription)")
+                    }
+                }
+            }
+        }
     }
 
     private func profileActionButton(
@@ -308,7 +357,7 @@ struct PersonDetailView: View {
         VStack(spacing: 18) {
             if !topEarnedTraits.isEmpty {
                 earnedTraitsHighlight
-                    .padding(.top, layout.contentTopPadding)
+                    .padding(.top, layout.contentTopPadding + 10)
             }
 
             if let bio = attendee.bio, !bio.isEmpty {
@@ -316,6 +365,7 @@ struct PersonDetailView: View {
                     Text(bio)
                         .font(.body)
                         .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -616,6 +666,33 @@ struct PersonDetailView: View {
         }
     }
 
+    private func refreshContactShareStatus() async {
+        guard let currentUserId = AuthService.shared.currentUser?.id else { return }
+
+        let incomingForAttendee = ContactShareService.shared.incomingPendingRequest?.requesterProfileId == attendee.id
+        let outgoingForAttendee = ContactShareService.shared.outgoingPendingRequests[attendee.id] != nil
+        let status = await ContactShareService.shared.statusBetween(currentUserId, attendee.id)
+
+        let resolvedState: AttendeeContactActionState
+        switch status {
+        case "accepted":
+            resolvedState = .accepted
+        case "pending" where incomingForAttendee:
+            resolvedState = .incomingPending
+        case "pending" where outgoingForAttendee:
+            resolvedState = .outgoingPending
+        case "ignored", "declined":
+            resolvedState = .ignoredOrDeclined
+        default:
+            resolvedState = incomingForAttendee ? .incomingPending : (outgoingForAttendee ? .outgoingPending : .none)
+        }
+
+        await MainActor.run {
+            contactShareStatus = resolvedState
+            print("[AttendeeCard] contact action state=\(resolvedState.rawValue) profile=\(attendee.id.uuidString)")
+        }
+    }
+
     private func layoutMetrics(for proxy: GeometryProxy) -> ProfileHeroLayoutMetrics {
         let isCompactWidth = horizontalSizeClass == .compact
         let safeHeight = max(1, proxy.size.height)
@@ -667,4 +744,12 @@ private struct PersonConversationDestination: Identifiable {
     let targetProfileId: UUID
     let targetName: String
     let conversation: Conversation
+}
+
+private enum AttendeeContactActionState: String {
+    case none
+    case outgoingPending
+    case incomingPending
+    case accepted
+    case ignoredOrDeclined
 }
