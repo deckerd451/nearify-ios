@@ -120,7 +120,7 @@ struct PeopleView: View {
 
                     if !sections.notHere.isEmpty {
                         sectionBlock(
-                            title: "Follow Up", icon: "sparkles",
+                            title: "Past / Other", icon: "sparkles",
                             color: .white.opacity(0.6), subtitle: "People you've interacted with",
                             people: sections.notHere
                         )
@@ -414,7 +414,10 @@ struct PeopleView: View {
 
         Task {
             do {
+                _ = try await ConnectionService.shared.createConnectionIfNeeded(to: profileId.uuidString)
+                print("[MessagingGate] auto-connected target=\(profileId.uuidString)")
                 let convo = try await MessagingService.shared.getOrCreateConversation(with: profileId)
+                print("[MessagingGate] opening conversation target=\(profileId.uuidString)")
                 await MessagingService.shared.fetchMessages(conversationId: convo.id)
                 await MainActor.run {
                     activeConversation = PeopleConversationTarget(
