@@ -144,7 +144,7 @@ final class MessagingService: ObservableObject {
             }
         }
 
-        await updateUIState {
+        updateUIState {
             conversationLastMessageAt.merge(latestByConversation) { _, new in new }
         }
 
@@ -171,7 +171,7 @@ final class MessagingService: ObservableObject {
                 .execute()
                 .value
 
-            await updateUIState {
+            updateUIState {
                 currentConversationId = conversationId
                 ingest(messages: msgs, mode: .fullHistoryLoad)
             }
@@ -487,7 +487,7 @@ final class MessagingService: ObservableObject {
                 .value
 
             guard !msgs.isEmpty else { return }
-            await updateUIState {
+            updateUIState {
                 ingest(messages: msgs, mode: .incrementalHistory)
             }
             print("[MessagingFallback] fetched new count=\(msgs.count)")
