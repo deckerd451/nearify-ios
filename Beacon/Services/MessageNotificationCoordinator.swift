@@ -118,6 +118,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         guard conversationIds.contains(row.conversationId.uuidString) else { return }
         guard row.senderProfileId != myId else { return }
         guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: true) else { return }
+        print("[Messaging] realtime insert accepted id=\(row.id) sender=\(row.senderProfileId)")
 
         let message = Message(
             id: row.id,
@@ -203,16 +204,17 @@ final class MessageNotificationCoordinator: ObservableObject {
             refreshReason: .manual
         )
 
+        print("[NotifyGate] evaluating message=\(message.id)")
         let decision = MessageNotificationEligibility.decision(for: message, context: context)
         switch decision {
         case .blocked(let reason):
-            print("[NotifyGate] blocked message=\(message.id) reason=\(reason.rawValue)")
-            if reason == .activeConversation || reason == .beforeBaseline || reason == .tabChangeRefresh || reason == .messagesTabActive || reason == .conversationVisible {
+            print("[Notify] suppressed reason=\(reason.rawValue)")
+            if reason == .activeConversation || reason == .beforeBaseline || reason == .tabChangeRefresh || reason == .conversationVisible {
                 markMessageNotified(message.id)
             }
             return
         case .allowed:
-            print("[NotifyGate] allowed message=\(message.id) reason=manual")
+            break
         }
 
         markMessageNotified(message.id)
@@ -228,13 +230,16 @@ final class MessageNotificationCoordinator: ObservableObject {
                 preview: String(message.content.prefix(72))
             )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            print("[Notify] banner shown message=\(message.id)")
         case .background:
             NotificationService.shared.sendMessageNotification(
                 messageId: message.id,
                 fromName: senderName,
                 preview: message.content
             )
+            print("[Notify] banner shown message=\(message.id)")
         case .inactive:
+            print("[Notify] suppressed reason=inappropriate-state")
             break
         }
     }

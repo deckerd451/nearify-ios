@@ -30,6 +30,7 @@ final class MessagingService: ObservableObject {
     /// Session-persistent hard dedupe set (not reset per refresh).
     private var processedMessageIds: Set<UUID> = []
     private var conversationLastMessageAt: [UUID: Date] = [:]
+    private var conversationLastSenderId: [UUID: UUID] = [:]
     private var conversationLastReadAt: [UUID: Date] = [:]
     private var openedConversationId: UUID?
 
@@ -197,13 +198,22 @@ final class MessagingService: ObservableObject {
             content: trimmed
         )
 
-        try await supabase
+        let inserted: Message = try await supabase
             .from("messages")
             .insert(payload)
+            .select()
+            .single()
             .execute()
+            .value
 
-        // Refresh messages after send
-        await fetchMessages(conversationId: conversationId)
+        handleIncomingMessage(
+            id: inserted.id,
+            conversationId: inserted.conversationId,
+            senderProfileId: inserted.senderProfileId,
+            content: inserted.content,
+            createdAt: inserted.createdAt ?? Date(),
+            conversation: conversations.first(where: { $0.id == conversationId })
+        )
 
         #if DEBUG
         print("[Messaging] ✅ Sent message in conversation \(conversationId)")
@@ -220,6 +230,7 @@ final class MessagingService: ObservableObject {
             for message in sorted {
                 processedMessageIds.insert(message.id)
                 conversationLastMessageAt[message.conversationId] = message.createdAt ?? Date()
+                conversationLastSenderId[message.conversationId] = message.senderProfileId
             }
             recalculateUnreadCount()
 
@@ -238,6 +249,7 @@ final class MessagingService: ObservableObject {
 
     private func appendToConversation(_ message: Message) {
         conversationLastMessageAt[message.conversationId] = message.createdAt ?? Date()
+        conversationLastSenderId[message.conversationId] = message.senderProfileId
 
         if currentConversationId == message.conversationId && !currentMessages.contains(where: { $0.id == message.id }) {
             currentMessages.append(message)
@@ -391,10 +403,16 @@ final class MessagingService: ObservableObject {
     }
 
     private func recalculateUnreadCount() {
+        guard let myId = AuthService.shared.currentUser?.id else {
+            totalUnreadCount = 0
+            return
+        }
+
         totalUnreadCount = conversations.filter { conversation in
             guard let lastMessageAt = conversationLastMessageAt[conversation.id] else { return false }
+            guard let lastSenderId = conversationLastSenderId[conversation.id] else { return false }
             let lastReadAt = conversationLastReadAt[conversation.id] ?? .distantPast
-            return lastMessageAt > lastReadAt
+            return lastSenderId != myId && lastMessageAt > lastReadAt
         }.count
     }
 
