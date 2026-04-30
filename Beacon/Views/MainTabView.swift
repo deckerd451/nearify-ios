@@ -252,7 +252,6 @@ private struct MessagesHubView: View {
                 } else {
                     List(conversationRows) { row in
                         Button {
-                            messaging.markConversationAsRead(row.id)
                             let otherId = myId.map { row.conversation.otherParticipant(for: $0) } ?? row.conversation.participantB
                             selectedConversation = MessagesDestination(
                                 targetProfileId: otherId,

@@ -31,6 +31,7 @@ final class MessagingService: ObservableObject {
     private var processedMessageIds: Set<UUID> = []
     private var conversationLastMessageAt: [UUID: Date] = [:]
     private var conversationLastReadAt: [UUID: Date] = [:]
+    private var openedConversationId: UUID?
 
     private init() {}
 
@@ -164,7 +165,6 @@ final class MessagingService: ObservableObject {
                 currentConversationId = conversationId
                 currentMessages = []
                 ingest(messages: msgs)
-                markConversationViewed(conversationId: conversationId)
             }
 
             #if DEBUG
@@ -306,11 +306,21 @@ final class MessagingService: ObservableObject {
         }
     }
 
-    func markConversationViewed(conversationId: UUID) {
+    func clearOpenedConversation(_ conversationId: UUID?) {
+        guard openedConversationId == conversationId else { return }
+        openedConversationId = nil
+    }
+
+    func markConversationOpenedOnce(conversationId: UUID) {
+        guard openedConversationId != conversationId else { return }
+
+        openedConversationId = conversationId
         conversationLastReadAt[conversationId] = Date()
         recalculateUnreadCount()
+
         print("[MessagesBadge] cleared conversation=\(conversationId)")
         print("[MessagesBadge] unread count=\(totalUnreadCount)")
+
         if #available(iOS 17.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
         } else {
@@ -318,9 +328,6 @@ final class MessagingService: ObservableObject {
         }
     }
 
-    func markConversationAsRead(_ conversationId: UUID) {
-        markConversationViewed(conversationId: conversationId)
-    }
 
     func setMessagesTabActive(_ isActive: Bool) {
         isMessagesTabActive = isActive
