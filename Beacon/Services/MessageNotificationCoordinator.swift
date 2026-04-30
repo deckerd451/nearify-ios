@@ -45,7 +45,7 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     func start() {
         Task { [weak self] in
-            await self?.ensureSingleActiveSubscription()
+            await self?.ensureRealtimeReadyAndStart()
         }
     }
 
@@ -82,6 +82,25 @@ final class MessageNotificationCoordinator: ObservableObject {
         let ids = messages.filter { $0.conversationId == conversationId }.map(\.id)
         guard !ids.isEmpty else { return }
         ids.forEach(markMessageNotified)
+    }
+
+
+
+    private func ensureRealtimeReadyAndStart() async {
+        guard AuthService.shared.profileState == .ready, let profileId = AuthService.shared.currentUser?.id else {
+            return
+        }
+
+        print("[MessagingRT] auth ready profile=\(profileId)")
+
+        do {
+            let session = try await supabase.auth.session
+            try await supabase.realtimeV2.setAuth(accessToken: session.accessToken)
+            print("[MessagingRT] restarting after auth ready")
+            await ensureSingleActiveSubscription()
+        } catch {
+            print("[MessagingRT] failed to prime realtime auth: \(error)")
+        }
     }
 
     private func ensureSingleActiveSubscription() async {
@@ -142,6 +161,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         else { return }
 
         lastInsertReceivedAt = Date()
+        print("[MessagingRT] insert received raw payload=\(payload.record)")
         print("[MessagingRT] insert received id=\(row.id) conversation=\(row.conversationId) sender=\(row.senderProfileId)")
 
         if knownConversationIds.isEmpty {
