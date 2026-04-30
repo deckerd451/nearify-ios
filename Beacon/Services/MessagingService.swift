@@ -79,9 +79,9 @@ final class MessagingService: ObservableObject {
                 .value
 
             let sorted = await sortConversationsByLatestMessage(convos)
-            await updateUIState {
-                conversations = sorted
-                recalculateUnreadCount()
+            await MainActor.run {
+                self.conversations = sorted
+                self.recalculateUnreadCount()
             }
 
             #if DEBUG
@@ -162,10 +162,8 @@ final class MessagingService: ObservableObject {
 
             await updateUIState {
                 currentConversationId = conversationId
-                currentMessages = msgs
-                if let latest = msgs.last?.createdAt {
-                    conversationLastMessageAt[conversationId] = latest
-                }
+                currentMessages = []
+                ingest(messages: msgs)
                 markConversationViewed(conversationId: conversationId)
             }
 
@@ -209,30 +207,19 @@ final class MessagingService: ObservableObject {
 
     // MARK: - Incoming Message Handling (single decision input path)
 
-    func handleIncomingMessage(
-        id: UUID,
-        conversationId: UUID,
-        senderProfileId: UUID,
-        content: String,
-        createdAt: Date,
-        conversation: Conversation?
-    ) {
-        guard !processedMessageIds.contains(id) else { return }
+    func ingest(messages: [Message]) {
+        for message in messages {
+            guard !processedMessageIds.contains(message.id) else { continue }
+            processedMessageIds.insert(message.id)
+            appendToConversation(message)
+        }
+    }
 
-        let incoming = Message(
-            id: id,
-            conversationId: conversationId,
-            senderProfileId: senderProfileId,
-            content: content,
-            createdAt: createdAt
-        )
+    private func appendToConversation(_ message: Message) {
+        conversationLastMessageAt[message.conversationId] = message.createdAt ?? Date()
 
-        processedMessageIds.insert(id)
-        conversationLastMessageAt[conversationId] = createdAt
-
-        // Keep active thread live, without requiring a pull-to-refresh.
-        if currentConversationId == conversationId && !currentMessages.contains(where: { $0.id == id }) {
-            currentMessages.append(incoming)
+        if currentConversationId == message.conversationId && !currentMessages.contains(where: { $0.id == message.id }) {
+            currentMessages.append(message)
         }
 
         recalculateUnreadCount()
@@ -243,13 +230,31 @@ final class MessagingService: ObservableObject {
             UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
         }
 
-        if let conversation, !conversations.contains(where: { $0.id == conversation.id }) {
-            conversations.insert(conversation, at: 0)
-        }
-
-        if let index = conversations.firstIndex(where: { $0.id == conversationId }) {
+        if let index = conversations.firstIndex(where: { $0.id == message.conversationId }) {
             let convo = conversations.remove(at: index)
             conversations.insert(convo, at: 0)
+        }
+    }
+
+    func handleIncomingMessage(
+        id: UUID,
+        conversationId: UUID,
+        senderProfileId: UUID,
+        content: String,
+        createdAt: Date,
+        conversation: Conversation?
+    ) {
+        let incoming = Message(
+            id: id,
+            conversationId: conversationId,
+            senderProfileId: senderProfileId,
+            content: content,
+            createdAt: createdAt
+        )
+        ingest(messages: [incoming])
+
+        if let conversation, !conversations.contains(where: { $0.id == conversation.id }) {
+            conversations.insert(conversation, at: 0)
         }
     }
 
