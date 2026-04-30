@@ -137,6 +137,8 @@ final class MessageNotificationCoordinator: ObservableObject {
             conversation: conversation
         )
 
+        await evaluateNotification(for: message, myId: myId)
+
     }
 
     func evaluateIngestionNotification(for message: Message) async {
@@ -199,19 +201,28 @@ final class MessageNotificationCoordinator: ObservableObject {
         let currentUserProfileId = AuthService.shared.currentUser?.id ?? myId
         let activeConversationId = MessagingService.shared.activeConversationId
         let currentTabIsMessages = MessagingService.shared.isMessagesTabActive
-        let openConversationLog = activeConversationId?.uuidString ?? "nil"
-        print("[NotifyGate] evaluating message=\(message.id) sender=\(message.senderProfileId) currentUser=\(currentUserProfileId) tab=\(currentTabIsMessages ? "messages" : "other") openConversation=\(openConversationLog)")
-
         let isOwnMessage = message.senderProfileId == currentUserProfileId
         let isViewingConversation = activeConversationId == message.conversationId
-        let isMessagesTabVisible = currentTabIsMessages
+        let currentTabLog = currentTabIsMessages ? "messages" : "other"
+        let openConversationLog = activeConversationId?.uuidString ?? "nil"
+
+        print("""
+[NotifyGate] evaluating message=\(message.id)
+sender=\(message.senderProfileId)
+currentUser=\(currentUserProfileId)
+conversation=\(message.conversationId)
+tab=\(currentTabLog)
+openConversation=\(openConversationLog)
+isOwnMessage=\(isOwnMessage)
+isAlreadyViewing=\(currentTabIsMessages && isViewingConversation)
+""")
 
         if isOwnMessage {
             print("[Notify] suppressed reason=own-message")
             return
         }
 
-        if isMessagesTabVisible && isViewingConversation {
+        if currentTabIsMessages && isViewingConversation {
             print("[Notify] suppressed reason=already-viewing")
             markMessageNotified(message.id)
             return
@@ -264,7 +275,7 @@ final class MessageNotificationCoordinator: ObservableObject {
                 fromName: senderName,
                 preview: message.content
             )
-            print("[Notify] banner shown message=\(message.id)")
+            print("[Notify] local notification scheduled message=\(message.id)")
         case .inactive:
             print("[Notify] suppressed reason=inappropriate-state")
             break
