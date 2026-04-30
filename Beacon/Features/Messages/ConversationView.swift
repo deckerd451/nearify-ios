@@ -23,6 +23,7 @@ struct ConversationView: View {
     @State private var errorMessage: String?
     @State private var isPinnedToBottom = true
     @State private var scrollCommand: ScrollCommand?
+    @FocusState private var isComposerFocused: Bool
 
     private var myId: UUID? {
         AuthService.shared.currentUser?.id
@@ -131,8 +132,10 @@ struct ConversationView: View {
                 requestScrollToBottom(animated: false, delay: 0.1)
             }
             .onDisappear {
+                isComposerFocused = false
                 if let conversationId = conversation?.id {
                     messaging.clearOpenedConversation(conversationId)
+                    messaging.setConversationVisibility(conversationId: conversationId, isVisible: false)
                 }
                 MessagingService.shared.activeConversationId = nil
                 NotificationService.shared.activeConversationId = nil
@@ -183,6 +186,7 @@ struct ConversationView: View {
                     RoundedRectangle(cornerRadius: 20)
                         .fill(Color.white.opacity(0.1))
                 )
+                .focused($isComposerFocused)
 
             Button(action: sendMessage) {
                 Image(systemName: "arrow.up.circle.fill")
@@ -210,8 +214,13 @@ struct ConversationView: View {
             isLoading = false
 
             // Messages may already be loaded by the caller, but refresh to be safe
-            await messaging.fetchMessages(conversationId: preloaded.id)
+            if !messaging.isCurrentConversation(preloaded.id) || messaging.currentMessages.isEmpty {
+                await messaging.fetchMessages(conversationId: preloaded.id)
+            } else {
+                print("[Messaging] skipping duplicate reload conversation=\(preloaded.id)")
+            }
             messaging.markConversationOpenedOnce(conversationId: preloaded.id)
+            messaging.setConversationVisibility(conversationId: preloaded.id, isVisible: true)
             MessageNotificationCoordinator.shared.markConversationMessagesAsNotified(
                 conversationId: preloaded.id,
                 messages: messaging.currentMessages
@@ -246,6 +255,7 @@ struct ConversationView: View {
             NotificationService.shared.activeConversationId = convo.id
             await messaging.fetchMessages(conversationId: convo.id)
             messaging.markConversationOpenedOnce(conversationId: convo.id)
+            messaging.setConversationVisibility(conversationId: convo.id, isVisible: true)
             MessageNotificationCoordinator.shared.markConversationMessagesAsNotified(
                 conversationId: convo.id,
                 messages: messaging.currentMessages
@@ -265,6 +275,7 @@ struct ConversationView: View {
         let text = messageText
         messageText = ""
         isPinnedToBottom = true
+        isComposerFocused = false
 
         Task {
             do {
@@ -302,6 +313,10 @@ struct ConversationView: View {
             scrollCommand = command
         } else {
             let safeDelay = delay.isFinite ? max(0, delay) : 0
+            guard safeDelay.isFinite else {
+                print("[MessagingCrashGuard] skipped unsafe UI update reason=non-finite-delay")
+                return
+            }
             Task {
                 try? await Task.sleep(nanoseconds: UInt64(safeDelay * 1_000_000_000))
                 guard !Task.isCancelled else { return }

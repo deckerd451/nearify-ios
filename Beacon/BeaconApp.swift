@@ -149,6 +149,7 @@ struct BeaconApp: App {
             .onAppear {
                 if authService.isAuthenticated {
                     MessageNotificationCoordinator.shared.markForegroundActive()
+                    MessagingService.shared.setAppActive(true)
                     MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
                 }
             }
@@ -163,11 +164,13 @@ struct BeaconApp: App {
                 if isAuthenticated {
                     showPostAuthTransition = true
                     MessageNotificationCoordinator.shared.markForegroundActive()
+                    MessagingService.shared.setAppActive(true)
                     MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
                 } else {
                     showPostAuthTransition = true
                     switchTab(to: .event, source: .system)
                     MessageNotificationCoordinator.shared.stop()
+                    MessagingService.shared.setAppActive(false)
                 }
             }
             .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -278,6 +281,7 @@ struct BeaconApp: App {
             #endif
             EventJoinService.shared.handleAppBackground()
             MessageNotificationCoordinator.shared.stop()
+            MessagingService.shared.setAppActive(false)
             // Persist local encounter data before backgrounding
             LocalEncounterStore.shared.stopCapture()
 
@@ -289,6 +293,7 @@ struct BeaconApp: App {
                 await EventJoinService.shared.handleAppForeground()
             }
             MessageNotificationCoordinator.shared.markForegroundActive()
+            MessagingService.shared.setAppActive(true)
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
             // Resume local encounter capture if in an event or Nearby Mode
             if EventJoinService.shared.isEventJoined || AuthService.shared.isOfflineMode {
