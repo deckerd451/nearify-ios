@@ -289,14 +289,14 @@ final class ContactSyncService {
     }
 
     private func upsertNearifyURL(on contact: CNMutableContact, profileId: UUID) {
-        let target = "nearify://profile/\(profileId.uuidString.lowercased())"
+        let target = "https://nearify.org/profile/\(profileId.uuidString.lowercased())"
         let alreadyPresent = contact.urlAddresses.contains {
             String($0.value).trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(target) == .orderedSame
         }
         guard !alreadyPresent else { return }
 
         var urls = contact.urlAddresses
-        urls.append(CNLabeledValue(label: "Nearify", value: target as NSString))
+        urls.append(CNLabeledValue(label: "Nearify Profile", value: target as NSString))
         contact.urlAddresses = urls
     }
 }
