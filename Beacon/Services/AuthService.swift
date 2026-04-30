@@ -394,7 +394,7 @@ final class AuthService: ObservableObject {
             print("[Auth]    Avatar URL: \(result.profile.imageUrl ?? "nil")")
 
             if result.state == .ready {
-                MessageNotificationCoordinator.shared.start()
+                await MessageNotificationCoordinator.shared.start()
             }
 
         } catch {
