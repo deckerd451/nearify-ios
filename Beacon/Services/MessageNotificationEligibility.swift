@@ -36,7 +36,6 @@ enum NotifyGateBlockReason: String {
     case alreadyNotified = "already-notified"
     case beforeBaseline = "before-baseline"
     case activeConversation = "active-conversation"
-    case messagesTabActive = "messages-tab-active"
     case conversationVisible = "conversation-visible"
     case tabChangeRefresh = "tab-change-refresh"
     case inappropriateState = "inappropriate-state"
@@ -81,11 +80,7 @@ enum MessageNotificationEligibility {
             return .blocked(.activeConversation)
         }
 
-        if context.isMessagesTabActive {
-            return .blocked(.messagesTabActive)
-        }
-
-        if context.visibleConversationIds.contains(message.conversationId) {
+        if context.isMessagesTabActive && context.visibleConversationIds.contains(message.conversationId) {
             return .blocked(.conversationVisible)
         }
 
