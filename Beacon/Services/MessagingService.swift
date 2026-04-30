@@ -17,9 +17,11 @@ final class MessagingService: ObservableObject {
     @Published private(set) var unreadByConversation: [UUID: Int] = [:]
     @Published private(set) var totalUnreadCount: Int = 0
     @Published private(set) var isLoading = false
+    @Published private(set) var isMessagesTabActive = false
 
     /// Conversation currently rendered in UI (used for live append + notification suppression).
     @Published var activeConversationId: UUID?
+    @Published private(set) var visibleConversationIds: Set<UUID> = []
 
     private let supabase = AppEnvironment.shared.supabaseClient
     private var currentConversationId: UUID?
@@ -315,6 +317,25 @@ final class MessagingService: ObservableObject {
         } else {
             UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
         }
+    }
+
+    func setMessagesTabActive(_ isActive: Bool) {
+        isMessagesTabActive = isActive
+        if !isActive {
+            visibleConversationIds.removeAll()
+        }
+    }
+
+    func setConversationVisibility(conversationId: UUID, isVisible: Bool) {
+        if isVisible {
+            visibleConversationIds.insert(conversationId)
+        } else {
+            visibleConversationIds.remove(conversationId)
+        }
+    }
+
+    func isConversationVisible(_ conversationId: UUID) -> Bool {
+        visibleConversationIds.contains(conversationId)
     }
 
     func cacheProfileName(_ name: String, for profileId: UUID) {
