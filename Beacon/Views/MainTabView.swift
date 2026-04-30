@@ -22,6 +22,7 @@ struct MainTabView: View {
     @StateObject private var contactShareService = ContactShareService.shared
     @State private var isConsumingPendingEvent = false
     @State private var incomingRequesterName = "Someone nearby"
+    @ObservedObject private var messaging = MessagingService.shared
 
 
     var body: some View {
@@ -56,6 +57,7 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Messages", systemImage: "bubble.left.and.bubble.right.fill")
                 }
+                .badge(messagesTabBadgeText)
                 .tag(AppTab.messages)
         }
         .onAppear {
@@ -100,6 +102,15 @@ struct MainTabView: View {
             print("[TAB-WRITE] \(oldValue) → \(newValue)")
             #endif
         }
+        .onChange(of: messaging.totalUnreadCount) { _, newCount in
+            print("[MessagesBadge] unread count=\(newCount)")
+        }
+    }
+
+    private var messagesTabBadgeText: String? {
+        let unreadCount = messaging.totalUnreadCount
+        guard unreadCount > 0 else { return nil }
+        return unreadCount > 99 ? "99+" : String(unreadCount)
     }
 
     @ViewBuilder
