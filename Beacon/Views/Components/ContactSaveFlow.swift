@@ -66,7 +66,7 @@ struct ContactDraftData {
 
     var nearifyIdentityURL: URL? {
         guard let nearifyProfileIdentifier else { return nil }
-        return URL(string: "nearify://profile/\(nearifyProfileIdentifier.uuidString.lowercased())")
+        return URL(string: "https://nearify.org/profile/\(nearifyProfileIdentifier.uuidString.lowercased())")
     }
 
     private var contextBulletLines: [String] {
@@ -185,7 +185,7 @@ struct ContactDraftData {
         if supportsURLFieldInCurrentFlow, let nearifyIdentityURL {
             let existingURLs = contact.urlAddresses
             let nearifyURL = CNLabeledValue(
-                label: "Nearify",
+                label: "Nearify Profile",
                 value: nearifyIdentityURL.absoluteString as NSString
             )
             contact.urlAddresses = existingURLs + [nearifyURL]
