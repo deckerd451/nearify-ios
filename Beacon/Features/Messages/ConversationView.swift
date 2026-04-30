@@ -214,7 +214,6 @@ struct ConversationView: View {
                 messages: messaging.currentMessages
             )
             scrollToLatestForOpenedThread()
-            MessagingRefreshCoordinator.shared.requestRefresh(reason: .manual)
             print("[Conversation] ✅ Messages refreshed for preloaded conversation")
             return
         }
@@ -249,7 +248,6 @@ struct ConversationView: View {
                 messages: messaging.currentMessages
             )
             scrollToLatestForOpenedThread()
-            MessagingRefreshCoordinator.shared.requestRefresh(reason: .manual)
             isLoading = false
             print("[Conversation] ✅ Lazy load complete: \(convo.id)")
         } catch {

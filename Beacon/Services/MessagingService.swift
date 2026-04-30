@@ -309,6 +309,8 @@ final class MessagingService: ObservableObject {
     func markConversationViewed(conversationId: UUID) {
         conversationLastReadAt[conversationId] = Date()
         recalculateUnreadCount()
+        print("[MessagesBadge] cleared conversation=\(conversationId)")
+        print("[MessagesBadge] unread count=\(totalUnreadCount)")
         if #available(iOS 17.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
         } else {
