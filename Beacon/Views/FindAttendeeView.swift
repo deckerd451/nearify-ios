@@ -1165,7 +1165,7 @@ struct FindAttendeeView: View {
                         ProgressView().tint(.white)
                     }
                     Image(systemName: "paperplane.fill")
-                    Text("Request Contact")
+                    Text("Connect")
                         .fontWeight(.semibold)
                 }
                 .font(.subheadline)
@@ -1180,7 +1180,7 @@ struct FindAttendeeView: View {
             .padding(.top, 4)
 
         case .outgoingPending:
-            requestStatePill(title: "Request sent", subtitle: "Waiting for \(attendee.name) to approve contact sharing", color: .orange)
+            requestStatePill(title: "Pending", subtitle: "Connection request sent to \(attendee.name)", color: .orange)
 
         case .incomingPending:
             requestStatePill(title: "\(attendee.name) wants to connect", subtitle: "Share your approved contact info?", color: .cyan)
@@ -1194,12 +1194,13 @@ struct FindAttendeeView: View {
                     print("[ContactShare] save blocked reason=not-approved")
                     return
                 }
-                print("[ContactShare] save unlocked status=accepted")
+                print("[ContactShare] save enabled via connection")
+                print("[ContactShare] restricted to public contact fields")
                 showContactSaveSheet = true
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "person.crop.circle.badge.plus")
-                    Text("Save to Contacts")
+                    Text("Save Contact")
                         .fontWeight(.semibold)
                 }
                 .font(.subheadline)
@@ -1262,7 +1263,7 @@ struct FindAttendeeView: View {
 
                 await MainActor.run {
                     encounterConnectionState = .outgoingPending
-                    print("[ContactShare] waiting for approval target=\(attendee.id.uuidString)")
+                    print("[ContactShare] pending connection target=\(attendee.id.uuidString)")
                     startConnectionPolling()
                 }
             } catch {
@@ -1298,7 +1299,7 @@ struct FindAttendeeView: View {
         case .none:
             return "You found each other"
         case .outgoingPending:
-            return "Request sent"
+            return "Pending"
         case .incomingPending:
             return "\(attendee.name) wants to connect"
         case .connected:
@@ -1313,11 +1314,11 @@ struct FindAttendeeView: View {
         case .none:
             return "Say hi first — then request contact if it feels right"
         case .outgoingPending:
-            return "Waiting for \(attendee.name) to approve contact sharing"
+            return "Waiting for \(attendee.name) to accept your connection"
         case .incomingPending:
             return "Share your approved contact info?"
         case .connected:
-            return "Contact sharing approved"
+            return "You're connected"
         case .ignored:
             return "No contact info was exchanged"
         }
