@@ -319,6 +319,10 @@ final class MessagingService: ObservableObject {
         }
     }
 
+    func markConversationAsRead(_ conversationId: UUID) {
+        markConversationViewed(conversationId: conversationId)
+    }
+
     func setMessagesTabActive(_ isActive: Bool) {
         isMessagesTabActive = isActive
         if !isActive {

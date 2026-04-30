@@ -68,7 +68,7 @@ struct BeaconApp: App {
                                             .transition(.move(edge: .top).combined(with: .opacity))
                                     }
 
-                                    if let banner = messageCoordinator.banner {
+                                    if selectedTab != .messages, let banner = messageCoordinator.banner {
                                         IncomingMessageBannerView(banner: banner) {
                                             messageCoordinator.markNotificationOpened(messageId: banner.id)
                                             messageCoordinator.dismissBanner()

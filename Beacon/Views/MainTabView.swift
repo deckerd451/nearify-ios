@@ -226,10 +226,20 @@ struct MainTabView: View {
 }
 
 private struct MessagesHubView: View {
+    private struct ConversationRowModel: Identifiable {
+        let id: UUID
+        let name: String
+        let lastMessageText: String?
+        let lastMessageAt: Date?
+        let isUnread: Bool
+        let conversation: Conversation
+    }
+
     @ObservedObject private var messaging = MessagingService.shared
     @State private var previews: [UUID: MessagingService.ConversationPreview] = [:]
     @State private var participantNames: [UUID: String] = [:]
     @State private var selectedConversation: MessagesDestination?
+    @State private var isFetching = false
 
     private var myId: UUID? { AuthService.shared.currentUser?.id }
 
@@ -240,24 +250,24 @@ private struct MessagesHubView: View {
                     Text("No messages yet")
                         .foregroundColor(.gray)
                 } else {
-                    List(messaging.conversations) { conversation in
+                    List(conversationRows) { row in
                         Button {
-                            messaging.markConversationViewed(conversationId: conversation.id)
-                            let otherId = myId.map { conversation.otherParticipant(for: $0) } ?? conversation.participantB
+                            messaging.markConversationAsRead(row.id)
+                            let otherId = myId.map { row.conversation.otherParticipant(for: $0) } ?? row.conversation.participantB
                             selectedConversation = MessagesDestination(
                                 targetProfileId: otherId,
                                 targetName: participantNames[otherId] ?? "Conversation",
-                                conversation: conversation
+                                conversation: row.conversation
                             )
                         } label: {
-                            conversationRow(conversation)
+                            conversationRow(row)
                         }
                         .buttonStyle(.plain)
                         .onAppear {
-                            messaging.setConversationVisibility(conversationId: conversation.id, isVisible: true)
+                            messaging.setConversationVisibility(conversationId: row.id, isVisible: true)
                         }
                         .onDisappear {
-                            messaging.setConversationVisibility(conversationId: conversation.id, isVisible: false)
+                            messaging.setConversationVisibility(conversationId: row.id, isVisible: false)
                         }
                     }
                     .listStyle(.plain)
@@ -266,7 +276,7 @@ private struct MessagesHubView: View {
             .navigationTitle("Messages")
         }
         .task {
-            await refresh()
+            refreshConversations()
         }
         .sheet(item: $selectedConversation) { destination in
             ConversationView(
@@ -277,21 +287,40 @@ private struct MessagesHubView: View {
         }
     }
 
-    private func conversationRow(_ conversation: Conversation) -> some View {
-        let preview = previews[conversation.id]
-        let dateText = preview?.createdAt?.feedRelativeString ?? ""
-        let content = preview?.content ?? "Start a conversation"
-        let unreadCount = messaging.unreadByConversation[conversation.id, default: 0]
-        let isUnread = unreadCount > 0
+    private var conversationRows: [ConversationRowModel] {
+        messaging.conversations
+            .map { conversation in
+                let preview = previews[conversation.id]
+                let content = preview?.content?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let unreadCount = messaging.unreadByConversation[conversation.id, default: 0]
+                return ConversationRowModel(
+                    id: conversation.id,
+                    name: title(for: conversation),
+                    lastMessageText: content,
+                    lastMessageAt: preview?.createdAt,
+                    isUnread: unreadCount > 0,
+                    conversation: conversation
+                )
+            }
+            .sorted {
+                ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast)
+            }
+    }
+
+    private func conversationRow(_ conversation: ConversationRowModel) -> some View {
+        let dateText = conversation.lastMessageAt?.feedRelativeString ?? ""
+        let previewText = conversation.lastMessageText?.isEmpty == false
+            ? conversation.lastMessageText!
+            : "Start a conversation"
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(title(for: conversation))
-                    .font(.headline.weight(isUnread ? .bold : .regular))
+                Text(conversation.name)
+                    .font(.headline.weight(conversation.isUnread ? .semibold : .regular))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                 Spacer()
-                if isUnread {
+                if conversation.isUnread {
                     Circle()
                         .fill(Color.blue)
                         .frame(width: 8, height: 8)
@@ -299,21 +328,17 @@ private struct MessagesHubView: View {
                 if !dateText.isEmpty {
                     Text(dateText)
                         .font(.caption)
-                        .foregroundColor(isUnread ? .primary : .gray)
+                        .foregroundColor(.secondary)
                 }
             }
 
-            Text(content)
-                .font(.subheadline.weight(isUnread ? .semibold : .regular))
+            Text(previewText)
+                .font(.subheadline)
                 .foregroundColor(.secondary)
                 .lineLimit(1)
         }
         .padding(.vertical, 6)
-        .padding(.horizontal, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isUnread ? Color.blue.opacity(0.08) : Color.clear)
-        )
+        .opacity(conversation.lastMessageText == nil ? 0.7 : 1.0)
     }
 
     private func title(for conversation: Conversation) -> String {
@@ -322,10 +347,16 @@ private struct MessagesHubView: View {
         return participantNames[otherId] ?? "Conversation"
     }
 
-    private func refresh() async {
-        let conversations = await messaging.fetchConversationsSnapshot()
-        previews = await messaging.fetchConversationPreviews(conversationIds: conversations.map(\.id))
-        await loadParticipantNames(conversations)
+    private func refreshConversations() {
+        guard !isFetching else { return }
+        isFetching = true
+
+        Task {
+            defer { isFetching = false }
+            let conversations = await messaging.fetchConversationsSnapshot()
+            previews = await messaging.fetchConversationPreviews(conversationIds: conversations.map(\.id))
+            await loadParticipantNames(conversations)
+        }
     }
 
     private func loadParticipantNames(_ conversations: [Conversation]) async {
