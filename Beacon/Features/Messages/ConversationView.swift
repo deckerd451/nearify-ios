@@ -131,6 +131,9 @@ struct ConversationView: View {
                 requestScrollToBottom(animated: false, delay: 0.1)
             }
             .onDisappear {
+                if let conversationId = conversation?.id {
+                    messaging.clearOpenedConversation(conversationId)
+                }
                 MessagingService.shared.activeConversationId = nil
                 NotificationService.shared.activeConversationId = nil
             }
@@ -208,7 +211,7 @@ struct ConversationView: View {
 
             // Messages may already be loaded by the caller, but refresh to be safe
             await messaging.fetchMessages(conversationId: preloaded.id)
-            messaging.markConversationViewed(conversationId: preloaded.id)
+            messaging.markConversationOpenedOnce(conversationId: preloaded.id)
             MessageNotificationCoordinator.shared.markConversationMessagesAsNotified(
                 conversationId: preloaded.id,
                 messages: messaging.currentMessages
@@ -242,7 +245,7 @@ struct ConversationView: View {
             MessagingService.shared.activeConversationId = convo.id
             NotificationService.shared.activeConversationId = convo.id
             await messaging.fetchMessages(conversationId: convo.id)
-            messaging.markConversationViewed(conversationId: convo.id)
+            messaging.markConversationOpenedOnce(conversationId: convo.id)
             MessageNotificationCoordinator.shared.markConversationMessagesAsNotified(
                 conversationId: convo.id,
                 messages: messaging.currentMessages
@@ -271,8 +274,19 @@ struct ConversationView: View {
                 print("[Messaging] ✅ Message send complete")
                 print("[Messaging] 📨 Requesting feed refresh after send")
                 MessagingRefreshCoordinator.shared.requestRefresh(reason: .messageSent)
-                FeedService.shared.requestRefresh(reason: "message-sent")
-                print("[Messaging] ✅ Post-send feed refresh scheduled")
+                if !messaging.isMessagesTabActive {
+                    FeedService.shared.requestRefresh(reason: "message-sent")
+                    print("[Messaging] ✅ Post-send feed refresh scheduled (home-visible path)")
+                } else {
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        await MainActor.run {
+                            FeedService.shared.requestRefresh(reason: "message-sent-delayed")
+                            print("[Messaging] ✅ Deferred post-send feed refresh scheduled")
+                        }
+                    }
+                }
             } catch {
                 messageText = text
                 print("[Conversation] ❌ Send failed: \(error)")
@@ -287,8 +301,9 @@ struct ConversationView: View {
         if delay <= 0 {
             scrollCommand = command
         } else {
+            let safeDelay = delay.isFinite ? max(0, delay) : 0
             Task {
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(safeDelay * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     scrollCommand = command
