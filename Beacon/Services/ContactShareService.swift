@@ -205,7 +205,19 @@ final class ContactShareService: ObservableObject {
             return nil
         }
 
-        return rows.first?.status.lowercased()
+        let rawStatus = rows.first?.status.lowercased()
+        let normalizedStatus: String
+        switch rawStatus {
+        case "accepted":
+            normalizedStatus = "accepted"
+        case "pending":
+            normalizedStatus = "pending"
+        default:
+            normalizedStatus = "none"
+        }
+
+        print("[ContactShare] using connection status=\(normalizedStatus)")
+        return normalizedStatus
     }
 
     private func pollOutgoingRequests(for profileId: UUID) async {

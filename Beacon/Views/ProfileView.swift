@@ -35,8 +35,8 @@ struct ProfileView: View {
                                 .font(.title2)
                                 .fontWeight(.bold)
                             
-                            if let email = profile.email {
-                                Text(email)
+                            if let publicEmail = sanitizedContactValue(profile.publicEmail), profile.shareEmail == true {
+                                Text(publicEmail)
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
@@ -52,7 +52,7 @@ struct ProfileView: View {
                                 HStack {
                                     Image(systemName: "checkmark.circle.fill")
                                         .foregroundColor(.green)
-                                    Text("Connected")
+                                    Text("You're connected")
                                         .fontWeight(.semibold)
                                 }
                                 .font(.headline)
@@ -82,10 +82,15 @@ struct ProfileView: View {
                                 .disabled(isCreatingConnection)
                             }
                             
-                            Button(action: { showContactSaveSheet = true }) {
+                            if connectionCreated {
+                                Button(action: {
+                                    print("[ContactShare] save enabled via connection")
+                                    print("[ContactShare] restricted to public contact fields")
+                                    showContactSaveSheet = true
+                                }) {
                                 HStack {
                                     Image(systemName: "person.crop.circle.badge.plus")
-                                    Text("Save to Contacts")
+                                    Text("Save Contact")
                                         .fontWeight(.semibold)
                                 }
                                 .frame(maxWidth: .infinity)
@@ -93,6 +98,7 @@ struct ProfileView: View {
                                 .background(Color.orange)
                                 .foregroundColor(.white)
                                 .cornerRadius(12)
+                            }
                             }
 
                             // Find button
