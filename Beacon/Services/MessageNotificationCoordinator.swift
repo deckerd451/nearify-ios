@@ -72,7 +72,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         if let messageId {
             markMessageNotified(messageId)
         }
-        MessagingRefreshCoordinator.shared.requestRefresh(reason: .notificationOpened)
+        MessagingRefreshCoordinator.shared.requestRefresh(reason: .manual)
     }
 
     func markConversationMessagesAsNotified(conversationId: UUID, messages: [Message]) {
@@ -83,7 +83,7 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     private func monitorLoop() async {
         while !Task.isCancelled {
-            await pollOnce(reason: .controlledPoll, mode: .interactive)
+            await pollOnce(reason: .manual, mode: .interactive)
             try? await Task.sleep(nanoseconds: 2_000_000_000)
         }
     }

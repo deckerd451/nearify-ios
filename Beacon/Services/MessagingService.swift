@@ -14,7 +14,6 @@ final class MessagingService: ObservableObject {
 
     @Published private(set) var conversations: [Conversation] = []
     @Published private(set) var currentMessages: [Message] = []
-    @Published private(set) var unreadByConversation: [UUID: Int] = [:]
     @Published private(set) var totalUnreadCount: Int = 0
     @Published private(set) var isLoading = false
     @Published private(set) var isMessagesTabActive = false
@@ -28,9 +27,10 @@ final class MessagingService: ObservableObject {
     private var profileNameCache: [UUID: String] = [:]
     private var conversationLoadTask: Task<[Conversation], Never>?
     private var pendingConversationReload = false
-    private var processedIncomingMessageIds: Set<UUID> = []
-    private var processedIncomingOrder: [UUID] = []
-    private let maxProcessedIncomingIds = 2_000
+    /// Session-persistent hard dedupe set (not reset per refresh).
+    private var processedMessageIds: Set<UUID> = []
+    private var conversationLastMessageAt: [UUID: Date] = [:]
+    private var conversationLastReadAt: [UUID: Date] = [:]
 
     private init() {}
 
@@ -79,7 +79,10 @@ final class MessagingService: ObservableObject {
                 .value
 
             let sorted = await sortConversationsByLatestMessage(convos)
-            conversations = sorted
+            await updateUIState {
+                conversations = sorted
+                recalculateUnreadCount()
+            }
 
             #if DEBUG
             print("[Messaging] ✅ Loaded \(sorted.count) conversations")
@@ -130,6 +133,10 @@ final class MessagingService: ObservableObject {
             }
         }
 
+        await updateUIState {
+            conversationLastMessageAt.merge(latestByConversation) { _, new in new }
+        }
+
         return convos.sorted { lhs, rhs in
             let l = latestByConversation[lhs.id] ?? lhs.createdAt ?? .distantPast
             let r = latestByConversation[rhs.id] ?? rhs.createdAt ?? .distantPast
@@ -153,9 +160,14 @@ final class MessagingService: ObservableObject {
                 .execute()
                 .value
 
-            currentConversationId = conversationId
-            currentMessages = msgs
-            markConversationViewed(conversationId: conversationId)
+            await updateUIState {
+                currentConversationId = conversationId
+                currentMessages = msgs
+                if let latest = msgs.last?.createdAt {
+                    conversationLastMessageAt[conversationId] = latest
+                }
+                markConversationViewed(conversationId: conversationId)
+            }
 
             #if DEBUG
             print("[Messaging] ✅ Loaded \(msgs.count) messages for conversation \(conversationId)")
@@ -205,7 +217,7 @@ final class MessagingService: ObservableObject {
         createdAt: Date,
         conversation: Conversation?
     ) {
-        guard markIncomingMessageProcessedIfNeeded(id) else { return }
+        guard !processedMessageIds.contains(id) else { return }
 
         let incoming = Message(
             id: id,
@@ -215,15 +227,15 @@ final class MessagingService: ObservableObject {
             createdAt: createdAt
         )
 
+        processedMessageIds.insert(id)
+        conversationLastMessageAt[conversationId] = createdAt
+
         // Keep active thread live, without requiring a pull-to-refresh.
         if currentConversationId == conversationId && !currentMessages.contains(where: { $0.id == id }) {
             currentMessages.append(incoming)
         }
 
-        if activeConversationId != conversationId {
-            unreadByConversation[conversationId, default: 0] += 1
-            totalUnreadCount = unreadByConversation.values.reduce(0, +)
-        }
+        recalculateUnreadCount()
 
         if #available(iOS 17.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
@@ -289,29 +301,9 @@ final class MessagingService: ObservableObject {
         }
     }
 
-    private func markIncomingMessageProcessedIfNeeded(_ id: UUID) -> Bool {
-        if processedIncomingMessageIds.contains(id) {
-            return false
-        }
-
-        processedIncomingMessageIds.insert(id)
-        processedIncomingOrder.append(id)
-
-        if processedIncomingOrder.count > maxProcessedIncomingIds {
-            let overflow = processedIncomingOrder.count - maxProcessedIncomingIds
-            for _ in 0..<overflow {
-                let removed = processedIncomingOrder.removeFirst()
-                processedIncomingMessageIds.remove(removed)
-            }
-        }
-
-        return true
-    }
-
     func markConversationViewed(conversationId: UUID) {
-        unreadByConversation[conversationId] = 0
-        unreadByConversation = unreadByConversation.filter { $0.value > 0 }
-        totalUnreadCount = unreadByConversation.values.reduce(0, +)
+        conversationLastReadAt[conversationId] = Date()
+        recalculateUnreadCount()
         if #available(iOS 17.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
         } else {
@@ -348,6 +340,27 @@ final class MessagingService: ObservableObject {
 
     func cachedProfileName(for profileId: UUID) -> String? {
         profileNameCache[profileId]
+    }
+
+    func lastReadAt(for conversationId: UUID) -> Date? {
+        conversationLastReadAt[conversationId]
+    }
+
+    func lastMessageAt(for conversationId: UUID) -> Date? {
+        conversationLastMessageAt[conversationId]
+    }
+
+    @MainActor
+    func updateUIState(_ updates: () -> Void) {
+        updates()
+    }
+
+    private func recalculateUnreadCount() {
+        totalUnreadCount = conversations.filter { conversation in
+            guard let lastMessageAt = conversationLastMessageAt[conversation.id] else { return false }
+            let lastReadAt = conversationLastReadAt[conversation.id] ?? .distantPast
+            return lastMessageAt > lastReadAt
+        }.count
     }
 
     // MARK: - Get or Create Conversation
