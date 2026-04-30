@@ -393,6 +393,10 @@ final class AuthService: ObservableObject {
             print("[Auth]    Name: \(result.profile.name)")
             print("[Auth]    Avatar URL: \(result.profile.imageUrl ?? "nil")")
 
+            if result.state == .ready {
+                MessageNotificationCoordinator.shared.start()
+            }
+
         } catch {
             print("[Auth] ❌ Error loading user from public.profiles: \(error)")
 
