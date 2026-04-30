@@ -20,7 +20,10 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     private let supabase = AppEnvironment.shared.supabaseClient
     var messageSubscription: RealtimeChannelV2?
+    private var postgresInsertSubscription: RealtimeSubscription?
+    private var statusSubscription: RealtimeSubscription?
     private var activeSubscriptionsCount = 0
+    private var lastInsertReceivedAt: Date?
 
     /// Session-scoped dedupe for notifications that were either delivered or intentionally suppressed.
     private var notifiedMessageIds: Set<UUID> = []
@@ -49,6 +52,9 @@ final class MessageNotificationCoordinator: ObservableObject {
     func stop() {
         let existing = messageSubscription
         messageSubscription = nil
+        postgresInsertSubscription = nil
+        statusSubscription = nil
+        lastInsertReceivedAt = nil
         activeSubscriptionsCount = 0
 
         Task {
@@ -82,19 +88,27 @@ final class MessageNotificationCoordinator: ObservableObject {
         if let existing = messageSubscription {
             await existing.unsubscribe()
             messageSubscription = nil
+            postgresInsertSubscription = nil
+            statusSubscription = nil
         }
 
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
         await refreshKnownConversationIds()
 
+        print("[MessagingRT] channel creating")
         let channel = supabase.channel("messages-stream-\(myId.uuidString)")
-        _ = channel.onPostgresChange(InsertAction.self, schema: "public", table: "messages") { [weak self] payload in
+        statusSubscription = channel.onStatusChange { status in
+            print("[MessagingRT] subscribe status=\(status)")
+        }
+        postgresInsertSubscription = channel.onPostgresChange(InsertAction.self, schema: "public", table: "messages") { [weak self] payload in
             guard let self else { return }
             Task { @MainActor in
                 await self.handleRealtimeInsert(payload: payload, myId: myId)
             }
         }
+        print("[MessagingRT] postgres change callback registered")
+
         do {
             try await channel.subscribeWithError()
         } catch {
@@ -103,9 +117,17 @@ final class MessageNotificationCoordinator: ObservableObject {
         }
 
         messageSubscription = channel
+        lastInsertReceivedAt = nil
         activeSubscriptionsCount = messageSubscription == nil ? 0 : 1
-        print("[MessagingRT] subscribed filter=public.messages INSERT")
+        print("[MessagingRT] subscribed filter=schema:public table:messages event:INSERT")
         print("[Messaging] Active subscriptions: \(activeSubscriptionsCount)")
+
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            guard let self, self.messageSubscription === channel else { return }
+            guard self.lastInsertReceivedAt == nil else { return }
+            print("[MessagingRT] no insert callbacks received; verify Supabase Realtime publication includes public.messages")
+        }
     }
 
     func refreshKnownConversationIds() async {
@@ -119,7 +141,8 @@ final class MessageNotificationCoordinator: ObservableObject {
             let row = try? JSONDecoder().decode(IncomingMessageRow.self, from: rowData)
         else { return }
 
-        print("[MessagingRT] insert received id=\(row.id) sender=\(row.senderProfileId) conversation=\(row.conversationId)")
+        lastInsertReceivedAt = Date()
+        print("[MessagingRT] insert received id=\(row.id) conversation=\(row.conversationId) sender=\(row.senderProfileId)")
 
         if knownConversationIds.isEmpty {
             await refreshKnownConversationIds()
