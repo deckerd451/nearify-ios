@@ -95,7 +95,7 @@ final class MessageNotificationCoordinator: ObservableObject {
 
         do {
             let session = try await supabase.auth.session
-            supabase.realtimeV2.setAuth(session.accessToken)
+            await supabase.realtimeV2.setAuth(session.accessToken)
             print("[MessagingRT] restarting after auth ready")
             await ensureSingleActiveSubscription()
         } catch {
