@@ -447,6 +447,7 @@ final class MessagingService: ObservableObject {
             .value
 
         if let convo = existing.first {
+            await MessageNotificationCoordinator.shared.refreshKnownConversationIds()
             return convo
         }
 
@@ -470,6 +471,7 @@ final class MessagingService: ObservableObject {
         print("[Messaging] ✅ Created conversation \(created.id) with \(targetProfileId)")
         #endif
 
+        await MessageNotificationCoordinator.shared.refreshKnownConversationIds()
         return created
     }
 
