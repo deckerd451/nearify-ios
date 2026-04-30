@@ -46,10 +46,15 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     func stop() {
-        messageSubscription?.unsubscribe()
+        let existing = messageSubscription
         messageSubscription = nil
         activeSubscriptionsCount = 0
-        print("[Messaging] Active subscriptions: \(activeSubscriptionsCount)")
+
+        Task {
+            await existing?.unsubscribe()
+        }
+
+        print("[Messaging] Active subscriptions: 0")
     }
 
     func dismissBanner() {
