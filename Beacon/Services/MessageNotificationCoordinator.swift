@@ -128,7 +128,16 @@ final class MessageNotificationCoordinator: ObservableObject {
         )
 
         let conversation = MessagingService.shared.conversations.first { $0.id == row.conversationId }
-        await handleIncoming(message: message, conversation: conversation, myId: myId)
+        MessagingService.shared.handleIncomingMessage(
+            id: message.id,
+            conversationId: message.conversationId,
+            senderProfileId: message.senderProfileId,
+            content: message.content,
+            createdAt: message.createdAt ?? Date(),
+            conversation: conversation
+        )
+
+        await evaluateNotification(for: message, myId: myId)
     }
 
     private func markMessageProcessedIfNeeded(_ messageId: UUID, shouldLogDuplicate: Bool) -> Bool {
@@ -182,25 +191,12 @@ final class MessageNotificationCoordinator: ObservableObject {
         return "Someone"
     }
 
-    private func handleIncoming(message: Message, conversation: Conversation?, myId: UUID) async {
-        MessagingService.shared.handleIncomingMessage(
-            id: message.id,
-            conversationId: message.conversationId,
-            senderProfileId: message.senderProfileId,
-            content: message.content,
-            createdAt: message.createdAt ?? Date(),
-            conversation: conversation
-        )
-
-        await evaluateNotification(for: message, myId: myId)
-    }
-
     private func evaluateNotification(for message: Message, myId: UUID) async {
-        print("[NotifyGate] evaluating message=\(message.id) sender=\(message.senderProfileId)")
-
         let currentUserProfileId = AuthService.shared.currentUser?.id ?? myId
         let activeConversationId = MessagingService.shared.activeConversationId
         let currentTabIsMessages = MessagingService.shared.isMessagesTabActive
+        let openConversationLog = activeConversationId?.uuidString ?? "nil"
+        print("[NotifyGate] evaluating message=\(message.id) sender=\(message.senderProfileId) currentUser=\(currentUserProfileId) tab=\(currentTabIsMessages ? "messages" : "other") openConversation=\(openConversationLog)")
 
         let isOwnMessage = message.senderProfileId == currentUserProfileId
         let isViewingConversation = activeConversationId == message.conversationId
