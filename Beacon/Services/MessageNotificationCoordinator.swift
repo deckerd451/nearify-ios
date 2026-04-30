@@ -34,6 +34,7 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     /// Baseline to prevent notifications for historical bootstrap content.
     private var notificationBaselineDate = Date()
+    private var knownConversationIds: Set<UUID> = []
 
     private init() {
         notificationBaselineDate = Date()
@@ -85,16 +86,13 @@ final class MessageNotificationCoordinator: ObservableObject {
 
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
-        let _ = await MessagingService.shared.fetchConversationsSnapshot()
-        let conversations = MessagingService.shared.conversations
-        let conversationIds = Set(conversations.map(\.id.uuidString))
-        guard !conversationIds.isEmpty else { return }
+        await refreshKnownConversationIds()
 
         let channel = supabase.channel("messages-stream-\(myId.uuidString)")
         _ = channel.onPostgresChange(InsertAction.self, schema: "public", table: "messages") { [weak self] payload in
             guard let self else { return }
             Task { @MainActor in
-                await self.handleRealtimeInsert(payload: payload, myId: myId, conversationIds: conversationIds)
+                await self.handleRealtimeInsert(payload: payload, myId: myId)
             }
         }
         do {
@@ -106,18 +104,33 @@ final class MessageNotificationCoordinator: ObservableObject {
 
         messageSubscription = channel
         activeSubscriptionsCount = messageSubscription == nil ? 0 : 1
+        print("[MessagingRT] subscribed filter=public.messages INSERT")
         print("[Messaging] Active subscriptions: \(activeSubscriptionsCount)")
     }
 
-    private func handleRealtimeInsert(payload: InsertAction, myId: UUID, conversationIds: Set<String>) async {
+    func refreshKnownConversationIds() async {
+        let _ = await MessagingService.shared.fetchConversationsSnapshot()
+        knownConversationIds = Set(MessagingService.shared.conversations.map(\.id))
+    }
+
+    private func handleRealtimeInsert(payload: InsertAction, myId: UUID) async {
         guard
             let rowData = try? JSONSerialization.data(withJSONObject: payload.record),
             let row = try? JSONDecoder().decode(IncomingMessageRow.self, from: rowData)
         else { return }
 
-        guard conversationIds.contains(row.conversationId.uuidString) else { return }
+        print("[MessagingRT] insert received id=\(row.id) sender=\(row.senderProfileId) conversation=\(row.conversationId)")
+
+        if knownConversationIds.isEmpty {
+            await refreshKnownConversationIds()
+        }
+
+        guard knownConversationIds.contains(row.conversationId) else {
+            print("[MessagingRT] ignored reason=unknown-conversation conversation=\(row.conversationId)")
+            return
+        }
         guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: true) else { return }
-        print("[Messaging] realtime insert accepted id=\(row.id)")
+        print("[MessagingRT] accepted incoming id=\(row.id)")
 
         let message = Message(
             id: row.id,
