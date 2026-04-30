@@ -289,6 +289,7 @@ final class ContactSyncService {
     }
 
     private func upsertNearifyURL(on contact: CNMutableContact, profileId: UUID) {
+        // TODO: Implement https://nearify.org/profile/<id> web route and universal-link handoff to Nearify app.
         let target = "https://nearify.org/profile/\(profileId.uuidString.lowercased())"
         let alreadyPresent = contact.urlAddresses.contains {
             String($0.value).trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(target) == .orderedSame

@@ -66,6 +66,7 @@ struct ContactDraftData {
 
     var nearifyIdentityURL: URL? {
         guard let nearifyProfileIdentifier else { return nil }
+        // TODO: Implement https://nearify.org/profile/<id> web route and universal-link handoff to Nearify app.
         return URL(string: "https://nearify.org/profile/\(nearifyProfileIdentifier.uuidString.lowercased())")
     }
 
