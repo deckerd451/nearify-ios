@@ -73,8 +73,10 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     private func ensureSingleActiveSubscription() async {
-        messageSubscription?.unsubscribe()
-        messageSubscription = nil
+        if let existing = messageSubscription {
+            await existing.unsubscribe()
+            messageSubscription = nil
+        }
 
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
