@@ -8,9 +8,7 @@ final class MessagingRefreshCoordinator {
         case appActive = "app-active"
         case tabChange = "tab-change"
         case messageSent = "message-sent"
-        case notificationOpened = "notification-opened"
-        case manualConversationOpen = "manual-conversation-open"
-        case controlledPoll = "controlled-poll"
+        case manual = "manual"
     }
 
     enum Mode: String {
@@ -24,30 +22,21 @@ final class MessagingRefreshCoordinator {
 
     static let shared = MessagingRefreshCoordinator()
 
-    private let debounceWindow: TimeInterval = 2.5
-    private let tabChangeDebounceWindow: TimeInterval = 5.0
-    private let promptDelay: TimeInterval = 0.12
-    private let highPriorityReasons: Set<Reason> = [.messageSent, .notificationOpened, .manualConversationOpen]
+    private let minimumRefreshInterval: TimeInterval = 1.5
 
     private var pendingReasons: [Reason: Mode] = [:]
     private var pendingTask: Task<Void, Never>?
     private var isExecuting = false
     private var shouldRunFollowUp = false
     private var lastExecutionAt: Date = .distantPast
-    private var lastRequestAtByReason: [Reason: Date] = [:]
+    private var queuedRefresh = false
 
     private init() {}
 
     func requestRefresh(reason: Reason, mode: Mode = .interactive) {
         let now = Date()
-        let debounce = (reason == .tabChange) ? tabChangeDebounceWindow : debounceWindow
-
-        if let last = lastRequestAtByReason[reason],
-           now.timeIntervalSince(last) < debounce {
-            print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
-            return
-        }
-        lastRequestAtByReason[reason] = now
+        if reason == .tabChange { return }
+        if reason == .appActive, now.timeIntervalSince(lastExecutionAt) < 10 { return }
 
         let existingMode = pendingReasons[reason] ?? .quiet
         pendingReasons[reason] = mergedMode(existingMode, mode)
@@ -58,19 +47,13 @@ final class MessagingRefreshCoordinator {
             return
         }
 
-        schedule(triggerReason: reason)
+        schedule(triggerReason: reason, now: now)
     }
 
-    private func schedule(triggerReason: Reason) {
+    private func schedule(triggerReason: Reason, now: Date) {
         pendingTask?.cancel()
-
-        let delay: TimeInterval
-        if highPriorityReasons.contains(triggerReason) {
-            delay = promptDelay
-        } else {
-            let elapsed = Date().timeIntervalSince(lastExecutionAt)
-            delay = max(0.2, debounceWindow - elapsed)
-        }
+        let elapsed = now.timeIntervalSince(lastExecutionAt)
+        let delay = max(0, minimumRefreshInterval - elapsed)
 
         pendingTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -109,7 +92,7 @@ final class MessagingRefreshCoordinator {
 
         if shouldRunFollowUp || !pendingReasons.isEmpty {
             shouldRunFollowUp = false
-            schedule(triggerReason: .controlledPoll)
+            schedule(triggerReason: .manual, now: Date())
         }
     }
 

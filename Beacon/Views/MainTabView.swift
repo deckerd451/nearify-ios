@@ -292,13 +292,14 @@ private struct MessagesHubView: View {
             .map { conversation in
                 let preview = previews[conversation.id]
                 let content = preview?.content.trimmingCharacters(in: .whitespacesAndNewlines)
-                let unreadCount = messaging.unreadByConversation[conversation.id, default: 0]
+                let lastReadAt = messaging.lastReadAt(for: conversation.id) ?? .distantPast
+                let lastMessageAt = preview?.createdAt ?? messaging.lastMessageAt(for: conversation.id)
                 return ConversationRowModel(
                     id: conversation.id,
                     name: title(for: conversation),
                     lastMessageText: content,
-                    lastMessageAt: preview?.createdAt,
-                    isUnread: unreadCount > 0,
+                    lastMessageAt: lastMessageAt,
+                    isUnread: (lastMessageAt ?? .distantPast) > lastReadAt,
                     conversation: conversation
                 )
             }
