@@ -19,16 +19,15 @@ final class MessageNotificationCoordinator: ObservableObject {
     @Published private(set) var banner: InAppBanner?
 
     private let supabase = AppEnvironment.shared.supabaseClient
-    private var pollTask: Task<Void, Never>?
-    private var lastProcessedAt: Date?
-    private var isPolling = false
+    var messageSubscription: RealtimeChannel?
+    private var activeSubscriptionsCount = 0
 
     /// Session-scoped dedupe for notifications that were either delivered or intentionally suppressed.
     private var notifiedMessageIds: Set<UUID> = []
     private var notifiedMessageOrder: [UUID] = []
     private let maxNotifiedMessageIds = 2_000
 
-    /// Prevent duplicate rendering/processing from poll overlap.
+    /// Prevent duplicate rendering/processing from stream overlap.
     private var processedMessageIds: Set<UUID> = []
     private var processedMessageOrder: [UUID] = []
     private let maxProcessedMessageIds = 2_000
@@ -36,28 +35,21 @@ final class MessageNotificationCoordinator: ObservableObject {
     /// Baseline to prevent notifications for historical bootstrap content.
     private var notificationBaselineDate = Date()
 
-    private static let cursorDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter
-    }()
-
     private init() {
         notificationBaselineDate = Date()
     }
 
     func start() {
-        guard pollTask == nil else { return }
-        pollTask = Task { [weak self] in
-            await self?.monitorLoop()
+        Task { [weak self] in
+            await self?.ensureSingleActiveSubscription()
         }
     }
 
     func stop() {
-        pollTask?.cancel()
-        pollTask = nil
-        isPolling = false
+        messageSubscription?.unsubscribe()
+        messageSubscription = nil
+        activeSubscriptionsCount = 0
+        print("[Messaging] Active subscriptions: \(activeSubscriptionsCount)")
     }
 
     func dismissBanner() {
@@ -72,7 +64,6 @@ final class MessageNotificationCoordinator: ObservableObject {
         if let messageId {
             markMessageNotified(messageId)
         }
-        MessagingRefreshCoordinator.shared.requestRefresh(reason: .manual)
     }
 
     func markConversationMessagesAsNotified(conversationId: UUID, messages: [Message]) {
@@ -81,120 +72,51 @@ final class MessageNotificationCoordinator: ObservableObject {
         ids.forEach(markMessageNotified)
     }
 
-    private func monitorLoop() async {
-        while !Task.isCancelled {
-            await pollOnce(reason: .manual, mode: .interactive)
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-        }
-    }
+    private func ensureSingleActiveSubscription() async {
+        messageSubscription?.unsubscribe()
+        messageSubscription = nil
 
-    func processRefresh(reason: MessagingRefreshCoordinator.Reason, mode: MessagingRefreshCoordinator.Mode) async {
-        await pollOnce(reason: reason, mode: mode)
-    }
-
-    private func pollOnce(reason: MessagingRefreshCoordinator.Reason, mode: MessagingRefreshCoordinator.Mode) async {
-        guard !isPolling else {
-            print("[MessagingRefresh] coalesced reason=\(reason.rawValue)")
-            return
-        }
         guard let myId = AuthService.shared.currentUser?.id else { return }
 
-        isPolling = true
-        defer { isPolling = false }
-
-        var conversations = MessagingService.shared.conversations
-        if conversations.isEmpty {
-            MessagingRefreshCoordinator.shared.requestRefresh(reason: .appActive)
-            conversations = await MessagingService.shared.fetchConversationsSnapshot()
-        }
-        let conversationIds = conversations.map(\.id)
+        let _ = await MessagingService.shared.fetchConversationsSnapshot()
+        let conversations = MessagingService.shared.conversations
+        let conversationIds = Set(conversations.map(\.id.uuidString))
         guard !conversationIds.isEmpty else { return }
 
-        do {
-            let rows = try await fetchIncomingRows(
-                conversationIds: conversationIds,
-                excludingSenderId: myId
-            )
-
-            if lastProcessedAt == nil {
-                if let newest = rows.last?.createdAt {
-                    lastProcessedAt = newest
-                }
-                return
+        let channel = supabase.channel("messages-stream-\(myId.uuidString)")
+        channel.onPostgresChange(InsertAction.self, schema: "public", table: "messages") { [weak self] payload in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.handleRealtimeInsert(payload: payload, myId: myId, conversationIds: conversationIds)
             }
-
-            var newestSeenAt = lastProcessedAt
-            var quietDuplicateCount = 0
-
-            for row in rows {
-                if newestSeenAt == nil || row.createdAt > newestSeenAt! {
-                    newestSeenAt = row.createdAt
-                }
-
-                guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: mode.isNotificationEligible) else {
-                    if !mode.isNotificationEligible {
-                        quietDuplicateCount += 1
-                    }
-                    continue
-                }
-
-                let message = Message(
-                    id: row.id,
-                    conversationId: row.conversationId,
-                    senderProfileId: row.senderProfileId,
-                    content: row.content,
-                    createdAt: row.createdAt
-                )
-
-                let conversation = conversations.first { $0.id == row.conversationId }
-                await handleIncoming(
-                    message: message,
-                    refreshReason: reason,
-                    mode: mode,
-                    conversation: conversation
-                )
-            }
-
-            if !mode.isNotificationEligible && quietDuplicateCount > 0 {
-                print("[Messaging] quiet refresh skipped \(quietDuplicateCount) duplicate messages")
-            }
-
-            if let newestSeenAt {
-                lastProcessedAt = newestSeenAt
-            }
-        } catch {
-            print("[MessageCoordinator] ❌ Poll failed: \(error)")
         }
+        await channel.subscribe()
+
+        messageSubscription = channel
+        activeSubscriptionsCount = messageSubscription == nil ? 0 : 1
+        print("[Messaging] Active subscriptions: \(activeSubscriptionsCount)")
     }
 
-    private func fetchIncomingRows(
-        conversationIds: [UUID],
-        excludingSenderId myId: UUID
-    ) async throws -> [IncomingMessageRow] {
-        let conversationIdStrings = conversationIds.map(\.uuidString)
+    private func handleRealtimeInsert(payload: InsertAction, myId: UUID, conversationIds: Set<String>) async {
+        guard
+            let rowData = try? JSONSerialization.data(withJSONObject: payload.record),
+            let row = try? JSONDecoder().decode(IncomingMessageRow.self, from: rowData)
+        else { return }
 
-        let base = supabase
-            .from("messages")
-            .select("id,conversation_id,sender_profile_id,content,created_at")
-            .in("conversation_id", values: conversationIdStrings)
-            .neq("sender_profile_id", value: myId.uuidString)
+        guard conversationIds.contains(row.conversationId.uuidString) else { return }
+        guard row.senderProfileId != myId else { return }
+        guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: true) else { return }
 
-        if let lastProcessedAt {
-            let iso = Self.cursorDateFormatter.string(from: lastProcessedAt)
+        let message = Message(
+            id: row.id,
+            conversationId: row.conversationId,
+            senderProfileId: row.senderProfileId,
+            content: row.content,
+            createdAt: row.createdAt
+        )
 
-            return try await base
-                .gt("created_at", value: iso)
-                .order("created_at", ascending: true)
-                .limit(50)
-                .execute()
-                .value
-        } else {
-            return try await base
-                .order("created_at", ascending: true)
-                .limit(50)
-                .execute()
-                .value
-        }
+        let conversation = MessagingService.shared.conversations.first { $0.id == row.conversationId }
+        await handleIncoming(message: message, conversation: conversation)
     }
 
     private func markMessageProcessedIfNeeded(_ messageId: UUID, shouldLogDuplicate: Bool) -> Bool {
@@ -248,12 +170,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         return "Someone"
     }
 
-    private func handleIncoming(
-        message: Message,
-        refreshReason: MessagingRefreshCoordinator.Reason,
-        mode: MessagingRefreshCoordinator.Mode,
-        conversation: Conversation?
-    ) async {
+    private func handleIncoming(message: Message, conversation: Conversation?) async {
         MessagingService.shared.handleIncomingMessage(
             id: message.id,
             conversationId: message.conversationId,
@@ -263,8 +180,6 @@ final class MessageNotificationCoordinator: ObservableObject {
             conversation: conversation
         )
 
-        guard mode.isNotificationEligible else { return }
-
         let context = MessagingNotificationContext(
             currentUserProfileId: AuthService.shared.currentUser?.id,
             activeConversationId: MessagingService.shared.activeConversationId,
@@ -273,7 +188,7 @@ final class MessageNotificationCoordinator: ObservableObject {
             appLifecycleState: MessagingAppLifecycleState.from(UIApplication.shared.applicationState),
             notificationBaselineDate: notificationBaselineDate,
             notifiedMessageIds: notifiedMessageIds,
-            refreshReason: refreshReason
+            refreshReason: .manual
         )
 
         let decision = MessageNotificationEligibility.decision(for: message, context: context)
@@ -285,7 +200,7 @@ final class MessageNotificationCoordinator: ObservableObject {
             }
             return
         case .allowed:
-            print("[NotifyGate] allowed message=\(message.id) reason=\(refreshReason.rawValue)")
+            print("[NotifyGate] allowed message=\(message.id) reason=manual")
         }
 
         markMessageNotified(message.id)
@@ -310,8 +225,6 @@ final class MessageNotificationCoordinator: ObservableObject {
         case .inactive:
             break
         }
-
-        FeedService.shared.requestRefresh(reason: "incoming-message")
     }
 }
 
