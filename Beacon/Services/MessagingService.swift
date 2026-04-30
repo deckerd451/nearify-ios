@@ -33,11 +33,15 @@ final class MessagingService: ObservableObject {
     private var conversationLastSenderId: [UUID: UUID] = [:]
     private var conversationLastReadAt: [UUID: Date] = [:]
     private var openedConversationId: UUID?
+    private var fallbackPollTask: Task<Void, Never>?
+    private var fallbackPollingConversationId: UUID?
+    private var isAppActive = true
 
     private init() {}
 
     enum MessageIngestMode {
         case fullHistoryLoad
+        case incrementalHistory
         case realtimeInsert
     }
 
@@ -234,6 +238,22 @@ final class MessagingService: ObservableObject {
             }
             recalculateUnreadCount()
 
+        case .incrementalHistory:
+            guard !messages.isEmpty else { return }
+            var merged = currentMessages
+            for message in messages.sorted(by: { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }) {
+                if !processedMessageIds.contains(message.id) {
+                    processedMessageIds.insert(message.id)
+                }
+                if !merged.contains(where: { $0.id == message.id }) {
+                    merged.append(message)
+                }
+                conversationLastMessageAt[message.conversationId] = message.createdAt ?? Date()
+                conversationLastSenderId[message.conversationId] = message.senderProfileId
+            }
+            currentMessages = merged.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+            recalculateUnreadCount()
+
         case .realtimeInsert:
             for message in messages {
                 if processedMessageIds.contains(message.id) {
@@ -370,6 +390,7 @@ final class MessagingService: ObservableObject {
         if !isActive {
             visibleConversationIds.removeAll()
         }
+        evaluateFallbackPollingState(reason: isActive ? "messages-tab-active" : "messages-tab-inactive")
     }
 
     func setConversationVisibility(conversationId: UUID, isVisible: Bool) {
@@ -378,10 +399,16 @@ final class MessagingService: ObservableObject {
         } else {
             visibleConversationIds.remove(conversationId)
         }
+        evaluateFallbackPollingState(reason: isVisible ? "conversation-visible" : "conversation-hidden")
     }
 
     func isConversationVisible(_ conversationId: UUID) -> Bool {
         visibleConversationIds.contains(conversationId)
+    }
+
+    func setAppActive(_ isActive: Bool) {
+        isAppActive = isActive
+        evaluateFallbackPollingState(reason: isActive ? "app-active" : "app-background")
     }
 
     func cacheProfileName(_ name: String, for profileId: UUID) {
@@ -400,9 +427,73 @@ final class MessagingService: ObservableObject {
         conversationLastMessageAt[conversationId]
     }
 
+    func isCurrentConversation(_ conversationId: UUID) -> Bool {
+        currentConversationId == conversationId
+    }
+
     @MainActor
     func updateUIState(_ updates: () -> Void) {
         updates()
+    }
+
+    private func evaluateFallbackPollingState(reason: String) {
+        guard isAppActive else {
+            stopFallbackPolling(reason: reason)
+            return
+        }
+        guard isMessagesTabActive, let conversationId = activeConversationId, visibleConversationIds.contains(conversationId) else {
+            stopFallbackPolling(reason: reason)
+            return
+        }
+        startFallbackPollingIfNeeded(conversationId: conversationId)
+    }
+
+    private func startFallbackPollingIfNeeded(conversationId: UUID) {
+        if fallbackPollingConversationId == conversationId, fallbackPollTask != nil {
+            return
+        }
+        stopFallbackPolling(reason: "switch-conversation")
+        fallbackPollingConversationId = conversationId
+        print("[MessagingFallback] polling started conversation=\(conversationId)")
+
+        fallbackPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.pollForNewMessages(conversationId: conversationId)
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+            }
+        }
+    }
+
+    private func stopFallbackPolling(reason: String) {
+        fallbackPollTask?.cancel()
+        fallbackPollTask = nil
+        fallbackPollingConversationId = nil
+        print("[MessagingFallback] polling stopped reason=\(reason)")
+    }
+
+    private func pollForNewMessages(conversationId: UUID) async {
+        let baselineDate = conversationLastMessageAt[conversationId] ?? .distantPast
+        let iso = ISO8601DateFormatter().string(from: baselineDate)
+        do {
+            let msgs: [Message] = try await supabase
+                .from("messages")
+                .select("*")
+                .eq("conversation_id", value: conversationId.uuidString)
+                .gt("created_at", value: iso)
+                .order("created_at", ascending: true)
+                .limit(100)
+                .execute()
+                .value
+
+            guard !msgs.isEmpty else { return }
+            await updateUIState {
+                ingest(messages: msgs, mode: .incrementalHistory)
+            }
+            print("[MessagingFallback] fetched new count=\(msgs.count)")
+        } catch {
+            print("[MessagingFallback] poll error=\(error)")
+        }
     }
 
     private func recalculateUnreadCount() {
