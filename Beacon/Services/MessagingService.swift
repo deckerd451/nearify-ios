@@ -35,6 +35,11 @@ final class MessagingService: ObservableObject {
 
     private init() {}
 
+    enum MessageIngestMode {
+        case fullHistoryLoad
+        case realtimeInsert
+    }
+
     // MARK: - Conversations
 
     /// Fetches all conversations for the current user.
@@ -163,12 +168,12 @@ final class MessagingService: ObservableObject {
 
             await updateUIState {
                 currentConversationId = conversationId
-                currentMessages = []
-                ingest(messages: msgs)
+                ingest(messages: msgs, mode: .fullHistoryLoad)
             }
 
             #if DEBUG
             print("[Messaging] ✅ Loaded \(msgs.count) messages for conversation \(conversationId)")
+            print("[Messaging] full history loaded count=\(msgs.count) conversation=\(conversationId)")
             #endif
         } catch {
             print("[Messaging] ❌ Failed to fetch messages: \(error)")
@@ -207,11 +212,27 @@ final class MessagingService: ObservableObject {
 
     // MARK: - Incoming Message Handling (single decision input path)
 
-    func ingest(messages: [Message]) {
-        for message in messages {
-            guard !processedMessageIds.contains(message.id) else { continue }
-            processedMessageIds.insert(message.id)
-            appendToConversation(message)
+    func ingest(messages: [Message], mode: MessageIngestMode) {
+        switch mode {
+        case .fullHistoryLoad:
+            let sorted = messages.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+            currentMessages = sorted
+            for message in sorted {
+                processedMessageIds.insert(message.id)
+                conversationLastMessageAt[message.conversationId] = message.createdAt ?? Date()
+            }
+            recalculateUnreadCount()
+
+        case .realtimeInsert:
+            for message in messages {
+                if processedMessageIds.contains(message.id) {
+                    print("[Messaging] realtime insert skipped duplicate id=\(message.id)")
+                    continue
+                }
+                processedMessageIds.insert(message.id)
+                print("[Messaging] realtime insert accepted id=\(message.id)")
+                appendToConversation(message)
+            }
         }
     }
 
@@ -251,7 +272,7 @@ final class MessagingService: ObservableObject {
             content: content,
             createdAt: createdAt
         )
-        ingest(messages: [incoming])
+        ingest(messages: [incoming], mode: .realtimeInsert)
 
         if let conversation, !conversations.contains(where: { $0.id == conversation.id }) {
             conversations.insert(conversation, at: 0)
