@@ -243,6 +243,9 @@ final class MessagingService: ObservableObject {
                 processedMessageIds.insert(message.id)
                 print("[Messaging] realtime insert accepted id=\(message.id)")
                 appendToConversation(message)
+                Task { [message] in
+                    await MessageNotificationCoordinator.shared.evaluateIngestionNotification(for: message)
+                }
             }
         }
     }

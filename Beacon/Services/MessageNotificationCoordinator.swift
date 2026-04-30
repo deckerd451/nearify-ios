@@ -137,6 +137,10 @@ final class MessageNotificationCoordinator: ObservableObject {
             conversation: conversation
         )
 
+    }
+
+    func evaluateIngestionNotification(for message: Message) async {
+        let myId = AuthService.shared.currentUser?.id ?? message.senderProfileId
         await evaluateNotification(for: message, myId: myId)
     }
 
