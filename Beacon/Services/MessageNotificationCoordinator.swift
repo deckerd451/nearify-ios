@@ -116,9 +116,8 @@ final class MessageNotificationCoordinator: ObservableObject {
         else { return }
 
         guard conversationIds.contains(row.conversationId.uuidString) else { return }
-        guard row.senderProfileId != myId else { return }
         guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: true) else { return }
-        print("[Messaging] realtime insert accepted id=\(row.id) sender=\(row.senderProfileId)")
+        print("[Messaging] realtime insert accepted id=\(row.id)")
 
         let message = Message(
             id: row.id,
@@ -129,7 +128,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         )
 
         let conversation = MessagingService.shared.conversations.first { $0.id == row.conversationId }
-        await handleIncoming(message: message, conversation: conversation)
+        await handleIncoming(message: message, conversation: conversation, myId: myId)
     }
 
     private func markMessageProcessedIfNeeded(_ messageId: UUID, shouldLogDuplicate: Bool) -> Bool {
@@ -183,7 +182,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         return "Someone"
     }
 
-    private func handleIncoming(message: Message, conversation: Conversation?) async {
+    private func handleIncoming(message: Message, conversation: Conversation?, myId: UUID) async {
         MessagingService.shared.handleIncomingMessage(
             id: message.id,
             conversationId: message.conversationId,
@@ -192,6 +191,31 @@ final class MessageNotificationCoordinator: ObservableObject {
             createdAt: message.createdAt ?? Date(),
             conversation: conversation
         )
+
+        await evaluateNotification(for: message, myId: myId)
+    }
+
+    private func evaluateNotification(for message: Message, myId: UUID) async {
+        print("[NotifyGate] evaluating message=\(message.id) sender=\(message.senderProfileId)")
+
+        let currentUserProfileId = AuthService.shared.currentUser?.id ?? myId
+        let activeConversationId = MessagingService.shared.activeConversationId
+        let currentTabIsMessages = MessagingService.shared.isMessagesTabActive
+
+        let isOwnMessage = message.senderProfileId == currentUserProfileId
+        let isViewingConversation = activeConversationId == message.conversationId
+        let isMessagesTabVisible = currentTabIsMessages
+
+        if isOwnMessage {
+            print("[Notify] suppressed reason=own-message")
+            return
+        }
+
+        if isMessagesTabVisible && isViewingConversation {
+            print("[Notify] suppressed reason=already-viewing")
+            markMessageNotified(message.id)
+            return
+        }
 
         let context = MessagingNotificationContext(
             currentUserProfileId: AuthService.shared.currentUser?.id,
@@ -204,7 +228,6 @@ final class MessageNotificationCoordinator: ObservableObject {
             refreshReason: .manual
         )
 
-        print("[NotifyGate] evaluating message=\(message.id)")
         let decision = MessageNotificationEligibility.decision(for: message, context: context)
         switch decision {
         case .blocked(let reason):
@@ -220,7 +243,11 @@ final class MessageNotificationCoordinator: ObservableObject {
         markMessageNotified(message.id)
         let senderName = await resolveName(for: message.senderProfileId)
 
-        switch context.appLifecycleState {
+        showInAppBanner(message, senderName: senderName, appState: context.appLifecycleState)
+    }
+
+    private func showInAppBanner(_ message: Message, senderName: String, appState: MessagingAppLifecycleState) {
+        switch appState {
         case .foreground:
             banner = InAppBanner(
                 id: message.id,
