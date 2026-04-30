@@ -268,6 +268,8 @@ final class MessageNotificationCoordinator: ObservableObject {
         let context = MessagingNotificationContext(
             currentUserProfileId: AuthService.shared.currentUser?.id,
             activeConversationId: MessagingService.shared.activeConversationId,
+            isMessagesTabActive: MessagingService.shared.isMessagesTabActive,
+            visibleConversationIds: MessagingService.shared.visibleConversationIds,
             appLifecycleState: MessagingAppLifecycleState.from(UIApplication.shared.applicationState),
             notificationBaselineDate: notificationBaselineDate,
             notifiedMessageIds: notifiedMessageIds,
@@ -278,7 +280,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         switch decision {
         case .blocked(let reason):
             print("[NotifyGate] blocked message=\(message.id) reason=\(reason.rawValue)")
-            if reason == .activeConversation || reason == .beforeBaseline || reason == .tabChangeRefresh {
+            if reason == .activeConversation || reason == .beforeBaseline || reason == .tabChangeRefresh || reason == .messagesTabActive || reason == .conversationVisible {
                 markMessageNotified(message.id)
             }
             return

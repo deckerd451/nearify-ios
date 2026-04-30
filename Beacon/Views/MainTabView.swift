@@ -65,6 +65,7 @@ struct MainTabView: View {
             print("🚨 MainTabView appeared")
             #endif
             ContactShareService.shared.start(for: currentUser.id)
+            messaging.setMessagesTabActive(selectedTab == .messages)
             replayPendingEventIfNeeded(source: "onAppear")
         }
         .onDisappear {
@@ -97,6 +98,7 @@ struct MainTabView: View {
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }
+            messaging.setMessagesTabActive(newValue == .messages)
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange, mode: .quiet)
             #if DEBUG
             print("[TAB-WRITE] \(oldValue) → \(newValue)")
@@ -240,6 +242,7 @@ private struct MessagesHubView: View {
                 } else {
                     List(messaging.conversations) { conversation in
                         Button {
+                            messaging.markConversationViewed(conversationId: conversation.id)
                             let otherId = myId.map { conversation.otherParticipant(for: $0) } ?? conversation.participantB
                             selectedConversation = MessagesDestination(
                                 targetProfileId: otherId,
@@ -250,6 +253,12 @@ private struct MessagesHubView: View {
                             conversationRow(conversation)
                         }
                         .buttonStyle(.plain)
+                        .onAppear {
+                            messaging.setConversationVisibility(conversationId: conversation.id, isVisible: true)
+                        }
+                        .onDisappear {
+                            messaging.setConversationVisibility(conversationId: conversation.id, isVisible: false)
+                        }
                     }
                     .listStyle(.plain)
                 }
@@ -272,27 +281,39 @@ private struct MessagesHubView: View {
         let preview = previews[conversation.id]
         let dateText = preview?.createdAt?.feedRelativeString ?? ""
         let content = preview?.content ?? "Start a conversation"
+        let unreadCount = messaging.unreadByConversation[conversation.id, default: 0]
+        let isUnread = unreadCount > 0
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(title(for: conversation))
-                    .font(.headline)
+                    .font(.headline.weight(isUnread ? .bold : .regular))
                     .foregroundColor(.primary)
                     .lineLimit(1)
                 Spacer()
+                if isUnread {
+                    Circle()
+                        .fill(Color.blue)
+                        .frame(width: 8, height: 8)
+                }
                 if !dateText.isEmpty {
                     Text(dateText)
                         .font(.caption)
-                        .foregroundColor(.gray)
+                        .foregroundColor(isUnread ? .primary : .gray)
                 }
             }
 
             Text(content)
-                .font(.subheadline)
+                .font(.subheadline.weight(isUnread ? .semibold : .regular))
                 .foregroundColor(.secondary)
                 .lineLimit(1)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isUnread ? Color.blue.opacity(0.08) : Color.clear)
+        )
     }
 
     private func title(for conversation: Conversation) -> String {

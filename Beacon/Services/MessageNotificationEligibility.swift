@@ -23,6 +23,8 @@ enum MessagingAppLifecycleState {
 struct MessagingNotificationContext {
     let currentUserProfileId: UUID?
     let activeConversationId: UUID?
+    let isMessagesTabActive: Bool
+    let visibleConversationIds: Set<UUID>
     let appLifecycleState: MessagingAppLifecycleState
     let notificationBaselineDate: Date
     let notifiedMessageIds: Set<UUID>
@@ -34,6 +36,8 @@ enum NotifyGateBlockReason: String {
     case alreadyNotified = "already-notified"
     case beforeBaseline = "before-baseline"
     case activeConversation = "active-conversation"
+    case messagesTabActive = "messages-tab-active"
+    case conversationVisible = "conversation-visible"
     case tabChangeRefresh = "tab-change-refresh"
     case inappropriateState = "inappropriate-state"
 }
@@ -75,6 +79,14 @@ enum MessageNotificationEligibility {
 
         if context.activeConversationId == message.conversationId {
             return .blocked(.activeConversation)
+        }
+
+        if context.isMessagesTabActive {
+            return .blocked(.messagesTabActive)
+        }
+
+        if context.visibleConversationIds.contains(message.conversationId) {
+            return .blocked(.conversationVisible)
         }
 
         switch context.appLifecycleState {
