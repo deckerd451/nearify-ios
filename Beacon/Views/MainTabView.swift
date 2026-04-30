@@ -291,7 +291,7 @@ private struct MessagesHubView: View {
         messaging.conversations
             .map { conversation in
                 let preview = previews[conversation.id]
-                let content = preview?.content?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let content = preview?.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 let unreadCount = messaging.unreadByConversation[conversation.id, default: 0]
                 return ConversationRowModel(
                     id: conversation.id,
