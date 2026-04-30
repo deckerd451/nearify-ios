@@ -19,7 +19,7 @@ final class MessageNotificationCoordinator: ObservableObject {
     @Published private(set) var banner: InAppBanner?
 
     private let supabase = AppEnvironment.shared.supabaseClient
-    var messageSubscription: RealtimeChannel?
+    var messageSubscription: RealtimeChannelV2?
     private var activeSubscriptionsCount = 0
 
     /// Session-scoped dedupe for notifications that were either delivered or intentionally suppressed.
@@ -84,13 +84,18 @@ final class MessageNotificationCoordinator: ObservableObject {
         guard !conversationIds.isEmpty else { return }
 
         let channel = supabase.channel("messages-stream-\(myId.uuidString)")
-        channel.onPostgresChange(InsertAction.self, schema: "public", table: "messages") { [weak self] payload in
+        _ = channel.onPostgresChange(InsertAction.self, schema: "public", table: "messages") { [weak self] payload in
             guard let self else { return }
             Task { @MainActor in
                 await self.handleRealtimeInsert(payload: payload, myId: myId, conversationIds: conversationIds)
             }
         }
-        await channel.subscribe()
+        do {
+            try await channel.subscribeWithError()
+        } catch {
+            print("[Messaging] Failed to subscribe to realtime messages: \(error)")
+            return
+        }
 
         messageSubscription = channel
         activeSubscriptionsCount = messageSubscription == nil ? 0 : 1
