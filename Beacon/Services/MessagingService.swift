@@ -93,6 +93,7 @@ final class MessagingService: ObservableObject {
             await MainActor.run {
                 self.conversations = sorted
                 self.recalculateUnreadCount()
+                self.syncBadgeCount()
             }
 
             #if DEBUG
@@ -233,13 +234,17 @@ final class MessagingService: ObservableObject {
                 conversationLastSenderId[message.conversationId] = message.senderProfileId
             }
             recalculateUnreadCount()
+            syncBadgeCount()
 
         case .incrementalHistory:
             guard !messages.isEmpty else { return }
             var merged = currentMessages
+            var newMessages: [Message] = []
             for message in messages.sorted(by: { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }) {
-                if !processedMessageIds.contains(message.id) {
+                let isNew = !processedMessageIds.contains(message.id)
+                if isNew {
                     processedMessageIds.insert(message.id)
+                    newMessages.append(message)
                 }
                 if !merged.contains(where: { $0.id == message.id }) {
                     merged.append(message)
@@ -249,6 +254,14 @@ final class MessagingService: ObservableObject {
             }
             currentMessages = merged.sorted { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
             recalculateUnreadCount()
+            syncBadgeCount()
+
+            // Evaluate notifications for genuinely new messages discovered by the poller
+            for message in newMessages {
+                Task { [message] in
+                    await MessageNotificationCoordinator.shared.evaluateIngestionNotification(for: message)
+                }
+            }
 
         case .realtimeInsert:
             for message in messages {
@@ -275,16 +288,22 @@ final class MessagingService: ObservableObject {
         }
 
         recalculateUnreadCount()
-
-        if #available(iOS 17.0, *) {
-            UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
-        } else {
-            UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
-        }
+        syncBadgeCount()
 
         if let index = conversations.firstIndex(where: { $0.id == message.conversationId }) {
             let convo = conversations.remove(at: index)
             conversations.insert(convo, at: 0)
+        }
+    }
+
+    /// Pushes the current totalUnreadCount to the system badge.
+    /// Called from every ingest path so the badge stays in sync.
+    private func syncBadgeCount() {
+        let count = totalUnreadCount
+        if #available(iOS 17.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(count)
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = count
         }
     }
 
@@ -388,11 +407,7 @@ final class MessagingService: ObservableObject {
         print("[MessagesBadge] cleared conversation=\(conversationId)")
         print("[MessagesBadge] unread count=\(totalUnreadCount)")
 
-        if #available(iOS 17.0, *) {
-            UNUserNotificationCenter.current().setBadgeCount(totalUnreadCount)
-        } else {
-            UIApplication.shared.applicationIconBadgeNumber = totalUnreadCount
-        }
+        syncBadgeCount()
     }
 
 
