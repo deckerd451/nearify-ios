@@ -109,43 +109,39 @@ final class MessagingService: ObservableObject {
         guard !convos.isEmpty else { return convos }
 
         var latestByConversation: [UUID: Date] = [:]
+        var latestSenderByConversation: [UUID: UUID] = [:]
 
-        await withTaskGroup(of: (UUID, Date?).self) { group in
+        await withTaskGroup(of: (UUID, LastMessageSummary?).self) { group in
             for convo in convos {
                 group.addTask { [supabase] in
-                    struct LastMessageRow: Decodable {
-                        let createdAt: Date
-                        enum CodingKeys: String, CodingKey {
-                            case createdAt = "created_at"
-                        }
-                    }
-
-                    let latest: Date?
+                    let latestMessage: LastMessageSummary?
                     do {
                         let row: [LastMessageRow] = try await supabase
                             .from("messages")
-                            .select("created_at")
+                            .select("created_at,sender_profile_id")
                             .eq("conversation_id", value: convo.id.uuidString)
                             .order("created_at", ascending: false)
                             .limit(1)
                             .execute()
                             .value
-                        latest = row.first?.createdAt
+                        latestMessage = row.first.map { LastMessageSummary(createdAt: $0.createdAt, senderProfileId: $0.senderProfileId) }
                     } catch {
-                        latest = nil
+                        latestMessage = nil
                     }
 
-                    return (convo.id, latest)
+                    return (convo.id, latestMessage)
                 }
             }
 
-            for await (id, latest) in group {
-                latestByConversation[id] = latest
+            for await (id, latestMessage) in group {
+                latestByConversation[id] = latestMessage?.createdAt
+                latestSenderByConversation[id] = latestMessage?.senderProfileId
             }
         }
 
         updateUIState {
             conversationLastMessageAt.merge(latestByConversation) { _, new in new }
+            conversationLastSenderId.merge(latestSenderByConversation) { _, new in new }
         }
 
         return convos.sorted { lhs, rhs in
@@ -318,6 +314,21 @@ final class MessagingService: ObservableObject {
         let messageId: UUID
         let content: String
         let createdAt: Date?
+    }
+
+    private struct LastMessageRow: Decodable {
+        let createdAt: Date
+        let senderProfileId: UUID
+
+        enum CodingKeys: String, CodingKey {
+            case createdAt = "created_at"
+            case senderProfileId = "sender_profile_id"
+        }
+    }
+
+    private struct LastMessageSummary {
+        let createdAt: Date
+        let senderProfileId: UUID
     }
 
     func fetchConversationPreviews(conversationIds: [UUID]) async -> [UUID: ConversationPreview] {
