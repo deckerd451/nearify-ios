@@ -533,7 +533,7 @@ final class MessagingService: ObservableObject {
     }
 
     private func recalculateUnreadCount() {
-        guard let myId = AuthService.shared.currentUser?.id else {
+        guard AuthService.shared.currentUser?.id != nil else {
             totalUnreadCount = 0
             return
         }
@@ -541,27 +541,23 @@ final class MessagingService: ObservableObject {
         var unread = 0
         for conversation in conversations {
             let lastMessageAt = conversationLastMessageAt[conversation.id]
-            let lastSenderId = conversationLastSenderId[conversation.id]
             let lastReadAt = conversationLastReadAt[conversation.id] ?? .distantPast
 
-            guard let msgAt = lastMessageAt, let senderId = lastSenderId else {
+            guard let msgAt = lastMessageAt else {
                 #if DEBUG
-                print("[MessagesBadge] skip convo=\(conversation.id) reason=missing-data hasMessageAt=\(lastMessageAt != nil) hasSenderId=\(lastSenderId != nil)")
+                print("[MessagesBadge] skip convo=\(conversation.id) reason=no-messages")
                 #endif
                 continue
             }
 
-            let isFromOther = senderId != myId
-            let isAfterRead = msgAt > lastReadAt
-
-            if isFromOther && isAfterRead {
+            if msgAt > lastReadAt {
                 unread += 1
                 #if DEBUG
-                print("[MessagesBadge] unread convo=\(conversation.id) sender=\(senderId) msgAt=\(msgAt) readAt=\(lastReadAt)")
+                print("[MessagesBadge] unread convo=\(conversation.id) msgAt=\(msgAt) readAt=\(lastReadAt)")
                 #endif
             } else {
                 #if DEBUG
-                print("[MessagesBadge] read convo=\(conversation.id) isFromOther=\(isFromOther) isAfterRead=\(isAfterRead) sender=\(senderId)")
+                print("[MessagesBadge] read convo=\(conversation.id) msgAt=\(msgAt) readAt=\(lastReadAt)")
                 #endif
             }
         }
