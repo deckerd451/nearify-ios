@@ -538,12 +538,35 @@ final class MessagingService: ObservableObject {
             return
         }
 
-        totalUnreadCount = conversations.filter { conversation in
-            guard let lastMessageAt = conversationLastMessageAt[conversation.id] else { return false }
-            guard let lastSenderId = conversationLastSenderId[conversation.id] else { return false }
+        var unread = 0
+        for conversation in conversations {
+            let lastMessageAt = conversationLastMessageAt[conversation.id]
+            let lastSenderId = conversationLastSenderId[conversation.id]
             let lastReadAt = conversationLastReadAt[conversation.id] ?? .distantPast
-            return lastSenderId != myId && lastMessageAt > lastReadAt
-        }.count
+
+            guard let msgAt = lastMessageAt, let senderId = lastSenderId else {
+                #if DEBUG
+                print("[MessagesBadge] skip convo=\(conversation.id) reason=missing-data hasMessageAt=\(lastMessageAt != nil) hasSenderId=\(lastSenderId != nil)")
+                #endif
+                continue
+            }
+
+            let isFromOther = senderId != myId
+            let isAfterRead = msgAt > lastReadAt
+
+            if isFromOther && isAfterRead {
+                unread += 1
+                #if DEBUG
+                print("[MessagesBadge] unread convo=\(conversation.id) sender=\(senderId) msgAt=\(msgAt) readAt=\(lastReadAt)")
+                #endif
+            } else {
+                #if DEBUG
+                print("[MessagesBadge] read convo=\(conversation.id) isFromOther=\(isFromOther) isAfterRead=\(isAfterRead) sender=\(senderId)")
+                #endif
+            }
+        }
+
+        totalUnreadCount = unread
     }
 
     // MARK: - Get or Create Conversation
