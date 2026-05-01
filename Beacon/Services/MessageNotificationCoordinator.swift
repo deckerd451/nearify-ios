@@ -155,35 +155,57 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     private func handleRealtimeInsert(payload: InsertAction, myId: UUID) async {
+        let record = payload.record
+
+        // Extract fields directly from the Supabase record to avoid
+        // JSONSerialization crash with AnyJSON (__SwiftValue) types.
         guard
-            let rowData = try? JSONSerialization.data(withJSONObject: payload.record),
-            let row = try? JSONDecoder().decode(IncomingMessageRow.self, from: rowData)
-        else { return }
+            let idString = record["id"]?.stringValue,
+            let id = UUID(uuidString: idString),
+            let conversationIdString = record["conversation_id"]?.stringValue,
+            let conversationId = UUID(uuidString: conversationIdString),
+            let senderProfileIdString = record["sender_profile_id"]?.stringValue,
+            let senderProfileId = UUID(uuidString: senderProfileIdString),
+            let content = record["content"]?.stringValue
+        else {
+            print("[MessagingRT] failed to parse insert payload keys=\(record.keys.sorted())")
+            return
+        }
+
+        let createdAt: Date
+        if let createdAtString = record["created_at"]?.stringValue {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            createdAt = formatter.date(from: createdAtString)
+                ?? ISO8601DateFormatter().date(from: createdAtString)
+                ?? Date()
+        } else {
+            createdAt = Date()
+        }
 
         lastInsertReceivedAt = Date()
-        print("[MessagingRT] insert received raw payload=\(payload.record)")
-        print("[MessagingRT] insert received id=\(row.id) conversation=\(row.conversationId) sender=\(row.senderProfileId)")
+        print("[MessagingRT] insert received id=\(id) conversation=\(conversationId) sender=\(senderProfileId)")
 
         if knownConversationIds.isEmpty {
             await refreshKnownConversationIds()
         }
 
-        guard knownConversationIds.contains(row.conversationId) else {
-            print("[MessagingRT] ignored reason=unknown-conversation conversation=\(row.conversationId)")
+        guard knownConversationIds.contains(conversationId) else {
+            print("[MessagingRT] ignored reason=unknown-conversation conversation=\(conversationId)")
             return
         }
-        guard markMessageProcessedIfNeeded(row.id, shouldLogDuplicate: true) else { return }
-        print("[MessagingRT] accepted incoming id=\(row.id)")
+        guard markMessageProcessedIfNeeded(id, shouldLogDuplicate: true) else { return }
+        print("[MessagingRT] accepted incoming id=\(id)")
 
         let message = Message(
-            id: row.id,
-            conversationId: row.conversationId,
-            senderProfileId: row.senderProfileId,
-            content: row.content,
-            createdAt: row.createdAt
+            id: id,
+            conversationId: conversationId,
+            senderProfileId: senderProfileId,
+            content: content,
+            createdAt: createdAt
         )
 
-        let conversation = MessagingService.shared.conversations.first { $0.id == row.conversationId }
+        let conversation = MessagingService.shared.conversations.first { $0.id == conversationId }
         MessagingService.shared.handleIncomingMessage(
             id: message.id,
             conversationId: message.conversationId,
@@ -339,18 +361,3 @@ isAlreadyViewing=\(currentTabIsMessages && isViewingConversation)
     }
 }
 
-private struct IncomingMessageRow: Decodable {
-    let id: UUID
-    let conversationId: UUID
-    let senderProfileId: UUID
-    let content: String
-    let createdAt: Date
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case conversationId = "conversation_id"
-        case senderProfileId = "sender_profile_id"
-        case content
-        case createdAt = "created_at"
-    }
-}
