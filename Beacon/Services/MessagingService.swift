@@ -468,9 +468,19 @@ final class MessagingService: ObservableObject {
         print("[MessagingFallback] polling started conversation=\(conversationId)")
 
         fallbackPollTask = Task { [weak self] in
+            var cycle = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.pollForNewMessages(conversationId: conversationId)
+
+                // Realtime callbacks can be unavailable in some environments.
+                // Periodically refresh conversation snapshots so unread badge and
+                // ordering still update for messages in non-visible threads.
+                cycle += 1
+                if cycle % 3 == 0 {
+                    _ = await self.fetchConversationsSnapshot()
+                }
+
                 try? await Task.sleep(nanoseconds: 2_500_000_000)
             }
         }
