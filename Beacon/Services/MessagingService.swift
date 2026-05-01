@@ -540,25 +540,10 @@ final class MessagingService: ObservableObject {
 
         var unread = 0
         for conversation in conversations {
-            let lastMessageAt = conversationLastMessageAt[conversation.id]
+            guard let msgAt = conversationLastMessageAt[conversation.id] else { continue }
             let lastReadAt = conversationLastReadAt[conversation.id] ?? .distantPast
-
-            guard let msgAt = lastMessageAt else {
-                #if DEBUG
-                print("[MessagesBadge] skip convo=\(conversation.id) reason=no-messages")
-                #endif
-                continue
-            }
-
             if msgAt > lastReadAt {
                 unread += 1
-                #if DEBUG
-                print("[MessagesBadge] unread convo=\(conversation.id) msgAt=\(msgAt) readAt=\(lastReadAt)")
-                #endif
-            } else {
-                #if DEBUG
-                print("[MessagesBadge] read convo=\(conversation.id) msgAt=\(msgAt) readAt=\(lastReadAt)")
-                #endif
             }
         }
 
