@@ -69,6 +69,7 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     func markForegroundActive() {
+        notificationBaselineDate = Date()
         start()
     }
 
@@ -220,7 +221,12 @@ final class MessageNotificationCoordinator: ObservableObject {
     }
 
     func evaluateIngestionNotification(for message: Message) async {
-        let myId = AuthService.shared.currentUser?.id ?? message.senderProfileId
+        guard let myId = AuthService.shared.currentUser?.id else {
+            #if DEBUG
+            print("[Notify] skipped reason=no-current-user message=\(message.id)")
+            #endif
+            return
+        }
         await evaluateNotification(for: message, myId: myId)
     }
 
@@ -347,6 +353,16 @@ isAlreadyViewing=\(currentTabIsMessages && isViewingConversation)
             )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             print("[Notify] banner shown message=\(message.id)")
+
+            // Auto-dismiss after 5 seconds
+            let bannerId = message.id
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if self.banner?.id == bannerId {
+                    self.banner = nil
+                    print("[Notify] banner auto-dismissed message=\(bannerId)")
+                }
+            }
         case .background:
             NotificationService.shared.sendMessageNotification(
                 messageId: message.id,
