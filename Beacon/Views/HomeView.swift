@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var briefConnectionDestination: BriefConnectionDestination?
     @State private var showCheckInConfirmation = false
     @State private var checkInDismissTask: Task<Void, Never>?
+    @State private var hasMounted = false
 
     var body: some View {
         NavigationStack {
@@ -65,7 +66,11 @@ struct HomeView: View {
                 presentCheckInConfirmation()
             }
             .onAppear {
-                maybePresentEventBrief()
+                guard !hasMounted else { return }
+                hasMounted = true
+                DispatchQueue.main.async {
+                    maybePresentEventBrief()
+                }
             }
             .onDisappear {
                 checkInDismissTask?.cancel()
@@ -544,6 +549,7 @@ struct HomeView: View {
     }
 
     private func maybePresentEventBrief() {
+        guard hasMounted else { return }
         guard eventJoin.isEventJoined,
               !eventJoin.isCheckedIn,
               let eventId = eventJoin.currentEventID else {
