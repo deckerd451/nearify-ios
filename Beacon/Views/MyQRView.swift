@@ -3,6 +3,13 @@ import Supabase
 import PhotosUI
 import UIKit
 
+
+private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    print(message())
+#endif
+}
+
 struct MyQRView: View {
     let currentUser: User
 
@@ -91,7 +98,7 @@ struct MyQRView: View {
                 Text("Are you sure you want to sign out?")
             }
             .task {
-                print("[MyProfileHero] rendered")
+                debugLog("[MyProfileHero] rendered")
                 await loadAuthDetails()
                 latelyService.refresh()
             }
@@ -550,8 +557,8 @@ struct MyQRView: View {
     }
 
     private func uploadPhoto(_ item: PhotosPickerItem) async {
-        print("[EditProfilePhoto] 📤 uploadPhoto() called")
-        print("[EditProfilePhoto]    User ID: \(displayUser.id)")
+        debugLog("[EditProfilePhoto] 📤 uploadPhoto() called")
+        debugLog("[EditProfilePhoto]    User ID: \(displayUser.id)")
 
         await MainActor.run {
             isUploadingPhoto = true
@@ -559,44 +566,44 @@ struct MyQRView: View {
         }
 
         do {
-            print("[EditProfilePhoto] 📥 Loading raw image data from picker...")
+            debugLog("[EditProfilePhoto] 📥 Loading raw image data from picker...")
 
             guard let rawData = try await item.loadTransferable(type: Data.self) else {
-                print("[EditProfilePhoto] ❌ Failed to load transferable data")
+                debugLog("[EditProfilePhoto] ❌ Failed to load transferable data")
                 throw ProfileImageError.failedToLoadImage
             }
 
-            print("[EditProfilePhoto] ✅ Raw data loaded: \(rawData.count) bytes")
-            print("[EditProfilePhoto] 🔄 Processing image...")
+            debugLog("[EditProfilePhoto] ✅ Raw data loaded: \(rawData.count) bytes")
+            debugLog("[EditProfilePhoto] 🔄 Processing image...")
 
             let processedData = try ProfileImageService.shared.processImageData(rawData)
 
-            print("[EditProfilePhoto] ✅ Image processed: \(processedData.count) bytes")
-            print("[EditProfilePhoto] ⬆️ Uploading to storage...")
+            debugLog("[EditProfilePhoto] ✅ Image processed: \(processedData.count) bytes")
+            debugLog("[EditProfilePhoto] ⬆️ Uploading to storage...")
 
             let result = try await ProfileImageService.shared.uploadProfileImage(
                 processedData,
                 for: displayUser.id
             )
 
-            print("[EditProfilePhoto] ✅ Upload successful!")
-            print("[EditProfilePhoto]    Image URL: \(result.imageUrl)")
-            print("[EditProfilePhoto]    Image Path: \(result.imagePath)")
-            print("[EditProfilePhoto] 🔄 Refreshing profile...")
+            debugLog("[EditProfilePhoto] ✅ Upload successful!")
+            debugLog("[EditProfilePhoto]    Image URL: \(result.imageUrl)")
+            debugLog("[EditProfilePhoto]    Image Path: \(result.imagePath)")
+            debugLog("[EditProfilePhoto] 🔄 Refreshing profile...")
 
             await authService.refreshProfile()
 
-            print("[EditProfilePhoto] ✅ Profile refresh complete")
+            debugLog("[EditProfilePhoto] ✅ Profile refresh complete")
 
             await MainActor.run {
                 isUploadingPhoto = false
                 selectedPhotoItem = nil
-                print("[EditProfilePhoto] ✅ Upload flow complete - UI updated")
+                debugLog("[EditProfilePhoto] ✅ Upload flow complete - UI updated")
             }
         } catch {
-            print("[EditProfilePhoto] ❌ Upload error: \(error)")
-            print("[EditProfilePhoto]    Error type: \(type(of: error))")
-            print("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
+            debugLog("[EditProfilePhoto] ❌ Upload error: \(error)")
+            debugLog("[EditProfilePhoto]    Error type: \(type(of: error))")
+            debugLog("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
 
             await MainActor.run {
                 isUploadingPhoto = false
@@ -607,9 +614,9 @@ struct MyQRView: View {
     }
 
     private func removePhoto() async {
-        print("[EditProfilePhoto] 🗑️ removePhoto() called")
-        print("[EditProfilePhoto]    User ID: \(displayUser.id)")
-        print("[EditProfilePhoto]    Current imagePath: \(displayUser.imagePath ?? "nil")")
+        debugLog("[EditProfilePhoto] 🗑️ removePhoto() called")
+        debugLog("[EditProfilePhoto]    User ID: \(displayUser.id)")
+        debugLog("[EditProfilePhoto]    Current imagePath: \(displayUser.imagePath ?? "nil")")
 
         await MainActor.run {
             isUploadingPhoto = true
@@ -617,28 +624,28 @@ struct MyQRView: View {
         }
 
         do {
-            print("[EditProfilePhoto] 🔄 Calling removeProfileImage service...")
+            debugLog("[EditProfilePhoto] 🔄 Calling removeProfileImage service...")
 
             try await ProfileImageService.shared.removeProfileImage(
                 for: displayUser.id,
                 currentImagePath: displayUser.imagePath
             )
 
-            print("[EditProfilePhoto] ✅ Remove successful!")
-            print("[EditProfilePhoto] 🔄 Refreshing profile...")
+            debugLog("[EditProfilePhoto] ✅ Remove successful!")
+            debugLog("[EditProfilePhoto] 🔄 Refreshing profile...")
 
             await authService.refreshProfile()
 
-            print("[EditProfilePhoto] ✅ Profile refresh complete")
+            debugLog("[EditProfilePhoto] ✅ Profile refresh complete")
 
             await MainActor.run {
                 isUploadingPhoto = false
-                print("[EditProfilePhoto] ✅ Remove flow complete - UI updated")
+                debugLog("[EditProfilePhoto] ✅ Remove flow complete - UI updated")
             }
         } catch {
-            print("[EditProfilePhoto] ❌ Remove error: \(error)")
-            print("[EditProfilePhoto]    Error type: \(type(of: error))")
-            print("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
+            debugLog("[EditProfilePhoto] ❌ Remove error: \(error)")
+            debugLog("[EditProfilePhoto]    Error type: \(type(of: error))")
+            debugLog("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
 
             await MainActor.run {
                 isUploadingPhoto = false
@@ -665,7 +672,7 @@ struct MyQRView: View {
                 }
             }
         } catch {
-            print("Failed to load auth details: \(error)")
+            debugLog("Failed to load auth details: \(error)")
         }
     }
 }

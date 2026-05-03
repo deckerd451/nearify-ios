@@ -1,5 +1,12 @@
 import SwiftUI
 
+
+private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    print(message())
+#endif
+}
+
 /// Dual-layer person intelligence surface.
 /// Surface layer: fast, calm, actionable cards.
 /// Deep layer: expandable structured reasoning per person.
@@ -80,12 +87,12 @@ struct PeopleView: View {
             FindAttendeeView(attendee: attendee)
                 .onAppear {
                     #if DEBUG
-                    print("[FindFlow] Presented for \(attendee.name)")
+                    debugLog("[FindFlow] Presented for \(attendee.name)")
                     #endif
                 }
                 .onDisappear {
                     #if DEBUG
-                    print("[FindFlow] Dismissed for \(attendee.name)")
+                    debugLog("[FindFlow] Dismissed for \(attendee.name)")
                     #endif
                 }
         }
@@ -186,7 +193,7 @@ struct PeopleView: View {
                     expandedPersonId = isExpanded ? nil : person.id
                     #if DEBUG
                     if !isExpanded {
-                        print("[People] expanded intelligence for \(person.name)")
+                        debugLog("[People] expanded intelligence for \(person.name)")
                     }
                     #endif
                 }
@@ -368,7 +375,7 @@ struct PeopleView: View {
         switch action {
         case .find:
             #if DEBUG
-            print("[PeopleAction] Find tapped for \(person.name)")
+            debugLog("[PeopleAction] Find tapped for \(person.name)")
             #endif
             let attendees = attendeesService.attendees
             if let attendee = attendees.first(where: { $0.id == person.id }) {
@@ -390,19 +397,19 @@ struct PeopleView: View {
 
         case .message:
             #if DEBUG
-            print("[PeopleAction] Message tapped for \(person.name)")
+            debugLog("[PeopleAction] Message tapped for \(person.name)")
             #endif
             openConversation(profileId: person.id, name: person.name)
 
         case .viewProfile:
             #if DEBUG
-            print("[PeopleAction] View Profile tapped for \(person.name)")
+            debugLog("[PeopleAction] View Profile tapped for \(person.name)")
             #endif
             profileSheetTarget = ProfileSheetTarget(profileId: person.id)
 
         case .keepWatching:
             #if DEBUG
-            print("[PeopleAction] Keep Watching tapped for \(person.name)")
+            debugLog("[PeopleAction] Keep Watching tapped for \(person.name)")
             #endif
             break
         }
@@ -415,9 +422,9 @@ struct PeopleView: View {
         Task {
             do {
                 _ = try await ConnectionService.shared.createConnectionIfNeeded(to: profileId.uuidString)
-                print("[MessagingGate] auto-connected target=\(profileId.uuidString)")
+                debugLog("[MessagingGate] auto-connected target=\(profileId.uuidString)")
                 let convo = try await MessagingService.shared.getOrCreateConversation(with: profileId)
-                print("[MessagingGate] opening conversation target=\(profileId.uuidString)")
+                debugLog("[MessagingGate] opening conversation target=\(profileId.uuidString)")
                 await MessagingService.shared.fetchMessages(conversationId: convo.id)
                 await MainActor.run {
                     activeConversation = PeopleConversationTarget(
@@ -429,7 +436,7 @@ struct PeopleView: View {
                 await MainActor.run {
                     isOpeningConversation = false
                     #if DEBUG
-                    print("[People] ⚠️ Conversation open failed: \(error)")
+                    debugLog("[People] ⚠️ Conversation open failed: \(error)")
                     #endif
                 }
             }

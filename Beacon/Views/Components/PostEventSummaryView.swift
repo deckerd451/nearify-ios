@@ -1,5 +1,12 @@
 import SwiftUI
 
+
+private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    print(message())
+#endif
+}
+
 /// Renders the post-event summary inside the Home screen.
 /// Shows: strongest connection, people to follow up with, missed opportunities.
 /// Sections with no data are omitted entirely.
@@ -229,7 +236,7 @@ struct PostEventSummaryView: View {
                     }
 
                     Button {
-                        print("[EventRecap] profile tapped: \(profile.id)")
+                        debugLog("[EventRecap] profile tapped: \(profile.id)")
                         onViewProfile(profile.id)
                     } label: {
                         HStack(spacing: 4) {
@@ -284,7 +291,7 @@ struct PostEventSummaryView: View {
                 case .meetNextTime:
                     rememberedProfileIds.insert(suggestion.targetProfile.id)
                     onRememberFollowUp?(suggestion.targetProfile.id)
-                    print("[EventRecap] follow-up remembered: \(suggestion.targetProfile.id)")
+                    debugLog("[EventRecap] follow-up remembered: \(suggestion.targetProfile.id)")
                     withAnimation(.easeInOut(duration: 0.2)) {
                         showFollowUpToast = true
                     }
@@ -337,7 +344,7 @@ struct PostEventSummaryView: View {
             Spacer()
 
             Button {
-                print("[EventRecap] profile tapped: \(person.profile.id)")
+                debugLog("[EventRecap] profile tapped: \(person.profile.id)")
                 onViewProfile(person.profile.id)
             } label: {
                 Text("Profile")

@@ -1,6 +1,13 @@
 import SwiftUI
 import UIKit
 
+
+private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    print(message())
+#endif
+}
+
 // MARK: - Find Signal State
 
 /// Explicit state machine for the Find Attendee radar.
@@ -196,12 +203,12 @@ struct FindAttendeeView: View {
             startAmbientMessageRotation()
             #if DEBUG
             let prefix = String(attendee.id.uuidString.prefix(8)).lowercased()
-            print("[FindAttendee] 📡 Opened for: \(attendee.name) (prefix: \(prefix))")
-            print("[FindAttendee]   Scanner active: \(scanner.isScanning)")
-            print("[FindAttendee]   BLE devices: \(scanner.getFilteredDevices().count)")
+            debugLog("[FindAttendee] 📡 Opened for: \(attendee.name) (prefix: \(prefix))")
+            debugLog("[FindAttendee]   Scanner active: \(scanner.isScanning)")
+            debugLog("[FindAttendee]   BLE devices: \(scanner.getFilteredDevices().count)")
             let bcnDevices = scanner.getFilteredDevices().filter { $0.name.hasPrefix("BCN-") }
-            print("[FindAttendee]   BCN- devices: \(bcnDevices.map { "\($0.name) RSSI:\($0.rssi)" })")
-            print("[FindAttendee]   Initial state: \(findSignalState)")
+            debugLog("[FindAttendee]   BCN- devices: \(bcnDevices.map { "\($0.name) RSSI:\($0.rssi)" })")
+            debugLog("[FindAttendee]   Initial state: \(findSignalState)")
             #endif
         }
         .onDisappear {
@@ -247,18 +254,18 @@ struct FindAttendeeView: View {
                 if !hadDirectSignal {
                     hadDirectSignal = true
                     #if DEBUG
-                    print("[FindAttendee] 🔒 Direct BLE lock acquired for \(attendee.name)")
+                    debugLog("[FindAttendee] 🔒 Direct BLE lock acquired for \(attendee.name)")
                     #endif
                 }
             } else if hadDirectSignal {
                 #if DEBUG
                 switch findSignalState {
                 case .signalLost:
-                    print("[FindAttendee] ❌ Direct BLE lock lost for \(attendee.name)")
+                    debugLog("[FindAttendee] ❌ Direct BLE lock lost for \(attendee.name)")
                 case .searchingForDirectSignal:
-                    print("[FindAttendee] 🔍 Searching for direct signal — \(attendee.name)")
+                    debugLog("[FindAttendee] 🔍 Searching for direct signal — \(attendee.name)")
                 case .fallbackEventPresence:
-                    print("[FindAttendee] 📍 Fallback to event presence — \(attendee.name)")
+                    debugLog("[FindAttendee] 📍 Fallback to event presence — \(attendee.name)")
                 default:
                     break
                 }
@@ -269,7 +276,7 @@ struct FindAttendeeView: View {
             if case .directSignalLocked(let rssi, let deviceId) = findSignalState {
                 // Log current RSSI periodically (every ~4s via signalAge changes)
                 let smoothed = scanner.smoothedRSSI(for: deviceId) ?? rssi
-                print("[FindAttendee] 📶 RSSI: \(smoothed) dBm for \(attendee.name)")
+                debugLog("[FindAttendee] 📶 RSSI: \(smoothed) dBm for \(attendee.name)")
             }
             #endif
 
@@ -1086,8 +1093,8 @@ struct FindAttendeeView: View {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             hasTriggeredArrivedHaptic = true
         }
-        print("[FindAttendee] ARRIVED → stopping seek loop")
-        print("[FindAttendee] ARRIVED state reached for \(attendee.name) (RSSI: \(rssi))")
+        debugLog("[FindAttendee] ARRIVED → stopping seek loop")
+        debugLog("[FindAttendee] ARRIVED state reached for \(attendee.name) (RSSI: \(rssi))")
         refreshEncounterConnectionState()
     }
 
@@ -1191,11 +1198,11 @@ struct FindAttendeeView: View {
         case .connected:
             Button {
                 guard encounterConnectionState == .connected else {
-                    print("[ContactShare] save blocked reason=not-approved")
+                    debugLog("[ContactShare] save blocked reason=not-approved")
                     return
                 }
-                print("[ContactShare] save enabled via connection")
-                print("[ContactShare] restricted to public contact fields")
+                debugLog("[ContactShare] save enabled via connection")
+                debugLog("[ContactShare] restricted to public contact fields")
                 showContactSaveSheet = true
             } label: {
                 HStack(spacing: 6) {
@@ -1263,12 +1270,12 @@ struct FindAttendeeView: View {
 
                 await MainActor.run {
                     encounterConnectionState = .outgoingPending
-                    print("[ContactShare] pending connection target=\(attendee.id.uuidString)")
+                    debugLog("[ContactShare] pending connection target=\(attendee.id.uuidString)")
                     startConnectionPolling()
                 }
             } catch {
                 #if DEBUG
-                print("[FindAttendee] Failed to request connection for \(attendee.name): \(error.localizedDescription)")
+                debugLog("[FindAttendee] Failed to request connection for \(attendee.name): \(error.localizedDescription)")
                 #endif
             }
         }
@@ -1283,7 +1290,7 @@ struct FindAttendeeView: View {
                 }
             } catch {
                 #if DEBUG
-                print("[FindAttendee] Failed to refresh connection state for \(attendee.name): \(error.localizedDescription)")
+                debugLog("[FindAttendee] Failed to refresh connection state for \(attendee.name): \(error.localizedDescription)")
                 #endif
             }
         }
@@ -1376,10 +1383,10 @@ struct FindAttendeeView: View {
                     switch status {
                     case "accepted":
                         encounterConnectionState = .connected
-                        print("[ContactShare] outgoing accepted target=\(attendee.id.uuidString)")
+                        debugLog("[ContactShare] outgoing accepted target=\(attendee.id.uuidString)")
                     case "ignored":
                         encounterConnectionState = .ignored
-                        print("[ContactShare] outgoing ignored target=\(attendee.id.uuidString)")
+                        debugLog("[ContactShare] outgoing ignored target=\(attendee.id.uuidString)")
                     case "pending":
                         break
                     default:
