@@ -1,6 +1,13 @@
 import SwiftUI
 import AVFoundation
 
+
+private func debugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    print(message())
+#endif
+}
+
 /// Connection handshake screen: direct connect (primary) + QR fallback.
 struct ConnectAttendeeView: View {
     let attendee: EventAttendee
@@ -343,7 +350,7 @@ struct ConnectAttendeeView: View {
             return false
         }() else { return }
 
-        print("[Connect] 🤝 Direct connect tapped for \(attendee.name) (id: \(attendee.id))")
+        debugLog("[Connect] 🤝 Direct connect tapped for \(attendee.name) (id: \(attendee.id))")
 
         // Nearby Mode: save encounter locally instead of calling backend
         if isNearbyMode {
@@ -362,10 +369,10 @@ struct ConnectAttendeeView: View {
                     switch result {
                     case .created:
                         connectionState = .success(alreadyExisted: false)
-                        print("[Connect] ✅ Connection created with \(attendee.name)")
+                        debugLog("[Connect] ✅ Connection created with \(attendee.name)")
                     case .alreadyExists:
                         connectionState = .success(alreadyExisted: true)
-                        print("[Connect] ℹ️ Already connected with \(attendee.name)")
+                        debugLog("[Connect] ℹ️ Already connected with \(attendee.name)")
                     }
                     AttendeeStateResolver.shared.refreshConnections()
 
@@ -373,35 +380,35 @@ struct ConnectAttendeeView: View {
                     let currentUser = AuthService.shared.currentUser
                     let eventIdString = EventJoinService.shared.currentEventID
 
-                    print("[QR-Direct] ── Ingestion gate check ──")
-                    print("[QR-Direct]   currentUser          = \(currentUser?.id.uuidString ?? "NIL")")
-                    print("[QR-Direct]   currentUser.userId   = \(currentUser?.userId?.uuidString ?? "NIL") (auth ID — NOT used)")
-                    print("[QR-Direct]   eventIdString         = \(eventIdString ?? "NIL")")
-                    print("[QR-Direct]   attendee.id (target)  = \(attendee.id)")
+                    debugLog("[QR-Direct] ── Ingestion gate check ──")
+                    debugLog("[QR-Direct]   currentUser          = \(currentUser?.id.uuidString ?? "NIL")")
+                    debugLog("[QR-Direct]   currentUser.userId   = \(currentUser?.userId?.uuidString ?? "NIL") (auth ID — NOT used)")
+                    debugLog("[QR-Direct]   eventIdString         = \(eventIdString ?? "NIL")")
+                    debugLog("[QR-Direct]   attendee.id (target)  = \(attendee.id)")
 
                     if let currentUser = currentUser,
                        let eventIdString = eventIdString,
                        let eventId = UUID(uuidString: eventIdString) {
-                        print("[QR-Direct] ✅ All values present — calling ingestion")
-                        print("[QR-Direct]   eventId       = \(eventId)")
-                        print("[QR-Direct]   fromProfileId = \(currentUser.id) (profiles.id)")
-                        print("[QR-Direct]   toProfileId   = \(attendee.id) (profiles.id)")
+                        debugLog("[QR-Direct] ✅ All values present — calling ingestion")
+                        debugLog("[QR-Direct]   eventId       = \(eventId)")
+                        debugLog("[QR-Direct]   fromProfileId = \(currentUser.id) (profiles.id)")
+                        debugLog("[QR-Direct]   toProfileId   = \(attendee.id) (profiles.id)")
                         NearifyIngestionService.shared.ingestQRConfirmedInteraction(
                             eventId: eventId,
                             fromProfileId: currentUser.id,
                             toProfileId: attendee.id
                         )
                     } else {
-                        print("[QR-Direct] ❌ SKIP ingestion — missing values:")
-                        if currentUser == nil { print("[QR-Direct]   REASON: currentUser is nil") }
-                        if eventIdString == nil { print("[QR-Direct]   REASON: currentEventID is nil — user may not have joined an event") }
-                        if let s = eventIdString, UUID(uuidString: s) == nil { print("[QR-Direct]   REASON: currentEventID '\(s)' is not a valid UUID") }
+                        debugLog("[QR-Direct] ❌ SKIP ingestion — missing values:")
+                        if currentUser == nil { debugLog("[QR-Direct]   REASON: currentUser is nil") }
+                        if eventIdString == nil { debugLog("[QR-Direct]   REASON: currentEventID is nil — user may not have joined an event") }
+                        if let s = eventIdString, UUID(uuidString: s) == nil { debugLog("[QR-Direct]   REASON: currentEventID '\(s)' is not a valid UUID") }
                     }
                 }
             } catch {
                 await MainActor.run {
                     connectionState = .error("Connection failed. Try again.")
-                    print("[Connect] ❌ Direct connect error: \(error)")
+                    debugLog("[Connect] ❌ Direct connect error: \(error)")
                 }
             }
         }
@@ -416,7 +423,7 @@ struct ConnectAttendeeView: View {
         if NearbyModeTracker.shared.isConfirmed(prefix: prefix) {
             connectionState = .savedLocally
             #if DEBUG
-            print("[NearbyMode] already confirmed: \(attendee.name) (prefix: \(prefix))")
+            debugLog("[NearbyMode] already confirmed: \(attendee.name) (prefix: \(prefix))")
             #endif
             return
         }
@@ -437,8 +444,8 @@ struct ConnectAttendeeView: View {
         connectionState = .savedLocally
 
         #if DEBUG
-        print("[NearbyMode] local encounter confirmed: \(attendee.name) (prefix: \(prefix))")
-        print("[NearbyMode] saved locally")
+        debugLog("[NearbyMode] local encounter confirmed: \(attendee.name) (prefix: \(prefix))")
+        debugLog("[NearbyMode] saved locally")
         #endif
     }
 
@@ -450,7 +457,7 @@ struct ConnectAttendeeView: View {
             return false
         }() else { return }
 
-        print("[Connect] 📷 QR fallback scanned: \(code)")
+        debugLog("[Connect] 📷 QR fallback scanned: \(code)")
 
         guard let payload = QRService.parse(from: code) else {
             connectionState = .error("Not a valid profile QR code")
@@ -479,10 +486,10 @@ struct ConnectAttendeeView: View {
                     switch result {
                     case .created:
                         connectionState = .success(alreadyExisted: false)
-                        print("[Connect] ✅ QR connection created with \(scannedId)")
+                        debugLog("[Connect] ✅ QR connection created with \(scannedId)")
                     case .alreadyExists:
                         connectionState = .success(alreadyExisted: true)
-                        print("[Connect] ℹ️ QR: already connected with \(scannedId)")
+                        debugLog("[Connect] ℹ️ QR: already connected with \(scannedId)")
                     }
                     AttendeeStateResolver.shared.refreshConnections()
 
@@ -491,39 +498,39 @@ struct ConnectAttendeeView: View {
                     let toCommunityId = UUID(uuidString: scannedId)
                     let eventIdString = EventJoinService.shared.currentEventID
 
-                    print("[QR-Scan] ── Ingestion gate check ──")
-                    print("[QR-Scan]   currentUser          = \(currentUser?.id.uuidString ?? "NIL")")
-                    print("[QR-Scan]   currentUser.userId   = \(currentUser?.userId?.uuidString ?? "NIL") (auth ID — NOT used)")
-                    print("[QR-Scan]   eventIdString         = \(eventIdString ?? "NIL")")
-                    print("[QR-Scan]   scannedId (raw)       = \(scannedId)")
-                    print("[QR-Scan]   toCommunityId (UUID?) = \(toCommunityId?.uuidString ?? "NIL")")
+                    debugLog("[QR-Scan] ── Ingestion gate check ──")
+                    debugLog("[QR-Scan]   currentUser          = \(currentUser?.id.uuidString ?? "NIL")")
+                    debugLog("[QR-Scan]   currentUser.userId   = \(currentUser?.userId?.uuidString ?? "NIL") (auth ID — NOT used)")
+                    debugLog("[QR-Scan]   eventIdString         = \(eventIdString ?? "NIL")")
+                    debugLog("[QR-Scan]   scannedId (raw)       = \(scannedId)")
+                    debugLog("[QR-Scan]   toCommunityId (UUID?) = \(toCommunityId?.uuidString ?? "NIL")")
 
                     if let currentUser = currentUser,
                        let toCommunityId = toCommunityId,
                        let eventIdString = eventIdString,
                        let eventId = UUID(uuidString: eventIdString) {
-                        print("[QR-Scan] ✅ All values present — calling ingestion")
-                        print("[QR-Scan]   eventId       = \(eventId)")
-                        print("[QR-Scan]   fromProfileId = \(currentUser.id) (profiles.id)")
-                        print("[QR-Scan]   toProfileId   = \(toCommunityId) (profiles.id)")
+                        debugLog("[QR-Scan] ✅ All values present — calling ingestion")
+                        debugLog("[QR-Scan]   eventId       = \(eventId)")
+                        debugLog("[QR-Scan]   fromProfileId = \(currentUser.id) (profiles.id)")
+                        debugLog("[QR-Scan]   toProfileId   = \(toCommunityId) (profiles.id)")
                         NearifyIngestionService.shared.ingestQRConfirmedInteraction(
                             eventId: eventId,
                             fromProfileId: currentUser.id,
                             toProfileId: toCommunityId
                         )
                     } else {
-                        print("[QR-Scan] ❌ SKIP ingestion — missing values:")
-                        if currentUser == nil { print("[QR-Scan]   REASON: currentUser is nil") }
-                        if toCommunityId == nil { print("[QR-Scan]   REASON: scannedId '\(scannedId)' failed UUID parse") }
-                        if eventIdString == nil { print("[QR-Scan]   REASON: currentEventID is nil — user may not have joined an event") }
-                        if let s = eventIdString, UUID(uuidString: s) == nil { print("[QR-Scan]   REASON: currentEventID '\(s)' is not a valid UUID") }
+                        debugLog("[QR-Scan] ❌ SKIP ingestion — missing values:")
+                        if currentUser == nil { debugLog("[QR-Scan]   REASON: currentUser is nil") }
+                        if toCommunityId == nil { debugLog("[QR-Scan]   REASON: scannedId '\(scannedId)' failed UUID parse") }
+                        if eventIdString == nil { debugLog("[QR-Scan]   REASON: currentEventID is nil — user may not have joined an event") }
+                        if let s = eventIdString, UUID(uuidString: s) == nil { debugLog("[QR-Scan]   REASON: currentEventID '\(s)' is not a valid UUID") }
                     }
                 }
             } catch {
                 await MainActor.run {
                     connectionState = .error("Connection failed. Try again.")
                     resetScanner()
-                    print("[Connect] ❌ QR connection error: \(error)")
+                    debugLog("[Connect] ❌ QR connection error: \(error)")
                 }
             }
         }
