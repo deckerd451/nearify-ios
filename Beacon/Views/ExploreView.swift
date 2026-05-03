@@ -669,6 +669,8 @@ private struct PastEventRecapView: View {
     let onRejoin: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var resolvedSummary: PostEventSummary?
+    @State private var isLoadingFallback = false
     @State private var activeConversation: ExploreRecapConversationTarget?
     @State private var profileSheetTarget: ExploreRecapProfileSheetTarget?
 
@@ -696,9 +698,9 @@ private struct PastEventRecapView: View {
                         .font(.caption)
                         .foregroundColor(.gray)
 
-                        if let summary {
+                        if let recapSummary = resolvedSummary ?? summary {
                             PostEventSummaryView(
-                                summary: summary,
+                                summary: recapSummary,
                                 onMessage: { profileId in
                                     openConversation(profileId: profileId)
                                 },
@@ -709,6 +711,10 @@ private struct PastEventRecapView: View {
                             .padding(.top, 4)
                         } else {
                             VStack(alignment: .leading, spacing: 8) {
+                                if isLoadingFallback {
+                                    ProgressView()
+                                        .tint(.white)
+                                }
                                 Text("Summary not ready yet")
                                     .font(.headline)
                                     .foregroundColor(.white)
@@ -756,12 +762,44 @@ private struct PastEventRecapView: View {
         .sheet(item: $profileSheetTarget) { target in
             NavigationStack { FeedProfileDetailView(profileId: target.profileId) }
         }
+
+        .task(id: event.id) {
+            await loadFallbackIfNeeded()
+        }
         .sheet(item: $activeConversation) { target in
             ConversationView(
                 targetProfileId: target.profileId,
                 preloadedConversation: target.conversation,
                 preloadedName: target.name
             )
+        }
+    }
+
+
+
+    @MainActor
+    private func loadFallbackIfNeeded() async {
+        if let summary {
+            resolvedSummary = summary
+            print("[RecapFallback] source=local summary for event \(event.id)")
+            return
+        }
+
+        let inferredEnd = event.endsAt ?? event.startsAt?.addingTimeInterval(3 * 60 * 60)
+        let isPastEvent = (inferredEnd ?? .distantFuture) < Date()
+        guard isPastEvent else {
+            print("[RecapFallback] unavailable: event not in past \(event.id)")
+            return
+        }
+
+        isLoadingFallback = true
+        defer { isLoadingFallback = false }
+
+        if let fallback = await RecapFallbackService.shared.buildFallbackSummary(for: event) {
+            resolvedSummary = fallback
+            print("[RecapFallback] source=supabase fallback for event \(event.id)")
+        } else {
+            print("[RecapFallback] source=unavailable for event \(event.id)")
         }
     }
 
