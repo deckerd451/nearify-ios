@@ -168,9 +168,9 @@ final class RecapFallbackService {
         do {
             let rows: [ConnectionRow] = try await supabase
                 .from("connections")
-                .select("requester_id, addressee_id")
+                .select("requester_profile_id, addressee_profile_id")
                 .eq("status", value: "accepted")
-                .or("requester_id.eq.\(me.uuidString),addressee_id.eq.\(me.uuidString)")
+                .or("requester_profile_id.eq.\(me.uuidString),addressee_profile_id.eq.\(me.uuidString)")
                 .execute()
                 .value
 
@@ -236,8 +236,8 @@ private struct ConnectionRow: Decodable {
     let addresseeId: UUID
 
     enum CodingKeys: String, CodingKey {
-        case requesterId = "requester_id"
-        case addresseeId = "addressee_id"
+        case requesterId = "requester_profile_id"
+        case addresseeId = "addressee_profile_id"
     }
 }
 
