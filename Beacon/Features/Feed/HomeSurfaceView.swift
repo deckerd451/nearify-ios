@@ -30,6 +30,7 @@ struct HomeSurfaceView: View {
     @State private var isConnecting = false
     @State private var navigationPath = NavigationPath()
     @State private var findAttendeeDestination: FindAttendeeDestination?
+    @State private var activeFindAttendeeId: UUID?
     @State private var showScanner = false
     @State private var showSoloState = false
     @State private var showStaleAttendeeAlert = false
@@ -281,7 +282,9 @@ struct HomeSurfaceView: View {
             } message: {
                 Text("\(staleAttendeeName) is no longer detectable nearby. They may have left or moved out of range.")
             }
-            .sheet(item: $findAttendeeDestination) { destination in
+            .sheet(item: $findAttendeeDestination, onDismiss: {
+                activeFindAttendeeId = nil
+            }) { destination in
                 FindAttendeeView(
                     attendee: destination.attendee,
                     connectionMode: destination.connectionMode
@@ -2738,6 +2741,13 @@ struct HomeSurfaceView: View {
     }
 
     private func presentFindAttendee(attendee: EventAttendee, source: FindAttendeeSource) {
+        if activeFindAttendeeId == attendee.id || findAttendeeDestination?.id == attendee.id {
+            #if DEBUG
+            print("[FindGate] ⏭️ Suppressed duplicate FindAttendee presentation for: \(attendee.name)")
+            #endif
+            return
+        }
+
         let mode: FindAttendeeConnectionMode
         switch source {
         case .brief:
@@ -2745,6 +2755,8 @@ struct HomeSurfaceView: View {
         case .explore:
             mode = .explore(source: .explore)
         }
+
+        activeFindAttendeeId = attendee.id
         findAttendeeDestination = FindAttendeeDestination(attendee: attendee, connectionMode: mode)
     }
 
