@@ -5,6 +5,7 @@ struct PersonDetailView: View {
     let attendee: EventAttendee
     
     @State private var showingFindSheet = false
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         ScrollView {
@@ -47,14 +48,34 @@ struct PersonDetailView: View {
                 }
                 .padding(.top, 8)
                 
-                // Find Person button
-                Button(action: { showingFindSheet = true }) {
-                    Label("Find Person", systemImage: "location.circle.fill")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(12)
+                // Recommendation CTA
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Recommended next step")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+
+                    Text("Talk to \(attendee.name) now while they're nearby.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+
+                    Button(action: { showingFindSheet = true }) {
+                        Label("Find \(attendee.name)", systemImage: "location.circle.fill")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(12)
+                    }
+
+                    Button(action: { dismiss() }) {
+                        Label("See others nearby", systemImage: "person.3")
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .foregroundColor(.primary)
+                            .cornerRadius(12)
+                    }
                 }
                 .padding(.horizontal, 32)
                 .padding(.top, 8)
