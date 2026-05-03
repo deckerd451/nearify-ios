@@ -22,9 +22,8 @@ final class RecapFallbackService {
         do {
             let interactions: [InteractionEventRecapRow] = try await supabase
                 .from("interaction_events")
-                .select("from_profile_id, to_profile_id, interaction_type, strength, dwell_seconds, created_at")
+                .select("from_profile_id, to_profile_id, from_ghost_id, claimed_by_profile_id, interaction_type, strength, dwell_seconds, created_at")
                 .eq("event_id", value: eventId)
-                .or("from_profile_id.eq.\(profileId),to_profile_id.eq.\(profileId)")
                 .execute()
                 .value
 
@@ -34,8 +33,25 @@ final class RecapFallbackService {
             }
 
             var byPerson: [UUID: PersonAggregate] = [:]
+            var usableRows = 0
+            var skippedNullParticipants = 0
             for row in interactions {
-                let otherId: UUID = (row.fromProfileId == myProfileId) ? row.toProfileId : row.fromProfileId
+                let involvesCurrentProfile = row.fromProfileId == myProfileId
+                    || row.toProfileId == myProfileId
+                    || row.claimedByProfileId == myProfileId
+                guard involvesCurrentProfile else { continue }
+
+                let candidates: [UUID?] = [row.fromProfileId, row.toProfileId, row.claimedByProfileId]
+                let otherId = candidates
+                    .compactMap { $0 }
+                    .first { $0 != myProfileId }
+
+                guard let otherId else {
+                    skippedNullParticipants += 1
+                    continue
+                }
+
+                usableRows += 1
                 var bucket = byPerson[otherId, default: PersonAggregate()]
                 bucket.totalEvents += 1
                 bucket.totalDwellSeconds += max(0, row.dwellSeconds ?? 0)
@@ -44,6 +60,12 @@ final class RecapFallbackService {
                     bucket.interactionTypes[type, default: 0] += 1
                 }
                 byPerson[otherId] = bucket
+            }
+            print("[RecapFallback] rows=\(interactions.count) usable=\(usableRows) skipped_null_participants=\(skippedNullParticipants)")
+
+            guard usableRows > 0, !byPerson.isEmpty else {
+                print("[RecapFallback] unavailable: no usable interaction participants for event \(event.id)")
+                return nil
             }
 
             let personIds = Array(byPerson.keys)
@@ -106,7 +128,7 @@ final class RecapFallbackService {
                 snapshot: EventSnapshot(
                     attendedMinutes: nil,
                     meaningfulPeopleCount: keyPeople.count,
-                    activityLine: "\(interactions.count) interactions captured"
+                    activityLine: "\(usableRows) interactions captured"
                 ),
                 keyPeople: keyPeople,
                 strongestInteraction: strongestProfile,
@@ -176,8 +198,10 @@ final class RecapFallbackService {
 }
 
 private struct InteractionEventRecapRow: Decodable {
-    let fromProfileId: UUID
-    let toProfileId: UUID
+    let fromProfileId: UUID?
+    let toProfileId: UUID?
+    let fromGhostId: UUID?
+    let claimedByProfileId: UUID?
     let interactionType: String?
     let strength: Double?
     let dwellSeconds: Int?
@@ -186,6 +210,8 @@ private struct InteractionEventRecapRow: Decodable {
     enum CodingKeys: String, CodingKey {
         case fromProfileId = "from_profile_id"
         case toProfileId = "to_profile_id"
+        case fromGhostId = "from_ghost_id"
+        case claimedByProfileId = "claimed_by_profile_id"
         case interactionType = "interaction_type"
         case strength
         case dwellSeconds = "dwell_seconds"
