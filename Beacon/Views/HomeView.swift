@@ -485,7 +485,7 @@ struct HomeView: View {
         return event.dateDisplay ?? "Time pending"
     }
 
-    private var activePreEventBrief: PreEventBrief? {
+    private var activePreEventBrief: PreEventBriefBuilder.Brief? {
         guard let eventIdString = eventJoin.currentEventID,
               let eventId = UUID(uuidString: eventIdString) else { return nil }
         return PreEventBriefBuilder.build(eventId: eventId, eventName: eventDisplayName)
