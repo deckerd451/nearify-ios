@@ -40,6 +40,14 @@ final class EventContextService {
     private var cachedEventId: UUID?
 
     private init() {}
+    
+    static let supportedIntents: [String] = [
+        "Meet people",
+        "Find a cofounder",
+        "Hire",
+        "Explore ideas",
+        "Demo something"
+    ]
 
     // MARK: - Public API
 
@@ -85,5 +93,56 @@ final class EventContextService {
         #if DEBUG
         print("[EventContext] 🧹 Cache cleared")
         #endif
+    }
+
+    /// Updates the primary intent for the active attendee context.
+    /// Uses existing backend fields/functions when available and fails gracefully.
+    @MainActor
+    func updateIntentPrimary(eventId: UUID, intent: String) async {
+        let normalizedIntent = intent.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedIntent.isEmpty else { return }
+
+        do {
+            _ = try await supabase
+                .rpc("set_event_context_intent", params: [
+                    "p_event_id": eventId.uuidString,
+                    "p_intent_primary": normalizedIntent
+                ])
+                .execute()
+            #if DEBUG
+            print("[EventContext] ✅ intent updated via RPC: \(normalizedIntent)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[EventContext] ℹ️ RPC update failed, trying event_attendees fallback: \(error.localizedDescription)")
+            #endif
+            guard let profileId = AuthService.shared.currentUser?.id else { return }
+            do {
+                _ = try await supabase
+                    .from("event_attendees")
+                    .update(["intent_primary": normalizedIntent])
+                    .eq("event_id", value: eventId.uuidString)
+                    .eq("profile_id", value: profileId.uuidString)
+                    .execute()
+                #if DEBUG
+                print("[EventContext] ✅ intent updated via event_attendees fallback: \(normalizedIntent)")
+                #endif
+            } catch {
+                print("[EventContext] ⚠️ Failed to persist intent: \(error.localizedDescription)")
+            }
+        }
+
+        if cachedEventId == eventId, let existing = cachedContext {
+            cachedContext = EventContext(
+                eventId: existing.eventId,
+                profileId: existing.profileId,
+                intentPrimary: normalizedIntent,
+                intentSecondary: existing.intentSecondary,
+                goals: existing.goals,
+                constraints: existing.constraints,
+                energyLevel: existing.energyLevel,
+                joinedAt: existing.joinedAt
+            )
+        }
     }
 }
