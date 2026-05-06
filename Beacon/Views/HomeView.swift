@@ -279,41 +279,52 @@ struct HomeView: View {
     }
 
     private var preCheckInCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let attendeeCount = activeEventExploreModel?.activeAttendeeCount ?? 0
+        let relativeTime = activeEventTimeLine
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text("JOINED • NOT LIVE")
                 .font(.caption2.weight(.semibold))
                 .tracking(1.1)
                 .foregroundColor(VisualStyle.tertiaryText)
+
             Text(eventDisplayName)
                 .font(.headline.weight(.semibold))
-            Text("Check in to go live")
-                .font(.caption)
-                .foregroundColor(VisualStyle.secondaryText)
 
-            Button {
-                EventPresenceService.shared.setActivationIntent(.userCheckIn)
-                Task { await eventJoin.checkIn() }
-            } label: {
-                Text("Check In")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(VisualStyle.primaryAction))
+            HStack(spacing: 8) {
+                Label(relativeTime, systemImage: "calendar")
+                if attendeeCount > 0 {
+                    Label("\(attendeeCount) attending", systemImage: "person.3")
+                }
             }
-            .buttonStyle(PressableScaleButtonStyle())
+            .font(.caption)
+            .foregroundColor(VisualStyle.secondaryText)
 
-            Button {
-                showEventBrief = true
-            } label: {
-                Text("Prepare for Event")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
+            HStack(spacing: 10) {
+                Button {
+                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
+                    Task { await eventJoin.checkIn() }
+                } label: {
+                    Text("Check In")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(VisualStyle.primaryAction))
+                }
+
+                Button {
+                    showEventBrief = true
+                } label: {
+                    Text("View Attendees")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
+                }
+
+                Spacer(minLength: 0)
             }
             .buttonStyle(PressableScaleButtonStyle())
         }
@@ -382,7 +393,7 @@ struct HomeView: View {
 
     private var joinedNotCheckedInState: some View {
         VStack(spacing: 16) {
-            activeEventContextCard
+            preEventIntelligencePanel
 
             Text("You’ve joined. Check in when you arrive to start meeting people.")
                 .font(.subheadline)
@@ -394,83 +405,49 @@ struct HomeView: View {
         .padding(.horizontal)
     }
 
-    private var activeEventContextCard: some View {
-        let eventTitle = eventDisplayName
-        let attendeeCount = activeEventExploreModel?.activeAttendeeCount ?? 0
+    private var preEventIntelligencePanel: some View {
         let brief = activePreEventBrief
         let recommendation = brief?.topRecommendation
-        let relativeTime = activeEventTimeLine
 
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("ACTIVE EVENT")
-                .font(.caption2.weight(.semibold))
-                .tracking(1.1)
-                .foregroundColor(VisualStyle.tertiaryText)
-
-            Text(eventTitle)
-                .font(.headline.weight(.semibold))
-
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Label(relativeTime, systemImage: "calendar")
-                if attendeeCount > 0 {
-                    Label("\(attendeeCount) attending", systemImage: "person.3")
-                }
+                Image(systemName: "sparkles")
+                    .foregroundColor(VisualStyle.intelligence)
+                Text("Prepare for Event")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.95))
+                Spacer()
             }
-            .font(.caption)
-            .foregroundColor(VisualStyle.secondaryText)
-
-            Text("YOU JOINED THIS EVENT")
-                .font(.caption2.weight(.bold))
-                .tracking(0.8)
-                .foregroundColor(VisualStyle.primaryAction)
 
             if let recommendation {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Top opportunity")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(VisualStyle.intelligence)
-                    Text("“\(recommendation.reason)”")
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.9))
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Text("Suggested connection: \(recommendation.name)")
-                        .font(.caption)
-                        .foregroundColor(VisualStyle.secondaryText)
-                }
+                Text("Suggested connection: \(recommendation.name)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(VisualStyle.intelligence)
+                Text("\(recommendation.reason)")
+                    .font(.subheadline)
+                    .foregroundColor(VisualStyle.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Get tailored attendee recommendations before you arrive.")
+                    .font(.subheadline)
+                    .foregroundColor(VisualStyle.secondaryText)
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
-                    Task { await eventJoin.checkIn() }
-                } label: {
-                    Text("Check In")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(VisualStyle.primaryAction))
-                }
-
-                Button {
-                    showEventBrief = true
-                } label: {
-                    Text("View Attendees")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
-                }
-
-                Spacer(minLength: 0)
+            Button {
+                showEventBrief = true
+            } label: {
+                Text("Open Brief")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
             }
             .buttonStyle(PressableScaleButtonStyle())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.22)
+        .elevatedCard(accent: VisualStyle.intelligence, glow: 0.12)
     }
 
     private var activeEventExploreModel: ExploreEvent? {
