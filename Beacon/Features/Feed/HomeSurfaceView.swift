@@ -45,6 +45,7 @@ struct HomeSurfaceView: View {
     @State private var hasSeenArrivalBrief = false
     @State private var arrivalBriefEventId: String?
     @State private var showBriefSheet = false
+    @State private var showGoalPicker = false
     @State private var selectedPreCheckInIntent: String?
 
     // MARK: - Home Presentation Model
@@ -354,6 +355,20 @@ struct HomeSurfaceView: View {
                         }
                     }
                 }
+            }
+            .confirmationDialog("Choose Goal", isPresented: $showGoalPicker, titleVisibility: .visible) {
+                ForEach(EventContextService.supportedIntents, id: \.self) { intent in
+                    Button(intent) {
+                        selectedPreCheckInIntent = intent
+                        if let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) {
+                            Task { await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: intent) }
+                        }
+                        showBriefSheet = true
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Pick a goal so Nearify can tailor your Event Brief before check-in.")
             }
         }
     }
@@ -2505,19 +2520,29 @@ struct HomeSurfaceView: View {
                     .foregroundColor(.gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Picker("Goal", selection: Binding(
-                    get: { resolvedIntent ?? "Meet people" },
-                    set: { newValue in
-                        selectedPreCheckInIntent = newValue
-                        guard let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) else { return }
-                        Task { await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: newValue) }
-                    })
-                ) {
-                    ForEach(EventContextService.supportedIntents, id: \.self) { intent in
-                        Text(intent).tag(intent)
-                    }
+                if let resolvedIntent {
+                    Text("Current goal: \(resolvedIntent)")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .pickerStyle(.menu)
+
+                Button {
+                    if hasIntent {
+                        showBriefSheet = true
+                    } else {
+                        showGoalPicker = true
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: hasIntent ? "doc.text.magnifyingglass" : "target")
+                            .font(.caption)
+                        Text(hasIntent ? "Open Briefing" : "Choose Goal")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.cyan.opacity(0.9))
+                }
 
                 Text("Live matches unlock after check-in.")
                     .font(.caption2)
