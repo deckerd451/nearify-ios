@@ -17,8 +17,6 @@ final class RecapFallbackService {
 
         // 1) Pull all interaction rows for this user/event (both directions)
         let eventId = event.id.uuidString
-        let profileId = myProfileId.uuidString
-
         do {
             let interactions: [InteractionEventRecapRow] = try await supabase
                 .from("interaction_events")

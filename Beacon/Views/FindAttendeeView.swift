@@ -240,10 +240,10 @@ struct FindAttendeeView: View {
                 }
             }
         }
-        .onChange(of: encounterConnectionState) {
+        .onChange(of: encounterConnectionState) { _ in
             handleConnectionStateChange()
         }
-        .onChange(of: signalAge) {
+        .onChange(of: signalAge) { _ in
             if findState == .arrived {
                 refreshEncounterConnectionStateIfNeeded()
                 return
