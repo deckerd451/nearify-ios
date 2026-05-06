@@ -2491,6 +2491,7 @@ struct HomeSurfaceView: View {
         let resolvedIntent = (EventContextService.shared.cachedContext?.intentPrimary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             ? EventContextService.shared.cachedContext?.intentPrimary
             : selectedPreCheckInIntent
+        let hasIntent = resolvedIntent?.isEmpty == false
         return VStack(spacing: 10) {
             Image(systemName: "mappin.and.ellipse")
                 .font(.system(size: 28))
