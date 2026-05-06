@@ -414,7 +414,7 @@ struct HomeView: View {
 
     private var preEventIntelligencePanel: some View {
         let brief = activePreEventBrief
-        let recommendation = brief?.topRecommendation
+        let recommendation = brief?.priorityPeople.first
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
