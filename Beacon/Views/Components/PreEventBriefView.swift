@@ -49,7 +49,7 @@ struct PreEventBriefView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     sectionTitle("Live recommendation")
-                    Text("Check in to unlock live recommendations based on who’s actually here.")
+                    Text("Live matches unlock after check-in. You can still prepare before the room goes live.")
                         .font(.footnote)
                         .foregroundColor(.primary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -71,7 +71,7 @@ struct PreEventBriefView: View {
                         .foregroundColor(.primary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("Check in first, then use this brief to start with the best live match right away.")
+                    Text("Choose your goal and plan your first conversation opener now, then check in when you arrive.")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)

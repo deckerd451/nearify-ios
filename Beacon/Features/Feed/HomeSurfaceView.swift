@@ -45,6 +45,7 @@ struct HomeSurfaceView: View {
     @State private var hasSeenArrivalBrief = false
     @State private var arrivalBriefEventId: String?
     @State private var showBriefSheet = false
+    @State private var selectedPreCheckInIntent: String?
 
     // MARK: - Home Presentation Model
 
@@ -2472,6 +2473,9 @@ struct HomeSurfaceView: View {
 
     /// Pre-check-in live event briefing.
     private var joinedNotCheckedInBlock: some View {
+        let resolvedIntent = (EventContextService.shared.cachedContext?.intentPrimary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? EventContextService.shared.cachedContext?.intentPrimary
+            : selectedPreCheckInIntent
         VStack(spacing: 10) {
             Image(systemName: "mappin.and.ellipse")
                 .font(.system(size: 28))
@@ -2483,16 +2487,53 @@ struct HomeSurfaceView: View {
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
 
-            Text("Check in when you arrive to start meeting people")
+            Text("You can still prepare before the room goes live.")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Prepare for Event")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.cyan.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Choose your goal so Nearify can tune your recommendations when you check in.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Picker("Goal", selection: Binding(
+                    get: { resolvedIntent ?? "Meet people" },
+                    set: { newValue in
+                        selectedPreCheckInIntent = newValue
+                        guard let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) else { return }
+                        Task { await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: newValue) }
+                    })
+                ) {
+                    ForEach(EventContextService.supportedIntents, id: \.self) { intent in
+                        Text(intent).tag(intent)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text("Live matches unlock after check-in.")
+                    .font(.caption2)
+                    .foregroundColor(.gray)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .padding(.horizontal, 20)
+
             Button {
                 Task { await eventJoin.checkIn() }
             } label: {
-                Text("Check in")
+                Text("Check In")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.black)

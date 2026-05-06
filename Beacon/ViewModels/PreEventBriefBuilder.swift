@@ -33,7 +33,7 @@ enum PreEventBriefBuilder {
 
         let resolvedGoal = (intentPrimary?.isEmpty == false)
             ? intentPrimary!
-            : "Meet interesting people"
+            : "Choose your goal to tune recommendations at check-in"
 
         let chosenPeople = isCheckedIn
             ? buildLivePeople(myId: myId, relationships: relationships, goal: resolvedGoal)
