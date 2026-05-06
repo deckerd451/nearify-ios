@@ -35,7 +35,7 @@ struct HomeView: View {
                         if attendeesService.isLoading && attendeesService.attendees.isEmpty && eventJoin.isCheckedIn {
                             loadingState.padding(.top, 60)
                         } else if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
-                            joinedNotCheckedInState
+                            EmptyView()
                         } else if !eventJoin.isCheckedIn {
                             notJoinedState
                         } else if attendeesService.attendees.isEmpty {
@@ -316,7 +316,7 @@ struct HomeView: View {
                 Button {
                     showEventBrief = true
                 } label: {
-                    Text("View Attendees")
+                    Text("Prepare")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
@@ -328,14 +328,7 @@ struct HomeView: View {
             }
             .buttonStyle(PressableScaleButtonStyle())
 
-            Button {
-                showEventBrief = true
-            } label: {
-                Label("Prepare for Event", systemImage: "sparkles")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(VisualStyle.tertiaryText)
-            }
-            .buttonStyle(.plain)
+            preEventIntelligencePanel
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -400,18 +393,6 @@ struct HomeView: View {
 
     // MARK: - Empty / Loading / Neutral
 
-    private var joinedNotCheckedInState: some View {
-        VStack(spacing: 16) {
-            Text("You’ve joined. Check in when you arrive to start meeting people.")
-                .font(.subheadline)
-                .foregroundColor(VisualStyle.tertiaryText)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-        }
-        .padding(.top, 20)
-        .padding(.horizontal)
-    }
-
     private var preEventIntelligencePanel: some View {
         let brief = activePreEventBrief
         let recommendation = brief?.priorityPeople.first
@@ -427,7 +408,7 @@ struct HomeView: View {
             }
 
             if let recommendation {
-                Text("Suggested connection: \(recommendation.name)")
+                Text("Potential strong match: \(recommendation.name)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(VisualStyle.intelligence)
                 Text("\(recommendation.reason)")
@@ -435,7 +416,7 @@ struct HomeView: View {
                     .foregroundColor(VisualStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Get tailored attendee recommendations before you arrive.")
+                Text("More attendees are arriving. Nearify updates this brief as the room takes shape.")
                     .font(.subheadline)
                     .foregroundColor(VisualStyle.secondaryText)
             }
@@ -443,7 +424,7 @@ struct HomeView: View {
             Button {
                 showEventBrief = true
             } label: {
-                Text("Open Brief")
+                Text("Open Briefing")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 12)
@@ -454,7 +435,7 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .elevatedCard(accent: VisualStyle.intelligence, glow: 0.12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.03)))
     }
 
     private var activeEventExploreModel: ExploreEvent? {

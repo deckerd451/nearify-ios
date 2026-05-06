@@ -83,6 +83,14 @@ final class EventJoinService: ObservableObject {
     }
 
     private let lastEventKey = "nearify.lastEventContext"
+    private let activeJoinedEventKey = "nearify.activeJoinedEventContext"
+
+    private struct ActiveJoinedEventContext: Codable {
+        let eventId: String
+        let eventName: String
+        let isCheckedIn: Bool
+        let persistedAt: Date
+    }
 
     /// Returns the last event context if it exists and is within the recovery window.
     /// Not available when dormant — dormant users see the Resume UI instead.
@@ -107,6 +115,79 @@ final class EventJoinService: ObservableObject {
         }
     }
 
+    private func persistActiveJoinedState() {
+        guard let eventId = currentEventID,
+              let eventName = currentEventName,
+              isEventJoined else {
+            UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
+            return
+        }
+
+        let context = ActiveJoinedEventContext(
+            eventId: eventId,
+            eventName: eventName,
+            isCheckedIn: isCheckedIn,
+            persistedAt: Date()
+        )
+        if let data = try? JSONEncoder().encode(context) {
+            UserDefaults.standard.set(data, forKey: activeJoinedEventKey)
+        }
+    }
+
+    private func restorePersistedJoinedState() {
+        guard let data = UserDefaults.standard.data(forKey: activeJoinedEventKey),
+              let context = try? JSONDecoder().decode(ActiveJoinedEventContext.self, from: data) else {
+            return
+        }
+
+        currentEventID = context.eventId
+        currentEventName = context.eventName
+        isEventJoined = true
+        isCheckedIn = false
+        membershipState = .joined(eventName: context.eventName)
+    }
+
+    private func reconcilePersistedJoinedStateWithBackend() async {
+        guard isEventJoined,
+              let eventIdString = currentEventID,
+              let eventId = UUID(uuidString: eventIdString) else { return }
+        do {
+            let profile = try await ensureProfile()
+            joinedProfileId = profile.id
+
+            let rows: [NearifyAttendee] = try await supabase
+                .from("event_attendees")
+                .select("id,event_id,profile_id,status")
+                .eq("event_id", value: eventId.uuidString)
+                .eq("profile_id", value: profile.id.uuidString)
+                .limit(1)
+                .execute()
+                .value
+
+            guard let attendee = rows.first else {
+                clearPersistedJoinedState()
+                return
+            }
+
+            if attendee.status.lowercased() == "left" {
+                clearPersistedJoinedState()
+            } else {
+                persistActiveJoinedState()
+            }
+        } catch {
+            // Preserve local continuity through transient launch/network failures.
+        }
+    }
+
+    private func clearPersistedJoinedState() {
+        UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
+        currentEventID = nil
+        currentEventName = nil
+        isEventJoined = false
+        isCheckedIn = false
+        membershipState = .notInEvent
+    }
+
     /// Dismisses the reconnect prompt for the current app session.
     func dismissReconnect() {
         reconnectDismissedThisSession = true
@@ -116,7 +197,9 @@ final class EventJoinService: ObservableObject {
     }
 
     private init() {
+        restorePersistedJoinedState()
         startBeaconRecoveryObservation()
+        Task { await reconcilePersistedJoinedStateWithBackend() }
     }
 
     // MARK: - Intent
@@ -279,6 +362,7 @@ final class EventJoinService: ObservableObject {
             activeSessionStartedAt = nil
             reconnectDismissedThisSession = false
             postEventSummary = nil // Clear previous summary
+            persistActiveJoinedState()
 
             // STATE CONSISTENCY CHECK: all event IDs must align.
             #if DEBUG
@@ -345,6 +429,7 @@ final class EventJoinService: ObservableObject {
             }
             membershipState = .inEvent(eventName: eventName)
             joinError = nil
+            persistActiveJoinedState()
         } catch {
             joinError = error.localizedDescription
             print("[EventJoin] ❌ Check-in failed: \(error)")
@@ -439,6 +524,7 @@ final class EventJoinService: ObservableObject {
         pendingEventSwitch = nil
 
         EventContextService.shared.clearCache()
+        UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
 
         #if DEBUG
         print("[LeaveEvent] state cleared — isEventJoined=false, membership=left")
@@ -722,6 +808,7 @@ final class EventJoinService: ObservableObject {
             activeSessionStartedAt = Date()
         }
         backgroundEnteredAt = nil
+        persistActiveJoinedState()
 
         // Restart heartbeat — this writes status="joined" + fresh last_seen_at
         let didActivate = presence.activateFromCheckIn(
@@ -866,6 +953,7 @@ final class EventJoinService: ObservableObject {
         backgroundEnteredAt = nil
         membershipState = .notInEvent
         pendingEventSwitch = nil
+        UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
 
         EventContextService.shared.clearCache()
 
