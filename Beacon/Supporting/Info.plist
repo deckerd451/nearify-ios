@@ -34,7 +34,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string></string>
 	<key>MinimumOSVersion</key>
-	<string>16.0</string>
+	<string>17.0</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Bluetooth access is required to detect nearby event beacons for passive networking.</string>
 	<key>NSCameraUsageDescription</key>
