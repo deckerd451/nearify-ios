@@ -533,17 +533,21 @@ final class MessagingService: ObservableObject {
     }
 
     private func recalculateUnreadCount() {
-        guard let myId = AuthService.shared.currentUser?.id else {
+        guard AuthService.shared.currentUser?.id != nil else {
             totalUnreadCount = 0
             return
         }
 
-        totalUnreadCount = conversations.filter { conversation in
-            guard let lastMessageAt = conversationLastMessageAt[conversation.id] else { return false }
-            guard let lastSenderId = conversationLastSenderId[conversation.id] else { return false }
+        var unread = 0
+        for conversation in conversations {
+            guard let msgAt = conversationLastMessageAt[conversation.id] else { continue }
             let lastReadAt = conversationLastReadAt[conversation.id] ?? .distantPast
-            return lastSenderId != myId && lastMessageAt > lastReadAt
-        }.count
+            if msgAt > lastReadAt {
+                unread += 1
+            }
+        }
+
+        totalUnreadCount = unread
     }
 
     // MARK: - Get or Create Conversation
