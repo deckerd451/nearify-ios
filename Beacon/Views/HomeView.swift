@@ -10,6 +10,7 @@ struct HomeView: View {
     @ObservedObject private var presence = EventPresenceService.shared
     @ObservedObject private var attendeesService = EventAttendeesService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
+    @ObservedObject private var explore = ExploreEventsService.shared
     @ObservedObject private var resolver = AttendeeStateResolver.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
@@ -380,14 +381,114 @@ struct HomeView: View {
     // MARK: - Empty / Loading / Neutral
 
     private var joinedNotCheckedInState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
+            activeEventContextCard
+
             Text("You’ve joined. Check in when you arrive to start meeting people.")
-                .font(.headline)
-                .foregroundColor(VisualStyle.secondaryText)
+                .font(.subheadline)
+                .foregroundColor(VisualStyle.tertiaryText)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
-        .padding(.top, 56)
-        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.horizontal)
+    }
+
+    private var activeEventContextCard: some View {
+        let eventTitle = eventDisplayName
+        let attendeeCount = activeEventExploreModel?.activeAttendeeCount ?? 0
+        let brief = activePreEventBrief
+        let recommendation = brief?.topRecommendation
+        let relativeTime = activeEventTimeLine
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("ACTIVE EVENT")
+                .font(.caption2.weight(.semibold))
+                .tracking(1.1)
+                .foregroundColor(VisualStyle.tertiaryText)
+
+            Text(eventTitle)
+                .font(.headline.weight(.semibold))
+
+            HStack(spacing: 8) {
+                Label(relativeTime, systemImage: "calendar")
+                if attendeeCount > 0 {
+                    Label("\(attendeeCount) attending", systemImage: "person.3")
+                }
+            }
+            .font(.caption)
+            .foregroundColor(VisualStyle.secondaryText)
+
+            Text("YOU JOINED THIS EVENT")
+                .font(.caption2.weight(.bold))
+                .tracking(0.8)
+                .foregroundColor(VisualStyle.primaryAction)
+
+            if let recommendation {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Top opportunity")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(VisualStyle.intelligence)
+                    Text("“\(recommendation.reason)”")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Suggested connection: \(recommendation.name)")
+                        .font(.caption)
+                        .foregroundColor(VisualStyle.secondaryText)
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
+                    Task { await eventJoin.checkIn() }
+                } label: {
+                    Text("Check In")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(VisualStyle.primaryAction))
+                }
+
+                Button {
+                    showEventBrief = true
+                } label: {
+                    Text("View Attendees")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .buttonStyle(PressableScaleButtonStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.22)
+    }
+
+    private var activeEventExploreModel: ExploreEvent? {
+        guard let eventIdString = eventJoin.currentEventID,
+              let eventId = UUID(uuidString: eventIdString) else { return nil }
+        let allEvents = [explore.currentEvent] + explore.happeningNow + explore.upcoming + explore.recent
+        return allEvents.compactMap { $0 }.first(where: { $0.id == eventId })
+    }
+
+    private var activeEventTimeLine: String {
+        guard let event = activeEventExploreModel else { return "Time pending" }
+        return event.dateDisplay ?? "Time pending"
+    }
+
+    private var activePreEventBrief: PreEventBrief? {
+        guard let eventIdString = eventJoin.currentEventID,
+              let eventId = UUID(uuidString: eventIdString) else { return nil }
+        return PreEventBriefBuilder.build(eventId: eventId, eventName: eventDisplayName)
     }
 
     private var notJoinedState: some View {
