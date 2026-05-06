@@ -327,6 +327,15 @@ struct HomeView: View {
                 Spacer(minLength: 0)
             }
             .buttonStyle(PressableScaleButtonStyle())
+
+            Button {
+                showEventBrief = true
+            } label: {
+                Label("Prepare for Event", systemImage: "sparkles")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(VisualStyle.tertiaryText)
+            }
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -393,8 +402,6 @@ struct HomeView: View {
 
     private var joinedNotCheckedInState: some View {
         VStack(spacing: 16) {
-            preEventIntelligencePanel
-
             Text("You’ve joined. Check in when you arrive to start meeting people.")
                 .font(.subheadline)
                 .foregroundColor(VisualStyle.tertiaryText)
