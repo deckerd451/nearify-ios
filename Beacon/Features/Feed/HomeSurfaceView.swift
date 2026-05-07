@@ -2535,6 +2535,7 @@ struct HomeSurfaceView: View {
                     if hasIntent {
                         showBriefSheet = true
                     } else {
+<<<<<<< codex/fix-goal-selection-ux-in-ios-app-b1j22e
                         withAnimation(.easeOut(duration: 0.12)) {
                             didTapChooseGoal = true
                         }
@@ -2543,6 +2544,8 @@ struct HomeSurfaceView: View {
                                 didTapChooseGoal = false
                             }
                         }
+=======
+>>>>>>> main
                         #if DEBUG
                         print("[GoalPicker] opened")
                         #endif
@@ -2561,11 +2564,15 @@ struct HomeSurfaceView: View {
                     .padding(.vertical, 10)
                     .background(Capsule().fill(Color.cyan))
                 }
+<<<<<<< codex/fix-goal-selection-ux-in-ios-app-b1j22e
                 .contentShape(Rectangle())
                 .scaleEffect(!hasIntent && didTapChooseGoal ? 0.97 : 1.0)
                 .opacity(!hasIntent && didTapChooseGoal ? 0.72 : 1.0)
                 .animation(.easeInOut(duration: 0.12), value: didTapChooseGoal)
                 .allowsHitTesting(true)
+=======
+                .buttonStyle(.plain)
+>>>>>>> main
 
                 Text("Live matches unlock after check-in.")
                     .font(.caption2)
