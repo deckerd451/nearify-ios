@@ -354,7 +354,7 @@ struct HomeView: View {
                 Button {
                     showEventBrief = true
                 } label: {
-                    Text("Prepare")
+                    Text("Briefing")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
@@ -458,22 +458,14 @@ struct HomeView: View {
                     .font(.subheadline)
                     .foregroundColor(VisualStyle.secondaryText)
             }
-
-            Button {
-                showEventBrief = true
-            } label: {
-                Text("Open Briefing")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
-            }
-            .buttonStyle(PressableScaleButtonStyle())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.03)))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture {
+            showEventBrief = true
+        }
     }
 
     private var activeEventExploreModel: ExploreEvent? {
