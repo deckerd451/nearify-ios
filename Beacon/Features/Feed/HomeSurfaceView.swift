@@ -48,7 +48,6 @@ struct HomeSurfaceView: View {
     @State private var showGoalPickerSheet = false
     @State private var selectedPreCheckInIntent: String?
     @State private var selectedPreCheckInIntentEventId: String?
-    @State private var didTapChooseGoal = false
 
     // MARK: - Home Presentation Model
 
@@ -369,27 +368,6 @@ struct HomeSurfaceView: View {
                         ToolbarItem(placement: .navigationBarTrailing) {
                             Button("Done") { showBriefSheet = false }
                                 .foregroundColor(.gray)
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $showGoalPickerSheet) {
-                NavigationStack {
-                    List {
-                        Section("What do you want from this event?") {
-                            ForEach(EventContextService.supportedIntents, id: \.self) { intent in
-                                Button(intent) {
-                                    handleGoalSelection(intent)
-                                }
-                                .foregroundColor(.primary)
-                            }
-                        }
-                    }
-                    .navigationTitle("Choose Goal")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .navigationBarTrailing) {
-                            Button("Cancel") { showGoalPickerSheet = false }
                         }
                     }
                 }
@@ -2536,56 +2514,31 @@ struct HomeSurfaceView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("Goal")
                     .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.cyan.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundColor(.gray)
 
                 if hasIntent {
                     Text("Goal: \(resolvedIntent ?? "")")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.85))
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .font(.subheadline)
+                        .foregroundColor(.white)
                 }
 
                 Button {
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        didTapChooseGoal = true
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                        withAnimation(.easeIn(duration: 0.12)) {
-                            didTapChooseGoal = false
-                        }
-                    }
+                    #if DEBUG
                     print("[GoalPicker] opened")
+                    #endif
+
                     showGoalPickerSheet = true
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "target")
-                            .font(.subheadline)
-                        Text(hasIntent ? "Change Goal" : "Choose Goal")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.cyan))
+                    Text(hasIntent ? "Change Goal" : "Choose Goal")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                 }
-                .contentShape(Rectangle())
-                .scaleEffect(!hasIntent && didTapChooseGoal ? 0.97 : 1.0)
-                .opacity(!hasIntent && didTapChooseGoal ? 0.72 : 1.0)
-                .animation(.easeInOut(duration: 0.12), value: didTapChooseGoal)
-                .allowsHitTesting(true)
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.05))
-            )
             .padding(.horizontal, 20)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -2643,6 +2596,27 @@ struct HomeSurfaceView: View {
         }
         .padding(.top, 20)
         .padding(.bottom, 16)
+        .sheet(isPresented: $showGoalPickerSheet) {
+            NavigationStack {
+                List {
+                    Section("What do you want from this event?") {
+                        ForEach(EventContextService.supportedIntents, id: \.self) { intent in
+                            Button(intent) {
+                                handleGoalSelection(intent)
+                            }
+                            .foregroundColor(.primary)
+                        }
+                    }
+                }
+                .navigationTitle("Choose Goal")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Cancel") { showGoalPickerSheet = false }
+                    }
+                }
+            }
+        }
     }
 
     @MainActor
