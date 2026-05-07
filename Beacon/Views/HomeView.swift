@@ -16,6 +16,9 @@ struct HomeView: View {
     @State private var showLeaveConfirmation = false
     @State private var showLastSummaryRecap = false
     @State private var showEventBrief = false
+    @State private var showGoalPickerSheet = false
+    @State private var selectedPreCheckInIntent: String?
+    @State private var selectedPreCheckInIntentEventId: String?
     @State private var autoPresentedBriefEventId: String?
     @State private var briefConnectionDestination: BriefConnectionDestination?
     @State private var showCheckInConfirmation = false
@@ -102,6 +105,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showEventBrief) {
                 eventBriefSheet
+            }
+            .sheet(isPresented: $showGoalPickerSheet) {
+                goalPickerSheet
             }
             .fullScreenCover(item: $briefConnectionDestination) { destination in
                 FindAttendeeView(
@@ -281,6 +287,13 @@ struct HomeView: View {
     private var preCheckInCard: some View {
         let attendeeCount = activeEventExploreModel?.activeAttendeeCount ?? 0
         let relativeTime = activeEventTimeLine
+        let currentEventId = eventJoin.currentEventID
+        let localIntent = (selectedPreCheckInIntentEventId == currentEventId) ? selectedPreCheckInIntent : nil
+        let cachedIntent = (EventContextService.shared.cachedContext?.intentPrimary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? EventContextService.shared.cachedContext?.intentPrimary
+            : nil
+        let resolvedIntent = localIntent ?? cachedIntent
+        let hasIntent = resolvedIntent?.isEmpty == false
 
         return VStack(alignment: .leading, spacing: 12) {
             Text("JOINED • NOT LIVE")
@@ -299,6 +312,31 @@ struct HomeView: View {
             }
             .font(.caption)
             .foregroundColor(VisualStyle.secondaryText)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Goal")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.95))
+
+                if hasIntent {
+                    Text("Goal: \(resolvedIntent ?? "")")
+                        .font(.subheadline)
+                        .foregroundColor(VisualStyle.secondaryText)
+                }
+
+                Button {
+                    print("[GoalPicker] opened")
+                    showGoalPickerSheet = true
+                } label: {
+                    Text(hasIntent ? "Change Goal" : "Choose Goal")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+            }
 
             HStack(spacing: 10) {
                 Button {
@@ -612,6 +650,42 @@ struct HomeView: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private var goalPickerSheet: some View {
+        NavigationStack {
+            List {
+                Section("What do you want from this event?") {
+                    ForEach(EventContextService.supportedIntents, id: \.self) { intent in
+                        Button(intent) {
+                            handleGoalSelection(intent)
+                        }
+                        .foregroundColor(.primary)
+                    }
+                }
+            }
+            .navigationTitle("Choose Goal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") { showGoalPickerSheet = false }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func handleGoalSelection(_ intent: String) {
+        print("[GoalPicker] selected intent=\(intent)")
+        selectedPreCheckInIntent = intent
+        selectedPreCheckInIntentEventId = eventJoin.currentEventID
+        showGoalPickerSheet = false
+
+        guard let rawEventId = eventJoin.currentEventID,
+              let eventId = UUID(uuidString: rawEventId) else { return }
+        Task {
+            await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: intent)
+        }
     }
 
     private func maybePresentEventBrief() {
