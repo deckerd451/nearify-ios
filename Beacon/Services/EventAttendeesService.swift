@@ -210,10 +210,18 @@ final class EventAttendeesService: ObservableObject {
     /// Canonical live attendee count for all UI decisions.
     /// Excludes the current user. Only counts attendees where isHereNow == true.
     /// Use this instead of `attendeeCount` or manual filtering for UI branching.
-    var liveOtherCount: Int {
-        let myId = AuthService.shared.currentUser?.id
-        return attendees.filter { $0.id != myId && $0.isHereNow }.count
-    }
+    var liveOtherCount: Int { freshOthersCount }
+
+    /// Freshness snapshots from the last backend attendee query.
+    /// These keep backend truth (self + others) separate from recommendation eligibility (others only).
+    @Published private(set) var freshSelfCount: Int = 0
+    @Published private(set) var freshOthersCount: Int = 0
+
+    /// Count used for live attendee UI copy that includes self when fresh.
+    var displayedLiveCount: Int { freshSelfCount + freshOthersCount }
+
+    /// Recommendation and ranking eligibility remain others-only.
+    var recommendationEligibleCount: Int { freshOthersCount }
 
     private let presence = EventPresenceService.shared
     private let eventJoin = EventJoinService.shared
@@ -342,6 +350,8 @@ final class EventAttendeesService: ObservableObject {
         refreshTask = nil
         attendees = []
         attendeeCount = 0
+        freshSelfCount = 0
+        freshOthersCount = 0
         isLoading = false
         debugStatus = "idle"
         lastFetchSignature = ""
@@ -590,17 +600,24 @@ final class EventAttendeesService: ObservableObject {
             // - live: heartbeat < 60s → shown as "here now"
             // - stale: heartbeat 60–300s → still shown, but secondary
             // - expired: heartbeat > 300s → dropped entirely
-            let activeRows = otherRows.filter { $0.lastSeenAt >= recentCutoff }
-            let liveRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) < liveCutoff }
-            let staleRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) >= liveCutoff }
+            let activeSelfRows = selfRows.filter { $0.lastSeenAt >= recentCutoff }
+            let activeOtherRows = otherRows.filter { $0.lastSeenAt >= recentCutoff }
+
+            let liveSelfRows = activeSelfRows.filter { now.timeIntervalSince($0.lastSeenAt) < liveCutoff }
+            let liveOtherRows = activeOtherRows.filter { now.timeIntervalSince($0.lastSeenAt) < liveCutoff }
+            let staleRows = activeOtherRows.filter { now.timeIntervalSince($0.lastSeenAt) >= liveCutoff }
             let expiredRows = rows.filter { $0.lastSeenAt < recentCutoff }
 
             #if DEBUG
             print("[Attendees]   recent cutoff: \(recentCutoff)")
-            print("[Attendees]   live (< \(Int(liveCutoff))s): \(liveRows.count)")
+            print("[Attendees]   freshSelfCount: \(liveSelfRows.count)")
+            print("[Attendees]   freshOthersCount: \(liveOtherRows.count)")
+            print("[Attendees]   displayedLiveCount: \(liveSelfRows.count + liveOtherRows.count)")
+            print("[Attendees]   recommendationEligibleCount: \(liveOtherRows.count)")
+            print("[Attendees]   live others (< \(Int(liveCutoff))s): \(liveOtherRows.count)")
             print("[Attendees]   stale (\(Int(liveCutoff))–\(Int(activeWindow))s): \(staleRows.count) (shown as recently seen)")
             print("[Attendees]   expired (> \(Int(activeWindow))s): \(expiredRows.count)")
-            for row in liveRows {
+            for row in liveOtherRows {
                 let age = Int(now.timeIntervalSince(row.lastSeenAt))
                 print("[Attendees]   ✅ live profile_id=\(row.profileId.uuidString.prefix(8)) age=\(age)s")
             }
@@ -614,12 +631,19 @@ final class EventAttendeesService: ObservableObject {
             }
             #endif
 
-            if activeRows.isEmpty {
+            freshSelfCount = liveSelfRows.count
+            freshOthersCount = liveOtherRows.count
+
+            if activeOtherRows.isEmpty {
                 let sig = "active:0"
                 if sig != lastFetchSignature {
                     lastFetchSignature = sig
                     #if DEBUG
-                    print("[Attendees] No active attendees")
+                    if freshSelfCount > 0 {
+                        print("[Attendees] No active other attendees (self is live)")
+                    } else {
+                        print("[Attendees] No active attendees")
+                    }
                     #endif
                 }
 
@@ -634,7 +658,7 @@ final class EventAttendeesService: ObservableObject {
                 return
             }
 
-            let orderedActiveRows = (liveRows + staleRows)
+            let orderedActiveRows = (liveOtherRows + staleRows)
                 .sorted { lhs, rhs in
                     let lhsIsLive = now.timeIntervalSince(lhs.lastSeenAt) < liveCutoff
                     let rhsIsLive = now.timeIntervalSince(rhs.lastSeenAt) < liveCutoff
@@ -735,13 +759,13 @@ final class EventAttendeesService: ObservableObject {
 
             attendees = newAttendees
             attendeeCount = newAttendees.count
-            debugStatus = "\(liveRows.count) live, \(staleRows.count) recently seen"
+            debugStatus = "\(liveOtherRows.count) live others, \(staleRows.count) recently seen"
 
             // Populate offline profile cache
             ProfileCache.shared.storeAttendees(newAttendees)
 
             // ── Target Intent Detection ──
-            evaluateTargetIntent(activeAttendeeIds: Set(liveRows.map(\.profileId)))
+            evaluateTargetIntent(activeAttendeeIds: Set(liveOtherRows.map(\.profileId)))
 
         } catch {
             debugStatus = "query failed: \(error.localizedDescription)"
