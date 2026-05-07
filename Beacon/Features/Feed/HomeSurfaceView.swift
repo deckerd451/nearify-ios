@@ -2537,41 +2537,35 @@ struct HomeSurfaceView: View {
                 .padding(.horizontal, 24)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Prepare for Event")
+                Text("Goal")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.cyan.opacity(0.7))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text(hasIntent
-                     ? "Goal: \(resolvedIntent ?? "")"
-                     : "Choose your goal so Nearify can tune recommendations when you check in.")
-                    .font(.caption)
-                    .foregroundColor(hasIntent ? .white.opacity(0.85) : .gray)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if hasIntent {
+                    Text("Goal: \(resolvedIntent ?? "")")
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 Button {
-                    if hasIntent {
-                        showBriefSheet = true
-                    } else {
-                        withAnimation(.easeOut(duration: 0.12)) {
-                            didTapChooseGoal = true
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                            withAnimation(.easeIn(duration: 0.12)) {
-                                didTapChooseGoal = false
-                            }
-                        }
-                        #if DEBUG
-                        print("[GoalPicker] opened")
-                        #endif
-                        showGoalPickerSheet = true
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        didTapChooseGoal = true
                     }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        withAnimation(.easeIn(duration: 0.12)) {
+                            didTapChooseGoal = false
+                        }
+                    }
+                    print("[GoalPicker] opened")
+                    showGoalPickerSheet = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: hasIntent ? "doc.text.magnifyingglass" : "target")
+                        Image(systemName: "target")
                             .font(.subheadline)
-                        Text(hasIntent ? "Open Briefing" : "Choose Goal")
+                        Text(hasIntent ? "Change Goal" : "Choose Goal")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                     }
@@ -2585,6 +2579,42 @@ struct HomeSurfaceView: View {
                 .opacity(!hasIntent && didTapChooseGoal ? 0.72 : 1.0)
                 .animation(.easeInOut(duration: 0.12), value: didTapChooseGoal)
                 .allowsHitTesting(true)
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.05))
+            )
+            .padding(.horizontal, 20)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Prepare for Event")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.cyan.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Open Event Brief anytime before check-in.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    showBriefSheet = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.subheadline)
+                        Text("Open Briefing")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.cyan))
+                }
                 .buttonStyle(.plain)
 
                 Text("Live matches unlock after check-in.")
