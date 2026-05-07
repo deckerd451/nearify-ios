@@ -363,7 +363,6 @@ struct HomeSurfaceView: View {
                         if let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) {
                             Task { await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: intent) }
                         }
-                        showBriefSheet = true
                     }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -2516,7 +2515,7 @@ struct HomeSurfaceView: View {
                     .foregroundColor(.cyan.opacity(0.7))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text("Choose your goal so Nearify can tune your recommendations when you check in.")
+                Text("Choose your goal to tune recommendations at check in.")
                     .font(.caption)
                     .foregroundColor(.gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
