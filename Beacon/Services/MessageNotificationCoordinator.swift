@@ -24,6 +24,8 @@ final class MessageNotificationCoordinator: ObservableObject {
     private var statusSubscription: RealtimeSubscription?
     private var activeSubscriptionsCount = 0
     private var lastInsertReceivedAt: Date?
+    private var currentSubscriptionProfileId: UUID?
+    private var isSubscriptionStarting = false
 
     /// Session-scoped dedupe for notifications that were either delivered or intentionally suppressed.
     private var notifiedMessageIds: Set<UUID> = []
@@ -54,6 +56,8 @@ final class MessageNotificationCoordinator: ObservableObject {
         messageSubscription = nil
         postgresInsertSubscription = nil
         statusSubscription = nil
+        currentSubscriptionProfileId = nil
+        isSubscriptionStarting = false
         lastInsertReceivedAt = nil
         activeSubscriptionsCount = 0
 
@@ -89,8 +93,25 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     private func ensureRealtimeReadyAndStart() async {
         guard AuthService.shared.profileState == .ready, let profileId = AuthService.shared.currentUser?.id else {
+            if messageSubscription != nil {
+                stop()
+            }
             return
         }
+
+        if currentSubscriptionProfileId == profileId,
+           messageSubscription != nil,
+           !isSubscriptionStarting {
+            print("[MessagingRT] reuse existing subscription profile=\(profileId)")
+            return
+        }
+
+        guard !isSubscriptionStarting else {
+            print("[MessagingRT] start ignored: subscription already in progress")
+            return
+        }
+        isSubscriptionStarting = true
+        defer { isSubscriptionStarting = false }
 
         print("[MessagingRT] auth ready profile=\(profileId)")
 
@@ -106,6 +127,7 @@ final class MessageNotificationCoordinator: ObservableObject {
 
     private func ensureSingleActiveSubscription() async {
         if let existing = messageSubscription {
+            print("[MessagingRT] replacing existing channel before restart")
             await existing.unsubscribe()
             messageSubscription = nil
             postgresInsertSubscription = nil
@@ -137,6 +159,7 @@ final class MessageNotificationCoordinator: ObservableObject {
         }
 
         messageSubscription = channel
+        currentSubscriptionProfileId = myId
         lastInsertReceivedAt = nil
         activeSubscriptionsCount = messageSubscription == nil ? 0 : 1
         print("[MessagingRT] subscribed filter=schema:public table:messages event:INSERT")
@@ -376,4 +399,3 @@ isAlreadyViewing=\(currentTabIsMessages && isViewingConversation)
         }
     }
 }
-
