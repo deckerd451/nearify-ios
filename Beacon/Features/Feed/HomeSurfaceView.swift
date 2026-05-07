@@ -45,8 +45,9 @@ struct HomeSurfaceView: View {
     @State private var hasSeenArrivalBrief = false
     @State private var arrivalBriefEventId: String?
     @State private var showBriefSheet = false
-    @State private var showGoalPicker = false
+    @State private var showGoalPickerSheet = false
     @State private var selectedPreCheckInIntent: String?
+    @State private var didTapChooseGoal = false
 
     // MARK: - Home Presentation Model
 
@@ -356,18 +357,26 @@ struct HomeSurfaceView: View {
                     }
                 }
             }
-            .confirmationDialog("Choose Goal", isPresented: $showGoalPicker, titleVisibility: .visible) {
-                ForEach(EventContextService.supportedIntents, id: \.self) { intent in
-                    Button(intent) {
-                        selectedPreCheckInIntent = intent
-                        if let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) {
-                            Task { await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: intent) }
+            .sheet(isPresented: $showGoalPickerSheet) {
+                NavigationStack {
+                    List {
+                        Section("What do you want from this event?") {
+                            ForEach(EventContextService.supportedIntents, id: \.self) { intent in
+                                Button(intent) {
+                                    handleGoalSelection(intent)
+                                }
+                                .foregroundColor(.primary)
+                            }
+                        }
+                    }
+                    .navigationTitle("Choose Goal")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("Cancel") { showGoalPickerSheet = false }
                         }
                     }
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Pick a goal so Nearify can tailor your Event Brief before check-in.")
             }
         }
     }
@@ -2515,34 +2524,48 @@ struct HomeSurfaceView: View {
                     .foregroundColor(.cyan.opacity(0.7))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text("Choose your goal to tune recommendations at check in.")
+                Text(hasIntent
+                     ? "Goal: \(resolvedIntent ?? "")"
+                     : "Choose your goal so Nearify can tune recommendations when you check in.")
                     .font(.caption)
-                    .foregroundColor(.gray)
+                    .foregroundColor(hasIntent ? .white.opacity(0.85) : .gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let resolvedIntent {
-                    Text("Current goal: \(resolvedIntent)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.85))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
 
                 Button {
                     if hasIntent {
                         showBriefSheet = true
                     } else {
-                        showGoalPicker = true
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            didTapChooseGoal = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            withAnimation(.easeIn(duration: 0.12)) {
+                                didTapChooseGoal = false
+                            }
+                        }
+                        #if DEBUG
+                        print("[GoalPicker] opened")
+                        #endif
+                        showGoalPickerSheet = true
                     }
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: hasIntent ? "doc.text.magnifyingglass" : "target")
-                            .font(.caption)
+                            .font(.subheadline)
                         Text(hasIntent ? "Open Briefing" : "Choose Goal")
-                            .font(.caption)
+                            .font(.subheadline)
                             .fontWeight(.semibold)
                     }
-                    .foregroundColor(.cyan.opacity(0.9))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.cyan))
                 }
+                .contentShape(Rectangle())
+                .scaleEffect(!hasIntent && didTapChooseGoal ? 0.97 : 1.0)
+                .opacity(!hasIntent && didTapChooseGoal ? 0.72 : 1.0)
+                .animation(.easeInOut(duration: 0.12), value: didTapChooseGoal)
+                .allowsHitTesting(true)
 
                 Text("Live matches unlock after check-in.")
                     .font(.caption2)
@@ -2570,6 +2593,20 @@ struct HomeSurfaceView: View {
         }
         .padding(.top, 20)
         .padding(.bottom, 16)
+    }
+
+    @MainActor
+    private func handleGoalSelection(_ intent: String) {
+        #if DEBUG
+        print("[GoalPicker] selected intent=\(intent)")
+        #endif
+        selectedPreCheckInIntent = intent
+        showGoalPickerSheet = false
+
+        guard let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) else { return }
+        Task {
+            await EventContextService.shared.updateIntentPrimary(eventId: eventId, intent: intent)
+        }
     }
 
     /// Generic hero block — used when no featured arrival person exists.
