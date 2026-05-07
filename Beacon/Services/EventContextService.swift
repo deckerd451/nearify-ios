@@ -109,9 +109,7 @@ final class EventContextService {
                     "p_intent_primary": normalizedIntent
                 ])
                 .execute()
-            #if DEBUG
-            print("[EventContext] ✅ intent updated via RPC: \(normalizedIntent)")
-            #endif
+            print("[EventContext] intent persisted remotely")
         } catch {
             #if DEBUG
             print("[EventContext] ℹ️ RPC update failed, trying event_attendees fallback: \(error.localizedDescription)")
@@ -124,9 +122,7 @@ final class EventContextService {
                     .eq("event_id", value: eventId.uuidString)
                     .eq("profile_id", value: profileId.uuidString)
                     .execute()
-                #if DEBUG
-                print("[EventContext] ✅ intent updated via event_attendees fallback: \(normalizedIntent)")
-                #endif
+                print("[EventContext] intent persisted remotely")
             } catch {
                 print("[EventContext] ⚠️ Failed to persist intent: \(error.localizedDescription)")
             }
@@ -143,6 +139,19 @@ final class EventContextService {
                 energyLevel: existing.energyLevel,
                 joinedAt: existing.joinedAt
             )
+        } else if let profileId = AuthService.shared.currentUser?.id {
+            cachedEventId = eventId
+            cachedContext = EventContext(
+                eventId: eventId,
+                profileId: profileId,
+                intentPrimary: normalizedIntent,
+                intentSecondary: nil,
+                goals: nil,
+                constraints: nil,
+                energyLevel: nil,
+                joinedAt: nil
+            )
         }
+        print("[EventContext] intent updated locally")
     }
 }
