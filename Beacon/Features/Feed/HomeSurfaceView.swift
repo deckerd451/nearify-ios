@@ -47,6 +47,7 @@ struct HomeSurfaceView: View {
     @State private var showBriefSheet = false
     @State private var showGoalPickerSheet = false
     @State private var selectedPreCheckInIntent: String?
+    @State private var selectedPreCheckInIntentEventId: String?
     @State private var didTapChooseGoal = false
 
     // MARK: - Home Presentation Model
@@ -249,6 +250,8 @@ struct HomeSurfaceView: View {
                         arrivalBriefPending = true
                         hasSeenArrivalBrief = false
                         arrivalBriefEventId = newEventId
+                        selectedPreCheckInIntent = nil
+                        selectedPreCheckInIntentEventId = newEventId
                         #if DEBUG
                         print("[ArrivalBrief] pending=true — new event session: \(newEventId ?? "nil")")
                         #endif
@@ -257,6 +260,8 @@ struct HomeSurfaceView: View {
                 if wasJoined && !isNowJoined {
                     // Event exit — clear arrival brief state and refresh data
                     arrivalBriefPending = false
+                    selectedPreCheckInIntent = nil
+                    selectedPreCheckInIntentEventId = nil
                     if targetIntent.isActive {
                         targetIntent.clear(reason: "event left — target intent cleared")
                     }
@@ -274,6 +279,17 @@ struct HomeSurfaceView: View {
                     preloadedConversation: dest.conversation,
                     preloadedName: dest.targetName
                 )
+            }
+            .onChange(of: eventJoin.currentEventID) { _, newEventId in
+                guard let newEventId else {
+                    selectedPreCheckInIntent = nil
+                    selectedPreCheckInIntentEventId = nil
+                    return
+                }
+                if selectedPreCheckInIntentEventId != newEventId {
+                    selectedPreCheckInIntent = EventContextService.shared.cachedContext?.intentPrimary
+                    selectedPreCheckInIntentEventId = newEventId
+                }
             }
             .alert("Can't message yet", isPresented: $showNotConnectedAlert) {
                 Button("OK", role: .cancel) {}
@@ -2496,9 +2512,12 @@ struct HomeSurfaceView: View {
 
     /// Pre-check-in live event briefing.
     private var joinedNotCheckedInBlock: some View {
-        let resolvedIntent = (EventContextService.shared.cachedContext?.intentPrimary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        let currentEventId = eventJoin.currentEventID
+        let localIntent = (selectedPreCheckInIntentEventId == currentEventId) ? selectedPreCheckInIntent : nil
+        let cachedIntent = (EventContextService.shared.cachedContext?.intentPrimary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             ? EventContextService.shared.cachedContext?.intentPrimary
-            : selectedPreCheckInIntent
+            : nil
+        let resolvedIntent = localIntent ?? cachedIntent
         let hasIntent = resolvedIntent?.isEmpty == false
         return VStack(spacing: 10) {
             Image(systemName: "mappin.and.ellipse")
@@ -2602,6 +2621,7 @@ struct HomeSurfaceView: View {
         print("[GoalPicker] selected intent=\(intent)")
         #endif
         selectedPreCheckInIntent = intent
+        selectedPreCheckInIntentEventId = eventJoin.currentEventID
         showGoalPickerSheet = false
 
         guard let rawEventId = eventJoin.currentEventID, let eventId = UUID(uuidString: rawEventId) else { return }
