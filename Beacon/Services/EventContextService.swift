@@ -104,7 +104,7 @@ final class EventContextService {
 
         do {
             _ = try await supabase
-                .rpc("set_event_context_intent", params: [
+                .rpc("update_attendee_intent", params: [
                     "p_event_id": eventId.uuidString,
                     "p_intent_primary": normalizedIntent
                 ])
