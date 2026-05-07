@@ -2515,17 +2515,12 @@ struct HomeSurfaceView: View {
                     .foregroundColor(.cyan.opacity(0.7))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text("Choose your goal to tune recommendations at check in.")
+                Text(hasIntent
+                     ? "Goal: \(resolvedIntent ?? "")"
+                     : "Choose your goal so Nearify can tune recommendations when you check in.")
                     .font(.caption)
-                    .foregroundColor(.gray)
+                    .foregroundColor(hasIntent ? .white.opacity(0.85) : .gray)
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let resolvedIntent {
-                    Text("Current goal: \(resolvedIntent)")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.85))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
 
                 Button {
                     if hasIntent {
@@ -2536,13 +2531,17 @@ struct HomeSurfaceView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: hasIntent ? "doc.text.magnifyingglass" : "target")
-                            .font(.caption)
+                            .font(.subheadline)
                         Text(hasIntent ? "Open Briefing" : "Choose Goal")
-                            .font(.caption)
+                            .font(.subheadline)
                             .fontWeight(.semibold)
                     }
-                    .foregroundColor(.cyan.opacity(0.9))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.cyan))
                 }
+                .buttonStyle(.plain)
 
                 Text("Live matches unlock after check-in.")
                     .font(.caption2)

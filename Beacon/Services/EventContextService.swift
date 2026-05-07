@@ -143,6 +143,18 @@ final class EventContextService {
                 energyLevel: existing.energyLevel,
                 joinedAt: existing.joinedAt
             )
+        } else if let profileId = AuthService.shared.currentUser?.id {
+            cachedEventId = eventId
+            cachedContext = EventContext(
+                eventId: eventId,
+                profileId: profileId,
+                intentPrimary: normalizedIntent,
+                intentSecondary: nil,
+                goals: nil,
+                constraints: nil,
+                energyLevel: nil,
+                joinedAt: nil
+            )
         }
     }
 }
