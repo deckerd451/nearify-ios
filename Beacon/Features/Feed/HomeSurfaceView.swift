@@ -47,6 +47,7 @@ struct HomeSurfaceView: View {
     @State private var showBriefSheet = false
     @State private var showGoalPickerSheet = false
     @State private var selectedPreCheckInIntent: String?
+    @State private var didTapChooseGoal = false
 
     // MARK: - Home Presentation Model
 
@@ -2534,6 +2535,17 @@ struct HomeSurfaceView: View {
                     if hasIntent {
                         showBriefSheet = true
                     } else {
+<<<<<<< codex/fix-goal-selection-ux-in-ios-app-b1j22e
+                        withAnimation(.easeOut(duration: 0.12)) {
+                            didTapChooseGoal = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                            withAnimation(.easeIn(duration: 0.12)) {
+                                didTapChooseGoal = false
+                            }
+                        }
+=======
+>>>>>>> main
                         #if DEBUG
                         print("[GoalPicker] opened")
                         #endif
@@ -2552,7 +2564,15 @@ struct HomeSurfaceView: View {
                     .padding(.vertical, 10)
                     .background(Capsule().fill(Color.cyan))
                 }
+<<<<<<< codex/fix-goal-selection-ux-in-ios-app-b1j22e
+                .contentShape(Rectangle())
+                .scaleEffect(!hasIntent && didTapChooseGoal ? 0.97 : 1.0)
+                .opacity(!hasIntent && didTapChooseGoal ? 0.72 : 1.0)
+                .animation(.easeInOut(duration: 0.12), value: didTapChooseGoal)
+                .allowsHitTesting(true)
+=======
                 .buttonStyle(.plain)
+>>>>>>> main
 
                 Text("Live matches unlock after check-in.")
                     .font(.caption2)
