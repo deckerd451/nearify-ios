@@ -354,6 +354,9 @@ final class EventPresenceService: ObservableObject {
 
         let now = Date()
         let nowISO = ISO8601DateFormatter().string(from: now)
+        #if DEBUG
+        print("[Presence] heartbeat write profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) last_seen_at=\(nowISO)")
+        #endif
 
         do {
             let existing: [EventAttendanceRow] = try await supabase
@@ -381,7 +384,7 @@ final class EventPresenceService: ObservableObject {
                 }
 
                 #if DEBUG
-                print("[Presence] ✅ Updated event_attendees heartbeat")
+                print("[Presence] ✅ Updated event_attendees heartbeat profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) status=joined last_seen_at=\(nowISO)")
                 #endif
             } else {
                 try await supabase
@@ -403,7 +406,7 @@ final class EventPresenceService: ObservableObject {
                 }
 
                 #if DEBUG
-                print("[Presence] ✅ Inserted event_attendees row")
+                print("[Presence] ✅ Inserted event_attendees row profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) status=joined last_seen_at=\(nowISO)")
                 #endif
             }
         } catch {

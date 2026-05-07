@@ -567,14 +567,16 @@ final class EventAttendeesService: ObservableObject {
                 .select("id, event_id, profile_id, status, joined_at, last_seen_at")
                 .eq("event_id", value: eventId.uuidString)
                 .eq("status", value: "joined")
-                .neq("profile_id", value: currentProfileId.uuidString)
                 .order("last_seen_at", ascending: false)
                 .limit(100)
                 .execute()
                 .value
 
+            let selfRows = rows.filter { $0.profileId == currentProfileId }
+            let otherRows = rows.filter { $0.profileId != currentProfileId }
+
             #if DEBUG
-            print("[Attendees]   joined rows fetched: \(rows.count)")
+            print("[Attendees]   joined rows fetched total=\(rows.count) self=\(selfRows.count) others=\(otherRows.count)")
             for row in rows {
                 print("[Attendees]   row profile_id=\(row.profileId.uuidString) status=\(row.status) last_seen_at=\(row.lastSeenAt)")
             }
@@ -588,7 +590,7 @@ final class EventAttendeesService: ObservableObject {
             // - live: heartbeat < 60s → shown as "here now"
             // - stale: heartbeat 60–300s → still shown, but secondary
             // - expired: heartbeat > 300s → dropped entirely
-            let activeRows = rows.filter { $0.lastSeenAt >= recentCutoff }
+            let activeRows = otherRows.filter { $0.lastSeenAt >= recentCutoff }
             let liveRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) < liveCutoff }
             let staleRows = activeRows.filter { now.timeIntervalSince($0.lastSeenAt) >= liveCutoff }
             let expiredRows = rows.filter { $0.lastSeenAt < recentCutoff }
