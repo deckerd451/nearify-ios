@@ -21,6 +21,8 @@ struct HomeView: View {
     @State private var selectedPreCheckInIntentEventId: String?
     @State private var autoPresentedBriefEventId: String?
     @State private var briefConnectionDestination: BriefConnectionDestination?
+    @State private var pendingBriefConnectionDestination: BriefConnectionDestination?
+    @State private var cachedEventBrief: PreEventBriefBuilder.Brief?
     @State private var showCheckInConfirmation = false
     @State private var checkInDismissTask: Task<Void, Never>?
     @State private var hasMounted = false
@@ -60,10 +62,16 @@ struct HomeView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable { attendeesService.refresh() }
             .onChange(of: eventJoin.currentEventID) { _, _ in
+                cachedEventBrief = nil
                 maybePresentEventBrief()
             }
             .onChange(of: eventJoin.isCheckedIn) { _, _ in
                 maybePresentEventBrief()
+            }
+            .onChange(of: showEventBrief) { _, isPresented in
+                if !isPresented {
+                    cachedEventBrief = nil
+                }
             }
             .onChange(of: eventJoin.isCheckedIn) { oldValue, newValue in
                 guard !oldValue, newValue else { return }
@@ -103,7 +111,12 @@ struct HomeView: View {
                     LastSummaryRecapView(summary: summary)
                 }
             }
-            .sheet(isPresented: $showEventBrief) {
+            .sheet(isPresented: $showEventBrief, onDismiss: {
+                if let pending = pendingBriefConnectionDestination {
+                    briefConnectionDestination = pending
+                    pendingBriefConnectionDestination = nil
+                }
+            }) {
                 eventBriefSheet
             }
             .sheet(isPresented: $showGoalPickerSheet) {
@@ -594,36 +607,13 @@ struct HomeView: View {
     @ViewBuilder
     private var eventBriefSheet: some View {
         NavigationStack {
-            if let eventIdString = eventJoin.currentEventID,
-               let eventId = UUID(uuidString: eventIdString) {
-                let brief = PreEventBriefBuilder.build(
-                    eventId: eventId,
-                    eventName: eventDisplayName
-                )
+            if let brief = resolvedBriefForSheet {
                 ScrollView {
                     PreEventBriefView(
-                        brief: brief,
-                        ctaTitle: "Continue"
+                        brief: brief
                     ) { recommendation in
                         showEventBrief = false
-                        guard let recommendation else {
-                            switchTab(to: .home, source: .user)
-                            return
-                        }
-
-                        let resolvedAttendee = attendeesService.attendees.first(where: { $0.id == recommendation.id })
-                            ?? EventAttendee(
-                                id: recommendation.id,
-                                name: recommendation.name,
-                                avatarUrl: recommendation.avatarUrl,
-                                bio: recommendation.reason,
-                                skills: nil,
-                                interests: nil,
-                                energy: recommendation.matchScore ?? 0.5,
-                                lastSeen: Date()
-                            )
-
-                        briefConnectionDestination = BriefConnectionDestination(attendee: resolvedAttendee)
+                        pendingBriefConnectionDestination = destinationForBriefRecommendation(recommendation)
                     }
                     .padding()
                 }
@@ -689,7 +679,46 @@ struct HomeView: View {
         }
         guard autoPresentedBriefEventId != eventId else { return }
         autoPresentedBriefEventId = eventId
+        cachedEventBrief = resolvedBriefForCurrentEvent()
         showEventBrief = true
+    }
+
+    private var resolvedBriefForSheet: PreEventBriefBuilder.Brief? {
+        cachedEventBrief ?? resolvedBriefForCurrentEvent()
+    }
+
+    private func resolvedBriefForCurrentEvent() -> PreEventBriefBuilder.Brief? {
+        guard let eventIdString = eventJoin.currentEventID,
+              let eventId = UUID(uuidString: eventIdString) else {
+            return nil
+        }
+
+        return PreEventBriefBuilder.build(
+            eventId: eventId,
+            eventName: eventDisplayName
+        )
+    }
+
+    private func destinationForBriefRecommendation(
+        _ recommendation: PreEventBriefBuilder.PriorityPerson?
+    ) -> BriefConnectionDestination? {
+        guard let recommendation else { return nil }
+
+        let resolvedAttendee = attendeesService.attendees.first(where: { $0.id == recommendation.id })
+            ?? EventAttendee(
+                id: recommendation.id,
+                name: recommendation.name,
+                avatarUrl: recommendation.avatarUrl,
+                bio: recommendation.reason,
+                skills: nil,
+                interests: nil,
+                energy: recommendation.matchScore ?? 0.5,
+                lastSeen: Date()
+            )
+        #if DEBUG
+        print("[Brief] launching find flow for \(recommendation.name)")
+        #endif
+        return BriefConnectionDestination(attendee: resolvedAttendee)
     }
 
     private var checkInConfirmationCard: some View {

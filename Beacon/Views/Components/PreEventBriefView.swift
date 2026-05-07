@@ -80,9 +80,10 @@ struct PreEventBriefView: View {
             }
 
             Button {
+                debugLog("[Brief] launching find flow for \(primaryRecommendation?.name ?? "fallback")")
                 onContinue(primaryRecommendation)
             } label: {
-                Text(ctaTitle)
+                Text(callToActionTitle)
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
@@ -114,6 +115,14 @@ struct PreEventBriefView: View {
         return brief.priorityPeople.first
     }
 
+    private var callToActionTitle: String {
+        if let recommendation = primaryRecommendation {
+            return "Find \(firstName(recommendation.name))"
+        }
+
+        return brief.isLive ? "See Nearby Attendees" : "Open Find"
+    }
+
     private var recommendationLogState: String {
         if let person = primaryRecommendation {
             let confidence = String(format: "%.2f", person.confidence ?? 0.0)
@@ -124,44 +133,54 @@ struct PreEventBriefView: View {
     }
 
     private func recommendationCard(_ person: PreEventBriefBuilder.PriorityPerson) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                AvatarView(
-                    imageUrl: person.avatarUrl,
-                    name: person.name,
-                    size: 40,
-                    placeholderColor: .blue
-                )
+        Button {
+            debugLog("[Brief] recommendation card tapped")
+            debugLog("[Brief] launching find flow for \(person.name)")
+            onContinue(person)
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    AvatarView(
+                        imageUrl: person.avatarUrl,
+                        name: person.name,
+                        size: 40,
+                        placeholderColor: .blue
+                    )
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Best person to start with right now")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Best person to start with right now")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
 
-                    Text(person.name)
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
+                        Text(person.name)
+                            .font(.title3)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.blue.opacity(0.9))
                 }
-                Spacer()
-            }
 
-            if let status = person.statusLabel {
-                Text(status == "nearby" ? "Nearby now" : "Currently active")
-                    .font(.footnote)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-            }
+                if let status = person.statusLabel {
+                    Text(status == "nearby" ? "Nearby now" : "Currently active")
+                        .font(.footnote)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                }
 
-            VStack(alignment: .leading, spacing: 4) {
-                sectionTitle("Why this match")
-                Text(person.reason)
-                    .font(.subheadline)
-                    .foregroundColor(.primary)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionTitle("Why this match")
+                    Text(person.reason)
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(12)
@@ -174,6 +193,8 @@ struct PreEventBriefView: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.blue.opacity(0.35), lineWidth: 1)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 14))
+        .buttonStyle(.plain)
     }
 
     private func logRecommendationIfNeeded() {
@@ -188,5 +209,15 @@ struct PreEventBriefView: View {
             let reason = brief.isLive ? "no-strong-live-match" : "pre-check-in"
             print("[Brief] no recommendation rendered: \(reason)")
         }
+    }
+
+    private func firstName(_ name: String) -> String {
+        name.components(separatedBy: " ").first ?? name
+    }
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print(message)
+        #endif
     }
 }
