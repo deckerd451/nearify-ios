@@ -112,6 +112,12 @@ final class EventIntelligenceService: ObservableObject {
 
         // 1. Get current attendees at this event
         let attendees = EventAttendeesService.shared.attendees
+
+        #if DEBUG
+        let attendeeService = EventAttendeesService.shared
+        print("[EventIntel] freshSelfCount=\(attendeeService.freshSelfCount) freshOthersCount=\(attendeeService.freshOthersCount) displayedLiveCount=\(attendeeService.displayedLiveCount) recommendationEligibleCount=\(attendeeService.recommendationEligibleCount)")
+        #endif
+
         guard !attendees.isEmpty else {
             #if DEBUG
             print("[EventIntel] No attendees, returning empty")
