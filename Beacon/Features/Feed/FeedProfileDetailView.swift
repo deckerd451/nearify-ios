@@ -18,6 +18,8 @@ struct FeedProfileDetailView: View {
     @State private var metAtEventName: String?
     @State private var publicProfile: PublicProfileSummary?
     @State private var isSavedToContacts = false
+    @State private var relationshipMemory: RelationshipMemory?
+    @State private var isRelationshipContextExpanded = false
 
     var body: some View {
         ZStack {
@@ -99,6 +101,8 @@ struct FeedProfileDetailView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 }
+
+                relationshipContextSection
 
                 if let interests = user.interests, !interests.isEmpty {
                     tagSection(title: "Interests", tags: interests, color: .green)
@@ -222,6 +226,110 @@ struct FeedProfileDetailView: View {
         }
     }
 
+    private var relationshipContextSection: some View {
+        let lines = relationshipContextLines()
+
+        return Group {
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Relationship Context")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .textCase(.uppercase)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(displayedRelationshipContextLines(lines), id: \.self) { line in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "circle.fill")
+                                    .font(.system(size: 5))
+                                    .foregroundColor(.white.opacity(0.5))
+                                    .padding(.top, 6)
+                                Text(line)
+                                    .font(.subheadline)
+                                    .foregroundColor(.white.opacity(0.85))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+
+                        if lines.count > 3 {
+                            Button(isRelationshipContextExpanded ? "Show less" : "Show more") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isRelationshipContextExpanded.toggle()
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.blue.opacity(0.9))
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 32)
+            }
+        }
+    }
+
+    private func displayedRelationshipContextLines(_ lines: [String]) -> [String] {
+        isRelationshipContextExpanded ? lines : Array(lines.prefix(3))
+    }
+
+    private func relationshipContextLines() -> [String] {
+        guard let memory = relationshipMemory else { return [] }
+
+        var lines: [String] = []
+
+        if let eventName = metAtEventName ?? memory.eventContexts.first {
+            lines.append("Met during \(eventName).")
+        }
+
+        if !memory.sharedInterests.isEmpty {
+            let topics = memory.sharedInterests.prefix(3).joined(separator: ", ")
+            lines.append("Shared interests include \(topics).")
+        }
+
+        if memory.hasConversation {
+            lines.append("You've already exchanged messages.")
+        }
+
+        if memory.encounterCount > 1 {
+            lines.append("You've crossed paths \(memory.encounterCount) times.")
+        }
+
+        if isSavedToContacts {
+            lines.append("Saved to Apple Contacts through Nearify.")
+        }
+
+        let transformedWhy = transformedRelationshipLine(from: memory.whyLine)
+        if let transformedWhy, !transformedWhy.isEmpty {
+            lines.append(transformedWhy)
+        }
+
+        return Array(NSOrderedSet(array: lines)) as? [String] ?? lines
+    }
+
+    private func transformedRelationshipLine(from whyLine: String) -> String? {
+        let raw = whyLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        let blockedPhrases = ["why this matters", "likely to", "recommend", "confidence", "score"]
+        let lowered = raw.lowercased()
+        if blockedPhrases.contains(where: { lowered.contains($0) }) {
+            return nil
+        }
+
+        var normalized = raw
+            .replacingOccurrences(of: "·", with: ".")
+            .replacingOccurrences(of: "worth deepening", with: "a connection you've already built")
+            .replacingOccurrences(of: "connection worth building on", with: "a connection you can continue")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !normalized.hasSuffix(".") {
+            normalized += "."
+        }
+
+        return normalized.prefix(1).uppercased() + normalized.dropFirst()
+    }
+
     // MARK: - Tag Section
 
     private func tagSection(title: String, tags: [String], color: Color) -> some View {
@@ -269,6 +377,8 @@ struct FeedProfileDetailView: View {
         } else {
             isSavedToContacts = false
         }
+
+        relationshipMemory = RelationshipMemoryService.shared.relationships.first(where: { $0.profileId == profileId })
 
         // Generate public-facing dynamic profile sections
         publicProfile = await DynamicProfileService.shared.generatePublicProfile(
