@@ -17,27 +17,17 @@ struct NearifyContactsView: View {
                     .foregroundColor(.white)
             } else if let errorMessage {
                 VStack(spacing: 10) {
-                    Text("Nearify Contacts unavailable")
+                    Text("Enable Contact Access")
                         .font(.headline)
                     Text(errorMessage)
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
 
-                    if permissionStatus == .notDetermined {
-                        Button("Allow Contact Access") {
-                            Task {
-                                _ = await ContactSyncService.shared.requestAccessIfNeeded()
-                                await refreshPermissionAndReload()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    } else {
-                        Button("Open Settings") {
-                            openAppSettings()
-                        }
-                        .buttonStyle(.bordered)
+                    Button("Open Settings") {
+                        openAppSettings()
                     }
+                    .buttonStyle(.borderedProminent)
                 }
                 .padding()
             } else if contacts.isEmpty {
@@ -89,9 +79,9 @@ struct NearifyContactsView: View {
         } catch NearifyContactsError.permissionDenied {
             contacts = []
             if permissionStatus == .notDetermined {
-                errorMessage = "Contacts access hasn’t been requested yet. Allow access to view Nearify-enhanced contacts."
+                errorMessage = "Enable Contacts access in Settings to view contacts saved or enhanced through Nearify."
             } else {
-                errorMessage = "Contacts permission is denied. Enable access in Settings to view Nearify-enhanced contacts."
+                errorMessage = "Contacts access is off. Enable access in Settings to view Nearify-enhanced contacts."
             }
         } catch {
             contacts = []
