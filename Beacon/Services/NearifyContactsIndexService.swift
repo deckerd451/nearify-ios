@@ -29,7 +29,10 @@ actor NearifyContactsIndexService {
     private var cachedResults: [NearifyContactSearchResult] = []
 
     func loadNearifyContacts() async throws -> [NearifyContactSearchResult] {
-        guard await contactSync.requestAccessIfNeeded() else {
+        // Do not trigger Apple's contact-selection/share flow from the People entry point.
+        // Nearify Contacts should only read already-granted permissions.
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        guard status == .authorized || status == .limited else {
             throw NearifyContactsError.permissionDenied
         }
 
