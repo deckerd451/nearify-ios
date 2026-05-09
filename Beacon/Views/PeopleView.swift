@@ -109,9 +109,7 @@ struct PeopleView: View {
                         eventContextBanner(ctx)
                     }
 
-                    NavigationLink {
-                        NearifyContactsView()
-                    } label: {
+                    NavigationLink(value: PeopleRoute.nearifyContacts) {
                         nearifyContactsEntry
                     }
                     .buttonStyle(.plain)
