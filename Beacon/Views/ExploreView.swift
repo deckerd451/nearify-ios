@@ -318,6 +318,7 @@ struct ExploreView: View {
             from: selectedTab,
             to: target,
             source: source,
+            sourceName: "ExploreView.switchTab",
             binding: &selectedTab
         )
     }

@@ -6,6 +6,10 @@ enum TabChangeSource {
     case system
 }
 
+enum NavigationTransaction: Equatable {
+    case openInNearify
+}
+
 /// Lightweight shared navigation state for contextual cross-tab transitions.
 /// Used to pass focus targets between tabs without coupling view models.
 @MainActor
@@ -23,14 +27,22 @@ final class NavigationState: ObservableObject {
     @Published var pendingTabRoute: AppTab?
     /// Monotonic signal used to pop the People tab's nested navigation stack to root.
     @Published private(set) var peopleSubrouteResetSignal: Int = 0
+    @Published var activeNavigationTransaction: NavigationTransaction?
 
     private init() {}
 
-    func requestGlobalTabRoute(to target: AppTab) {
+    func requestGlobalTabRoute(to target: AppTab, source: String) {
+        #if DEBUG
+        let oldValue = pendingTabRoute?.description ?? "nil"
+        print("[TAB-WRITE] \(oldValue) -> \(target) source=\(source) file=NavigationState.requestGlobalTabRoute")
+        #endif
         pendingTabRoute = target
     }
 
     func requestPeopleSubroutePopToRoot() {
+        #if DEBUG
+        print("[PeopleNav] reset signal increment source=requestPeopleSubroutePopToRoot file=NavigationState")
+        #endif
         peopleSubrouteResetSignal &+= 1
     }
 
@@ -41,6 +53,7 @@ final class NavigationState: ObservableObject {
         from current: AppTab,
         to target: AppTab,
         source: TabChangeSource,
+        sourceName: String,
         binding: inout AppTab
     ) -> Bool {
         guard current != target else {
@@ -50,6 +63,14 @@ final class NavigationState: ObservableObject {
         guard source == .user else {
             #if DEBUG
             print("[TAB-WRITE BLOCKED] system attempted change: \(current) → \(target)")
+            #endif
+            return false
+        }
+        
+        if activeNavigationTransaction == .openInNearify,
+           sourceName != "MainTabView.userTap" {
+            #if DEBUG
+            print("[TAB-WRITE BLOCKED] transaction=openInNearify blocked \(current) -> \(target) source=\(sourceName)")
             #endif
             return false
         }
@@ -63,8 +84,23 @@ final class NavigationState: ObservableObject {
             }
         }
 
+        #if DEBUG
+        print("[TAB-WRITE] \(current) -> \(target) source=\(sourceName) file=NavigationState.requestTabChange")
+        #endif
         binding = target
         return true
+    }
+}
+
+extension AppTab: CustomStringConvertible {
+    var description: String {
+        switch self {
+        case .home: return "home"
+        case .people: return "people"
+        case .event: return "event"
+        case .profile: return "profile"
+        case .messages: return "messages"
+        }
     }
 }
 

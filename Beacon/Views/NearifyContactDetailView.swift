@@ -61,8 +61,9 @@ struct NearifyContactDetailView: View {
                         #if DEBUG
                         print("[PeopleNav] Open in Nearify start; requesting path reset + tab route")
                         #endif
+                        NavigationState.shared.activeNavigationTransaction = .openInNearify
                         NavigationState.shared.requestPeopleSubroutePopToRoot()
-                        NavigationState.shared.requestGlobalTabRoute(to: .people)
+                        NavigationState.shared.requestGlobalTabRoute(to: .people, source: "NearifyContactDetailView.openInNearify")
                         DispatchQueue.main.async {
                             #if DEBUG
                             print("[PeopleNav] assigning focus target on next main cycle")

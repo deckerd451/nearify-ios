@@ -325,6 +325,7 @@ struct BeaconApp: App {
             from: selectedTab,
             to: target,
             source: source,
+            sourceName: "BeaconApp.switchTab",
             binding: &selectedTab
         )
     }
