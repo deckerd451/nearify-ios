@@ -109,6 +109,14 @@ struct PeopleView: View {
                         eventContextBanner(ctx)
                     }
 
+                    NavigationLink {
+                        NearifyContactsView()
+                    } label: {
+                        nearifyContactsEntry
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+
                     if !sections.hereNow.isEmpty {
                         sectionBlock(
                             title: "Here Now", icon: "circle.fill",
@@ -153,6 +161,28 @@ struct PeopleView: View {
                 }
             }
         }
+    }
+
+    private var nearifyContactsEntry: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person.crop.circle.badge.checkmark")
+                .font(.title3)
+                .foregroundColor(.blue.opacity(0.9))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Nearify Contacts")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                Text("People saved or enhanced through Nearify")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.04)))
     }
 
     // MARK: - Section Block
