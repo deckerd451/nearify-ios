@@ -26,6 +26,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>beacon</string>
+				<string>nearify</string>
 			</array>
 		</dict>
 	</array>

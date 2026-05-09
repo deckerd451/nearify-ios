@@ -7,8 +7,32 @@ final class DeepLinkManager: ObservableObject {
     static let shared = DeepLinkManager()
 
     @Published private(set) var pendingEventId: String?
+    @Published private(set) var pendingProfileId: UUID?
 
     private init() {}
+
+    private func parseNearifyProfileId(from url: URL) -> UUID? {
+        guard url.scheme?.lowercased() == "nearify" else { return nil }
+        let host = url.host?.lowercased()
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+
+        let candidate: String?
+        if host == "profile" {
+            candidate = pathComponents.first
+        } else if host == nil, pathComponents.count >= 2, pathComponents[0].lowercased() == "profile" {
+            candidate = pathComponents[1]
+        } else {
+            candidate = nil
+        }
+
+        guard let raw = candidate, let profileId = UUID(uuidString: raw) else {
+            #if DEBUG
+            print("[DeepLink] ⚠️ Malformed nearify profile URL: \(url.absoluteString)")
+            #endif
+            return nil
+        }
+        return profileId
+    }
 
     func handle(url: URL) {
         let urlString = url.absoluteString
@@ -16,6 +40,14 @@ final class DeepLinkManager: ObservableObject {
         #if DEBUG
         print("🚨 DeepLinkManager.handle called: \(urlString)")
         #endif
+
+        if let profileId = parseNearifyProfileId(from: url) {
+            pendingProfileId = profileId
+            #if DEBUG
+            print("[DeepLink] 👤 Stored pending Nearify profile: \(profileId.uuidString)")
+            #endif
+            return
+        }
 
         guard let payload = QRService.parse(from: urlString) else {
             #if DEBUG
@@ -60,6 +92,12 @@ final class DeepLinkManager: ObservableObject {
         return id
     }
 
+    func consumeProfileId() -> UUID? {
+        guard let id = pendingProfileId else { return nil }
+        pendingProfileId = nil
+        return id
+    }
+
     func clear() {
         #if DEBUG
         if let pendingEventId {
@@ -67,5 +105,6 @@ final class DeepLinkManager: ObservableObject {
         }
         #endif
         pendingEventId = nil
+        pendingProfileId = nil
     }
 }
