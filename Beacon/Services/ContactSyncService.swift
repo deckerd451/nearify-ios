@@ -138,28 +138,14 @@ final class ContactSyncService {
         case .authorized:
             return true
         case .limited:
-            if #available(iOS 18.0, *) {
-                return true
-            }
-            return false
+            return true
         case .notDetermined:
-            if #available(iOS 18.0, *) {
-                return await withCheckedContinuation { continuation in
-                    store.requestFullAccessToContacts { granted, error in
-                        if let error = error {
-                            print("[ContactSync] Full contacts permission request error: \(error.localizedDescription)")
-                        }
-                        continuation.resume(returning: granted)
+            return await withCheckedContinuation { continuation in
+                store.requestAccess(for: .contacts) { granted, error in
+                    if let error = error {
+                        print("[ContactSync] Contacts permission request error: \(error.localizedDescription)")
                     }
-                }
-            } else {
-                return await withCheckedContinuation { continuation in
-                    store.requestAccess(for: .contacts) { granted, error in
-                        if let error = error {
-                            print("[ContactSync] Contacts permission request error: \(error.localizedDescription)")
-                        }
-                        continuation.resume(returning: granted)
-                    }
+                    continuation.resume(returning: granted)
                 }
             }
         case .denied, .restricted:
