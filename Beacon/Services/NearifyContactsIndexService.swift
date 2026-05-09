@@ -15,6 +15,10 @@ struct NearifyContactSearchResult: Identifiable, Hashable {
     let isNearifyEnhanced: Bool
 
     var id: String { sourceContactIdentifier }
+
+    var hasContactIdentityFields: Bool {
+        !displayName.isEmpty || (organizationName?.isEmpty == false)
+    }
 }
 
 enum NearifyContactsError: Error {
@@ -94,18 +98,25 @@ actor NearifyContactsIndexService {
             let displayName = [contact.givenName, contact.familyName]
                 .joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let phoneNumbers = contact.phoneNumbers
+                .map { $0.value.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let emailAddresses = contact.emailAddresses
+                .map { String($0.value).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let organizationName = contact.organizationName.trimmingCharacters(in: .whitespacesAndNewlines)
 
             results.append(
                 NearifyContactSearchResult(
-                    displayName: displayName.isEmpty ? "Unknown Contact" : displayName,
+                    displayName: displayName,
                     profileID: contactSync.extractNearifyProfileID(contact: contact),
-                    phoneNumbers: contact.phoneNumbers.map { $0.value.stringValue },
-                    emailAddresses: contact.emailAddresses.map { String($0.value) },
+                    phoneNumbers: phoneNumbers,
+                    emailAddresses: emailAddresses,
                     eventName: nil,
                     eventDate: nil,
                     contextSummary: nil,
                     followUp: nil,
-                    organizationName: contact.organizationName.isEmpty ? nil : contact.organizationName,
+                    organizationName: organizationName.isEmpty ? nil : organizationName,
                     sourceContactIdentifier: contact.identifier,
                     isNearifyEnhanced: true
                 )
