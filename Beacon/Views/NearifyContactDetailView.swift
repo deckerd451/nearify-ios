@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NearifyContactDetailView: View {
     let contact: NearifyContactSearchResult
-    @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -37,20 +37,12 @@ struct NearifyContactDetailView: View {
             if let profileID = contact.profileID {
                 Section {
                     Button("Open in Nearify") {
-                        guard let url = URL(string: "nearify://profile/\(profileID.uuidString.lowercased())") else {
-                            #if DEBUG
-                            print("[DeepLink] ⚠️ Could not build Nearify URL for profile \(profileID)")
-                            #endif
-                            return
-                        }
+                        NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
+                            profileId: profileID,
+                            source: "nearifyContactDetail"
+                        )
+                        dismiss()
 
-                        openURL(url) { accepted in
-                            #if DEBUG
-                            if !accepted {
-                                print("[DeepLink] ⚠️ System rejected URL: \(url.absoluteString)")
-                            }
-                            #endif
-                        }
                     }
                 }
             }

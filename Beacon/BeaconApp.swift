@@ -192,7 +192,12 @@ struct BeaconApp: App {
                     return
                 }
 
-                DeepLinkManager.shared.handle(url: url)
+                let handled = DeepLinkManager.shared.handle(url: url)
+
+                if url.scheme?.lowercased() == "nearify", handled {
+                    switchTab(to: .people, source: .user)
+                    return
+                }
 
                 guard let payload = QRService.parse(from: urlString) else {
                     #if DEBUG

@@ -25,7 +25,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // ── Gate 2: All other beacon:// URLs ──────────────────────────────
         // Store in DeepLinkManager so MainTabView can replay on appear
         // (handles cold-launch / auth-not-yet-ready timing).
-        DeepLinkManager.shared.handle(url: url)
+        let handled = DeepLinkManager.shared.handle(url: url)
+        if url.scheme?.lowercased() == "nearify", handled {
+            return true
+        }
 
         guard let payload = QRService.parse(from: url.absoluteString) else {
             print("🚨 AppDelegate could not parse URL")

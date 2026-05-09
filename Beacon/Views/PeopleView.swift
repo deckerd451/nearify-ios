@@ -146,19 +146,41 @@ struct PeopleView: View {
             }
             .onChange(of: navigationState.peopleFocusTarget) { _, target in
                 guard let target = target else { return }
-                expandedPersonId = target.profileId
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    proxy.scrollTo(target.profileId, anchor: .center)
-                    highlightedProfileId = target.profileId
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        highlightedProfileId = nil
-                    }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    navigationState.peopleFocusTarget = nil
-                }
+                focusPersonIfLoaded(target: target, proxy: proxy)
+            }
+            .onChange(of: memory.relationships.count) { _, _ in
+                guard let target = navigationState.peopleFocusTarget else { return }
+                focusPersonIfLoaded(target: target, proxy: proxy)
+            }
+            .onChange(of: attendeesService.attendees.count) { _, _ in
+                guard let target = navigationState.peopleFocusTarget else { return }
+                focusPersonIfLoaded(target: target, proxy: proxy)
+            }
+        }
+    }
+
+    private func focusPersonIfLoaded(target: PeopleFocusTarget, proxy: ScrollViewProxy) {
+        let allIds = sections.hereNow.map(\.id) + sections.followUp.map(\.id) + sections.notHere.map(\.id)
+        guard allIds.contains(target.profileId) else {
+            #if DEBUG
+            debugLog("[DeepLink] ⏳ Focus target not loaded yet: \(target.profileId)")
+            #endif
+            return
+        }
+
+        expandedPersonId = target.profileId
+        withAnimation(.easeInOut(duration: 0.4)) {
+            proxy.scrollTo(target.profileId, anchor: .center)
+            highlightedProfileId = target.profileId
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                highlightedProfileId = nil
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if navigationState.peopleFocusTarget == target {
+                navigationState.peopleFocusTarget = nil
             }
         }
     }

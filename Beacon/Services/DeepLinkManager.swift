@@ -34,7 +34,8 @@ final class DeepLinkManager: ObservableObject {
         return profileId
     }
 
-    func handle(url: URL) {
+    @discardableResult
+    func handle(url: URL) -> Bool {
         let urlString = url.absoluteString
 
         #if DEBUG
@@ -46,14 +47,14 @@ final class DeepLinkManager: ObservableObject {
             #if DEBUG
             print("[DeepLink] 👤 Stored pending Nearify profile: \(profileId.uuidString)")
             #endif
-            return
+            return true
         }
 
         guard let payload = QRService.parse(from: urlString) else {
             #if DEBUG
             print("[DeepLink] ❓ Unrecognized URL: \(urlString)")
             #endif
-            return
+            return false
         }
 
         switch payload {
@@ -73,6 +74,8 @@ final class DeepLinkManager: ObservableObject {
             print("[DeepLink] 🤝 Personal connect URL received: event=\(eventId), profile=\(profileId)")
             #endif
         }
+
+        return true
     }
 
     func consumeEventId() -> String? {
