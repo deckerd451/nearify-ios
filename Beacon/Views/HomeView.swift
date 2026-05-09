@@ -332,7 +332,7 @@ struct HomeView: View {
                     .foregroundColor(.white.opacity(0.95))
 
                 if hasIntent {
-                    Text("Goal: \(resolvedIntent ?? "")")
+                    Text(resolvedIntent ?? "")
                         .font(.subheadline)
                         .foregroundColor(VisualStyle.secondaryText)
                 }
