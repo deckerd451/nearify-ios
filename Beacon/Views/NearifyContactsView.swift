@@ -53,6 +53,8 @@ struct NearifyContactsView: View {
                         limitedAccessBanner
                     }
 
+                    searchField
+
                     if contacts.isEmpty {
                         ContentUnavailableView(
                             isSearchActive ? "No people found" : "No Saved Contacts Yet",
@@ -90,7 +92,7 @@ struct NearifyContactsView: View {
             }
         }
         .navigationTitle("Saved to Contacts")
-        .searchable(text: $query, prompt: "Search people, event, context")
+        .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task { await refreshPermissionAndReload() }
@@ -103,6 +105,29 @@ struct NearifyContactsView: View {
             print("[PeopleNav] NearifyContactsView unmounted")
             #endif
         }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("Search people, event, context", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if isSearchActive {
+                Button("Clear") {
+                    query = ""
+                }
+                .font(.caption)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private func reload() async {
