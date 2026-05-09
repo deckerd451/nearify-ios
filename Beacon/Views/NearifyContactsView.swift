@@ -1,10 +1,13 @@
 import SwiftUI
+import Contacts
+import UIKit
 
 struct NearifyContactsView: View {
     @State private var contacts: [NearifyContactSearchResult] = []
     @State private var query = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var permissionStatus = CNContactStore.authorizationStatus(for: .contacts)
 
     var body: some View {
         Group {
@@ -20,6 +23,21 @@ struct NearifyContactsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
+
+                    if permissionStatus == .notDetermined {
+                        Button("Allow Contact Access") {
+                            Task {
+                                _ = await ContactSyncService.shared.requestAccessIfNeeded()
+                                await refreshPermissionAndReload()
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Open Settings") {
+                            openAppSettings()
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
                 .padding()
             } else if contacts.isEmpty {
@@ -53,12 +71,16 @@ struct NearifyContactsView: View {
         .navigationTitle("Nearify Contacts")
         .searchable(text: $query, prompt: "Search people, event, context")
         .task { await reload() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task { await refreshPermissionAndReload() }
+        }
         .onChange(of: query) { _, _ in
             Task { await search() }
         }
     }
 
     private func reload() async {
+        permissionStatus = CNContactStore.authorizationStatus(for: .contacts)
         isLoading = true
         defer { isLoading = false }
         do {
@@ -66,11 +88,26 @@ struct NearifyContactsView: View {
             errorMessage = nil
         } catch NearifyContactsError.permissionDenied {
             contacts = []
-            errorMessage = "Contacts permission is denied. Enable access in Settings to view Nearify-enhanced contacts."
+            if permissionStatus == .notDetermined {
+                errorMessage = "Contacts access hasn’t been requested yet. Allow access to view Nearify-enhanced contacts."
+            } else {
+                errorMessage = "Contacts permission is denied. Enable access in Settings to view Nearify-enhanced contacts."
+            }
         } catch {
             contacts = []
             errorMessage = "Unable to load local contacts right now."
         }
+    }
+
+    private func refreshPermissionAndReload() async {
+        permissionStatus = CNContactStore.authorizationStatus(for: .contacts)
+        await reload()
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString),
+              UIApplication.shared.canOpenURL(url) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func search() async {
