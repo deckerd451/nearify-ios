@@ -54,7 +54,13 @@ struct NearifyContactsView: View {
                     }
 
                     if contacts.isEmpty {
-                        ContentUnavailableView("No Saved Contacts Yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("People you save to Apple Contacts through Nearify will appear here."))
+                        ContentUnavailableView(
+                            isSearchActive ? "No people found" : "No Saved Contacts Yet",
+                            systemImage: isSearchActive ? "magnifyingglass" : "person.crop.circle.badge.questionmark",
+                            description: Text(isSearchActive
+                                              ? "Try a different name, event, email, or context."
+                                              : "People you save to Apple Contacts through Nearify will appear here.")
+                        )
                     } else {
                         List(contacts) { contact in
                             NavigationLink(value: PeopleRoute.nearifyContactDetail(contact)) {
@@ -140,7 +146,12 @@ struct NearifyContactsView: View {
             contacts = []
         }
     }
+
+    private var isSearchActive: Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
+
 
 
 extension NearifyContactsView {
