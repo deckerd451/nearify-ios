@@ -132,9 +132,13 @@ struct MainTabView: View {
                 from: selectedTab,
                 to: pendingTab,
                 source: .user,
+                sourceName: "MainTabView.pendingGlobalRoute",
                 binding: &selectedTab
             )
             if NavigationState.shared.pendingTabRoute == pendingTab {
+                #if DEBUG
+                print("[TAB-WRITE] \(pendingTab) -> nil source=MainTabView.consumePendingTabRoute file=MainTabView")
+                #endif
                 NavigationState.shared.pendingTabRoute = nil
             }
         }
@@ -154,9 +158,16 @@ struct MainTabView: View {
             messaging.setMessagesTabActive(newValue == .messages)
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange, mode: .quiet)
             #if DEBUG
-            print("[TAB-WRITE] \(oldValue) → \(newValue)")
+            print("[TAB-WRITE] \(oldValue) -> \(newValue) source=MainTabView.TabViewBinding file=MainTabView")
             print("[PeopleNav] visible-route tab changed; activeTab=\(newValue)")
             #endif
+            if NavigationState.shared.activeNavigationTransaction == .openInNearify,
+               newValue == .people {
+                NavigationState.shared.activeNavigationTransaction = nil
+                #if DEBUG
+                print("[PeopleNav] openInNearify transaction completed on people tab activation")
+                #endif
+            }
         }
         .onChange(of: peopleNavigationPath) { _, _ in
             #if DEBUG
@@ -279,6 +290,7 @@ struct MainTabView: View {
             from: selectedTab,
             to: target,
             source: source,
+            sourceName: "MainTabView.userTap",
             binding: &selectedTab
         )
     }

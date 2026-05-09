@@ -600,6 +600,7 @@ struct HomeView: View {
             from: selectedTab,
             to: target,
             source: source,
+            sourceName: "HomeView.switchTab",
             binding: &selectedTab
         )
     }

@@ -533,6 +533,7 @@ struct ScanView: View {
             from: selectedTab,
             to: target,
             source: source,
+            sourceName: "ScanView.switchTab",
             binding: &selectedTab
         )
     }

@@ -2752,6 +2752,7 @@ struct HomeSurfaceView: View {
             from: selectedTab,
             to: target,
             source: source,
+            sourceName: "HomeSurfaceView.switchTab",
             binding: &selectedTab
         )
     }
