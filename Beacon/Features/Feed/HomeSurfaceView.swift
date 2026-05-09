@@ -2520,7 +2520,7 @@ struct HomeSurfaceView: View {
                     .foregroundColor(.gray)
 
                 if hasIntent {
-                    Text("Goal: \(resolvedIntent ?? "")")
+                    Text(resolvedIntent ?? "")
                         .font(.subheadline)
                         .foregroundColor(.white)
                 }
