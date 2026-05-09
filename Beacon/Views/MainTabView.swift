@@ -23,6 +23,7 @@ struct MainTabView: View {
     @State private var isConsumingPendingEvent = false
     @State private var incomingRequesterName = "Someone nearby"
     @ObservedObject private var messaging = MessagingService.shared
+    @ObservedObject private var navigationState = NavigationState.shared
 
 
     var body: some View {
@@ -107,6 +108,19 @@ struct MainTabView: View {
                 source: "deepLink"
             )
             _ = deepLinkManager.consumeProfileId()
+        }
+
+        .onReceive(navigationState.$pendingTabRoute.removeDuplicates()) { pendingTab in
+            guard let pendingTab else { return }
+            _ = NavigationState.shared.requestTabChange(
+                from: selectedTab,
+                to: pendingTab,
+                source: .user,
+                binding: &selectedTab
+            )
+            if NavigationState.shared.pendingTabRoute == pendingTab {
+                NavigationState.shared.pendingTabRoute = nil
+            }
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }

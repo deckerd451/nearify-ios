@@ -19,7 +19,14 @@ final class NavigationState: ObservableObject {
     /// Cleared automatically when the user leaves the event or navigates away.
     @Published var eventContext: PeopleEventContext?
 
+    /// Global tab route requests for flows that cannot directly access the tab binding.
+    @Published var pendingTabRoute: AppTab?
+
     private init() {}
+
+    func requestGlobalTabRoute(to target: AppTab) {
+        pendingTabRoute = target
+    }
 
     /// Attempts a tab change with source guard.
     /// Only user-driven changes are allowed.

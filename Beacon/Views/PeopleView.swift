@@ -146,6 +146,9 @@ struct PeopleView: View {
             }
             .onChange(of: navigationState.peopleFocusTarget) { _, target in
                 guard let target = target else { return }
+                #if DEBUG
+                debugLog("[People] focus target received")
+                #endif
                 focusPersonIfLoaded(target: target, proxy: proxy)
             }
             .onChange(of: memory.relationships.count) { _, _ in
@@ -163,10 +166,14 @@ struct PeopleView: View {
         let allIds = sections.hereNow.map(\.id) + sections.followUp.map(\.id) + sections.notHere.map(\.id)
         guard allIds.contains(target.profileId) else {
             #if DEBUG
-            debugLog("[DeepLink] ⏳ Focus target not loaded yet: \(target.profileId)")
+            debugLog("[People] focus target pending; person not loaded yet")
             #endif
             return
         }
+
+        #if DEBUG
+        debugLog("[People] focus target matched/opened")
+        #endif
 
         expandedPersonId = target.profileId
         withAnimation(.easeInOut(duration: 0.4)) {
