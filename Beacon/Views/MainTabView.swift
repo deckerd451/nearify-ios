@@ -96,6 +96,18 @@ struct MainTabView: View {
             #endif
             replayPendingEventIfNeeded(source: "onReceive")
         }
+        .onReceive(deepLinkManager.$pendingProfileId.removeDuplicates()) { pendingProfileId in
+            guard let pendingProfileId else { return }
+            #if DEBUG
+            print("[DeepLink] 🟣 pendingProfileId changed while MainTabView active: \(pendingProfileId)")
+            #endif
+            selectedTab = .people
+            NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
+                profileId: pendingProfileId,
+                source: "deepLink"
+            )
+            _ = deepLinkManager.consumeProfileId()
+        }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }
             messaging.setMessagesTabActive(newValue == .messages)

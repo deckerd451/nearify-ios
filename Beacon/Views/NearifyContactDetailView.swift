@@ -37,8 +37,19 @@ struct NearifyContactDetailView: View {
             if let profileID = contact.profileID {
                 Section {
                     Button("Open in Nearify") {
-                        if let url = URL(string: "nearify://profile/\(profileID.uuidString.lowercased())") {
-                            openURL(url)
+                        guard let url = URL(string: "nearify://profile/\(profileID.uuidString.lowercased())") else {
+                            #if DEBUG
+                            print("[DeepLink] ⚠️ Could not build Nearify URL for profile \(profileID)")
+                            #endif
+                            return
+                        }
+
+                        openURL(url) { accepted in
+                            #if DEBUG
+                            if !accepted {
+                                print("[DeepLink] ⚠️ System rejected URL: \(url.absoluteString)")
+                            }
+                            #endif
                         }
                     }
                 }
