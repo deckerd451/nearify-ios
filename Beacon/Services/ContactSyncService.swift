@@ -229,34 +229,57 @@ final class ContactSyncService {
     }
 
     func hasNearifyTag(contact: CNContact) -> Bool {
-        let note = contact.note
-        if note.contains("[Nearify]") || note.contains("NearifyID:") {
-            return true
-        }
-        return contact.urlAddresses.contains {
-            String($0.value).lowercased().hasPrefix("nearify://profile/")
+        nearifyURLCandidates(from: contact).contains { urlString in
+            isNearifyProfileURL(urlString) ||
+            isNearifyWebProfileURL(urlString)
         }
     }
 
     func extractNearifyProfileID(contact: CNContact) -> UUID? {
-        if let urlValue = contact.urlAddresses.first(where: {
-            String($0.value).lowercased().hasPrefix("nearify://profile/")
-        }) {
-            let raw = String(urlValue.value)
-            let prefix = "nearify://profile/"
-            let suffix = raw.lowercased().hasPrefix(prefix) ? String(raw.dropFirst(prefix.count)) : raw
-            if let id = UUID(uuidString: suffix.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                return id
+        for urlString in nearifyURLCandidates(from: contact) {
+            if let extracted = extractProfileID(from: urlString) {
+                return extracted
+            }
+        }
+        return nil
+    }
+
+    private func nearifyURLCandidates(from contact: CNContact) -> [String] {
+        contact.urlAddresses.compactMap { labeledValue in
+            let value = String(labeledValue.value).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { return nil }
+
+            let label = CNLabeledValue<NSString>.localizedString(forLabel: labeledValue.label ?? "").lowercased()
+            if isNearifyProfileURL(value) || isNearifyWebProfileURL(value) || label.contains("nearify") {
+                return value
+            }
+            return nil
+        }
+    }
+
+    private func isNearifyProfileURL(_ raw: String) -> Bool {
+        raw.lowercased().hasPrefix("nearify://profile/")
+    }
+
+    private func isNearifyWebProfileURL(_ raw: String) -> Bool {
+        let lowered = raw.lowercased()
+        return lowered.contains("nearify") && lowered.contains("/profile/")
+    }
+
+    private func extractProfileID(from raw: String) -> UUID? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let comps = URLComponents(string: trimmed) {
+            let parts = comps.path.split(separator: "/").map(String.init)
+            if let profileIndex = parts.firstIndex(where: { $0.lowercased() == "profile" }),
+               parts.indices.contains(profileIndex + 1) {
+                return UUID(uuidString: parts[profileIndex + 1])
             }
         }
 
-        let pattern = #"NearifyID:\s*([0-9a-fA-F-]{36})"#
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            let range = NSRange(contact.note.startIndex..<contact.note.endIndex, in: contact.note)
-            if let match = regex.firstMatch(in: contact.note, options: [], range: range),
-               let idRange = Range(match.range(at: 1), in: contact.note) {
-                return UUID(uuidString: String(contact.note[idRange]))
-            }
+        let marker = "nearify://profile/"
+        if let range = trimmed.lowercased().range(of: marker) {
+            let suffix = String(trimmed[range.upperBound...]).split(separator: "?").first.map(String.init) ?? ""
+            return UUID(uuidString: suffix)
         }
         return nil
     }

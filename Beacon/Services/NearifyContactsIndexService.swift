@@ -19,6 +19,7 @@ struct NearifyContactSearchResult: Identifiable, Hashable {
 
 enum NearifyContactsError: Error {
     case permissionDenied
+    case loadFailed
 }
 
 actor NearifyContactsIndexService {
@@ -46,30 +47,53 @@ actor NearifyContactsIndexService {
             throw NearifyContactsError.permissionDenied
         }
 
-        let keys: [CNKeyDescriptor] = [
+        do {
+            let results = try fetchNearifyContacts(includeNoteKey: false)
+            let sorted = results.sorted { lhs, rhs in
+                lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+            cachedResults = sorted
+            return sorted
+        } catch {
+            if isUnauthorizedKeysError(error) {
+                do {
+                    let fallback = try fetchNearifyContacts(includeNoteKey: false)
+                    let sorted = fallback.sorted { lhs, rhs in
+                        lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+                    }
+                    cachedResults = sorted
+                    return sorted
+                } catch {
+                    throw NearifyContactsError.loadFailed
+                }
+            }
+            throw NearifyContactsError.loadFailed
+        }
+
+    }
+
+
+    private func fetchNearifyContacts(includeNoteKey: Bool) throws -> [NearifyContactSearchResult] {
+        var keys: [CNKeyDescriptor] = [
             CNContactGivenNameKey as CNKeyDescriptor,
             CNContactFamilyNameKey as CNKeyDescriptor,
             CNContactOrganizationNameKey as CNKeyDescriptor,
             CNContactPhoneNumbersKey as CNKeyDescriptor,
             CNContactEmailAddressesKey as CNKeyDescriptor,
             CNContactUrlAddressesKey as CNKeyDescriptor,
-            CNContactNoteKey as CNKeyDescriptor,
             CNContactIdentifierKey as CNKeyDescriptor
         ]
+        if includeNoteKey {
+            keys.append(CNContactNoteKey as CNKeyDescriptor)
+        }
 
         var results: [NearifyContactSearchResult] = []
         let request = CNContactFetchRequest(keysToFetch: keys)
-
         try store.enumerateContacts(with: request) { contact, _ in
             guard contactSync.hasNearifyTag(contact: contact) else { return }
             let displayName = [contact.givenName, contact.familyName]
                 .joined(separator: " ")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-
-            let eventName = extractNearifyEventName(from: contact.note)
-            let eventDate = extractNearifyEventDate(from: contact.note)
-            let contextSummary = extractNearifyContext(from: contact.note)
-            let followUp = extractNearifyFollowUp(from: contact.note)
 
             results.append(
                 NearifyContactSearchResult(
@@ -77,22 +101,22 @@ actor NearifyContactsIndexService {
                     profileID: contactSync.extractNearifyProfileID(contact: contact),
                     phoneNumbers: contact.phoneNumbers.map { $0.value.stringValue },
                     emailAddresses: contact.emailAddresses.map { String($0.value) },
-                    eventName: eventName,
-                    eventDate: eventDate,
-                    contextSummary: contextSummary,
-                    followUp: followUp,
+                    eventName: nil,
+                    eventDate: nil,
+                    contextSummary: nil,
+                    followUp: nil,
                     organizationName: contact.organizationName.isEmpty ? nil : contact.organizationName,
                     sourceContactIdentifier: contact.identifier,
                     isNearifyEnhanced: true
                 )
             )
         }
+        return results
+    }
 
-        let sorted = results.sorted { lhs, rhs in
-            lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }
-        cachedResults = sorted
-        return sorted
+    private func isUnauthorizedKeysError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == CNErrorDomain && nsError.code == 102
     }
 
     func searchNearifyContacts(query: String) async throws -> [NearifyContactSearchResult] {
@@ -131,49 +155,4 @@ actor NearifyContactsIndexService {
             .map(\.0)
     }
 
-    private func extractNearifyEventName(from note: String) -> String? {
-        extractNearifyField(from: note, fieldNames: ["Met at"])
-    }
-
-    private func extractNearifyEventDate(from note: String) -> String? {
-        extractNearifyField(from: note, fieldNames: ["Event date"])
-    }
-
-    private func extractNearifyContext(from note: String) -> String? {
-        extractNearifyField(from: note, fieldNames: ["Context"]) ?? extractNearifyMultilineSection(from: note, section: "Context")
-    }
-
-    private func extractNearifyFollowUp(from note: String) -> String? {
-        extractNearifyField(from: note, fieldNames: ["Follow up"]) ?? extractNearifyMultilineSection(from: note, section: "Follow up")
-    }
-
-    private func extractNearifyField(from note: String, fieldNames: [String]) -> String? {
-        for rawLine in note.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            for field in fieldNames {
-                let prefix = "\(field):"
-                if line.lowercased().hasPrefix(prefix.lowercased()) {
-                    let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !value.isEmpty { return value }
-                }
-            }
-        }
-        return nil
-    }
-
-    private func extractNearifyMultilineSection(from note: String, section: String) -> String? {
-        let lines = note.components(separatedBy: .newlines)
-        guard let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "\(section.lowercased()):" }) else {
-            return nil
-        }
-        var collected: [String] = []
-        for line in lines.dropFirst(idx + 1) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { break }
-            if trimmed.contains(":") && !trimmed.lowercased().hasPrefix("http") { break }
-            collected.append(trimmed)
-        }
-        let value = collected.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
-    }
 }
