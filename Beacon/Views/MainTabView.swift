@@ -101,7 +101,7 @@ struct MainTabView: View {
             #if DEBUG
             print("[DeepLink] 🟣 pendingProfileId changed while MainTabView active: \(pendingProfileId)")
             #endif
-            selectedTab = .people
+            switchTab(to: .people, source: .user)
             NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
                 profileId: pendingProfileId,
                 source: "deepLink"
