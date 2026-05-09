@@ -6,6 +6,7 @@ struct SuggestedConnectionsView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var currentProfileId: UUID?
+    @State private var searchText = ""
 
     private let service = SuggestedConnectionsService.shared
 
@@ -13,10 +14,12 @@ struct SuggestedConnectionsView: View {
         VStack(spacing: 0) {
             generateButton
 
+            searchField
+
             if isLoading {
                 ProgressView("Loading suggestions...")
                     .padding()
-            } else if suggestions.isEmpty {
+            } else if filteredSuggestions.isEmpty {
                 emptyState
             } else {
                 suggestionsList
@@ -64,11 +67,13 @@ struct SuggestedConnectionsView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.gray)
 
-            Text("No Suggestions Yet")
+            Text(searchText.isEmpty ? "No Suggestions Yet" : "No people found")
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            Text("Tap 'Generate Suggestions' to find people you shared an event with.")
+            Text(searchText.isEmpty
+                 ? "Tap 'Generate Suggestions' to find people you shared an event with."
+                 : "Try a different name or clear search to see all people.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -77,9 +82,38 @@ struct SuggestedConnectionsView: View {
         .frame(maxHeight: .infinity)
     }
 
+    private var searchField: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("Search people", text: $searchText)
+                .textInputAutocapitalization(.words)
+                .disableAutocorrection(true)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.systemGray6))
+        .cornerRadius(10)
+        .padding(.horizontal)
+    }
+
+    private var filteredSuggestions: [SuggestedConnection] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return suggestions }
+        return suggestions.filter { $0.displayName.lowercased().contains(q) }
+    }
+
     private var suggestionsList: some View {
         List {
-            ForEach(suggestions) { suggestion in
+            ForEach(filteredSuggestions) { suggestion in
                 SuggestionRow(suggestion: suggestion) { action in
                     await handleAction(action, for: suggestion)
                 }
