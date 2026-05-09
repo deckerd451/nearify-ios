@@ -8,6 +8,7 @@ struct NearifyContactsView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var permissionStatus = CNContactStore.authorizationStatus(for: .contacts)
+    @State private var isRequestingPermission = false
 
     var body: some View {
         Group {
@@ -15,6 +16,22 @@ struct NearifyContactsView: View {
                 ProgressView("Loading Nearify Contacts…")
                     .tint(.white)
                     .foregroundColor(.white)
+            } else if shouldShowAllowAccess {
+                VStack(spacing: 10) {
+                    Text("Allow Contact Access")
+                        .font(.headline)
+                    Text("Nearify needs Contacts access to display contacts saved or enhanced through Nearify.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Button(isRequestingPermission ? "Requesting…" : "Allow Contact Access") {
+                        Task { await requestContactsAccess() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isRequestingPermission)
+                }
+                .padding()
             } else if let errorMessage {
                 VStack(spacing: 10) {
                     Text("Enable Contact Access")
@@ -78,10 +95,10 @@ struct NearifyContactsView: View {
             errorMessage = nil
         } catch NearifyContactsError.permissionDenied {
             contacts = []
-            if permissionStatus == .notDetermined {
-                errorMessage = "Enable Contacts access in Settings to view contacts saved or enhanced through Nearify."
-            } else {
+            if shouldShowOpenSettings {
                 errorMessage = "Contacts access is off. Enable access in Settings to view Nearify-enhanced contacts."
+            } else {
+                errorMessage = nil
             }
         } catch {
             contacts = []
@@ -106,5 +123,24 @@ struct NearifyContactsView: View {
         } catch {
             contacts = []
         }
+    }
+}
+
+
+extension NearifyContactsView {
+    private var shouldShowAllowAccess: Bool {
+        permissionStatus == .notDetermined
+    }
+
+    private var shouldShowOpenSettings: Bool {
+        permissionStatus == .denied || permissionStatus == .restricted
+    }
+
+    private func requestContactsAccess() async {
+        isRequestingPermission = true
+        defer { isRequestingPermission = false }
+
+        _ = await ContactSyncService.shared.requestFullContactsAccessForNearifyContacts()
+        await refreshPermissionAndReload()
     }
 }
