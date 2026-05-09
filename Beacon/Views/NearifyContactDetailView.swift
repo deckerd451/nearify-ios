@@ -6,17 +6,32 @@ struct NearifyContactDetailView: View {
 
     var body: some View {
         List {
-            Section("Contact") {
-                Text(contact.displayName)
-                if let organization = contact.organizationName, !organization.isEmpty {
-                    Text(organization).foregroundColor(.secondary)
+            if contact.hasContactIdentityFields {
+                Section("Contact") {
+                    if !contact.displayName.isEmpty {
+                        Text(contact.displayName)
+                    }
+                    if let organization = contact.organizationName, !organization.isEmpty {
+                        Text(organization).foregroundColor(.secondary)
+                    }
                 }
             }
 
-            if contact.eventName != nil || contact.eventDate != nil || contact.contextSummary != nil || contact.followUp != nil {
-                Section("Nearify Context") {
+            if contact.isNearifyEnhanced {
+                Section("Connected via Nearify") {
+                    Text("Saved via Nearify")
+                }
+            }
+
+            if contact.eventName != nil || contact.eventDate != nil {
+                Section("Event context") {
                     if let eventName = contact.eventName { row("Event", eventName) }
                     if let eventDate = contact.eventDate { row("Event date", eventDate) }
+                }
+            }
+
+            if contact.contextSummary != nil || contact.followUp != nil {
+                Section("Follow-up summary") {
                     if let context = contact.contextSummary { row("Context", context) }
                     if let followUp = contact.followUp { row("Follow up", followUp) }
                 }
@@ -35,7 +50,7 @@ struct NearifyContactDetailView: View {
             }
 
             if let profileID = contact.profileID {
-                Section {
+                Section("Nearify profile link") {
                     Button("Open in Nearify") {
                         guard let profileID = contact.profileID, !isRoutingToPeople else { return }
                         isRoutingToPeople = true
@@ -66,8 +81,14 @@ struct NearifyContactDetailView: View {
                     .disabled(isRoutingToPeople)
                 }
             }
+
+            if let profileID = contact.profileID {
+                Section("Relationship state") {
+                    row("Profile ID", profileID.uuidString.lowercased())
+                }
+            }
         }
-        .navigationTitle(contact.displayName)
+        .navigationTitle(contact.displayName.isEmpty ? "Contact" : contact.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
             #if DEBUG
