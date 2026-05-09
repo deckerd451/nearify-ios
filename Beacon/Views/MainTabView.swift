@@ -124,10 +124,18 @@ struct MainTabView: View {
             }
         }
         .onReceive(navigationState.$peopleSubrouteResetSignal.removeDuplicates()) { _ in
-            guard !peopleNavigationPath.isEmpty else { return }
+            #if DEBUG
+            print("[PeopleNav] reset signal received; tab=\(selectedTab) estimatedPathCount(before)=\(debugPeoplePathCount())")
+            #endif
+            guard !peopleNavigationPath.isEmpty else {
+                #if DEBUG
+                print("[PeopleNav] reset skipped; path already empty")
+                #endif
+                return
+            }
             peopleNavigationPath = NavigationPath()
             #if DEBUG
-            print("[PeopleNav] cleared People navigation stack to root")
+            print("[PeopleNav] path cleared; estimatedPathCount(after)=\(debugPeoplePathCount())")
             #endif
         }
         .onChange(of: selectedTab) { oldValue, newValue in
@@ -136,11 +144,22 @@ struct MainTabView: View {
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange, mode: .quiet)
             #if DEBUG
             print("[TAB-WRITE] \(oldValue) → \(newValue)")
+            print("[PeopleNav] visible-route tab changed; activeTab=\(newValue) peoplePathCount=\(debugPeoplePathCount())")
+            #endif
+        }
+        .onChange(of: peopleNavigationPath) { _, _ in
+            #if DEBUG
+            print("[PeopleNav] peopleNavigationPath changed; estimatedPathCount=\(debugPeoplePathCount()) activeTab=\(selectedTab)")
             #endif
         }
         .onChange(of: messaging.totalUnreadCount) { _, newCount in
             print("[MessagesBadge] unread count=\(newCount)")
         }
+    }
+
+
+    private func debugPeoplePathCount() -> Int {
+        Mirror(reflecting: peopleNavigationPath).children.count
     }
 
     private var messagesTabBadgeText: String? {

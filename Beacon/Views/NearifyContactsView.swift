@@ -92,6 +92,11 @@ struct NearifyContactsView: View {
         .onChange(of: query) { _, _ in
             Task { await search() }
         }
+        .onDisappear {
+            #if DEBUG
+            print("[PeopleNav] NearifyContactsView unmounted")
+            #endif
+        }
     }
 
     private func reload() async {
