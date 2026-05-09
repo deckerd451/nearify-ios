@@ -28,6 +28,7 @@ struct MainTabView: View {
     @State private var isConsumingPendingEvent = false
     @State private var incomingRequesterName = "Someone nearby"
     @State private var peopleNavigationPath = NavigationPath()
+    @State private var lastHandledPeopleResetSignal = 0
     @ObservedObject private var messaging = MessagingService.shared
     @ObservedObject private var navigationState = NavigationState.shared
 
@@ -81,6 +82,7 @@ struct MainTabView: View {
             #endif
             ContactShareService.shared.start(for: currentUser.id)
             messaging.setMessagesTabActive(selectedTab == .messages)
+            lastHandledPeopleResetSignal = navigationState.peopleSubrouteResetSignal
             replayPendingEventIfNeeded(source: "onAppear")
         }
         .onDisappear {
@@ -136,19 +138,16 @@ struct MainTabView: View {
                 NavigationState.shared.pendingTabRoute = nil
             }
         }
-        .onReceive(navigationState.$peopleSubrouteResetSignal.removeDuplicates()) { _ in
+        .onChange(of: navigationState.peopleSubrouteResetSignal) { _, newValue in
+            guard newValue != lastHandledPeopleResetSignal else { return }
+            lastHandledPeopleResetSignal = newValue
             #if DEBUG
-            print("[PeopleNav] reset signal received; tab=\(selectedTab) estimatedPathCount(before)=\(debugPeoplePathCount())")
+            print("[PeopleNav] reset signal received; tab=\(selectedTab)")
             #endif
             peopleNavigationPath = NavigationPath()
             #if DEBUG
-            print("[PeopleNav] path cleared; estimatedPathCount(after)=\(debugPeoplePathCount())")
+            print("[PeopleNav] path cleared")
             #endif
-            DispatchQueue.main.async {
-                #if DEBUG
-                print("[PeopleNav] peopleFocusTarget assignment window opened after reset")
-                #endif
-            }
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }
@@ -156,22 +155,17 @@ struct MainTabView: View {
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange, mode: .quiet)
             #if DEBUG
             print("[TAB-WRITE] \(oldValue) → \(newValue)")
-            print("[PeopleNav] visible-route tab changed; activeTab=\(newValue) peoplePathCount=\(debugPeoplePathCount())")
+            print("[PeopleNav] visible-route tab changed; activeTab=\(newValue)")
             #endif
         }
         .onChange(of: peopleNavigationPath) { _, _ in
             #if DEBUG
-            print("[PeopleNav] peopleNavigationPath changed; estimatedPathCount=\(debugPeoplePathCount()) activeTab=\(selectedTab)")
+            print("[PeopleNav] peopleNavigationPath changed; activeTab=\(selectedTab)")
             #endif
         }
         .onChange(of: messaging.totalUnreadCount) { _, newCount in
             print("[MessagesBadge] unread count=\(newCount)")
         }
-    }
-
-
-    private func debugPeoplePathCount() -> Int {
-        Mirror(reflecting: peopleNavigationPath).children.count
     }
 
     private var messagesTabBadgeText: String? {
