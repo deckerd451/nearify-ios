@@ -20,7 +20,7 @@ struct NearifyContactsView: View {
                 VStack(spacing: 10) {
                     Text("Allow Contact Access")
                         .font(.headline)
-                    Text("Nearify needs Contacts access to display contacts saved or enhanced through Nearify.")
+                    Text("Nearify can search contacts that were saved or enhanced through Nearify.\n\nOn iOS, you may be asked whether to share selected contacts or all contacts.\n\nChoose “Share All Contacts” to let Nearify search all Nearify-enhanced contacts.\nChoose “Select Contacts” if you only want Nearify to search specific contacts.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -47,32 +47,40 @@ struct NearifyContactsView: View {
                     .buttonStyle(.borderedProminent)
                 }
                 .padding()
-            } else if contacts.isEmpty {
-                ContentUnavailableView("No Nearify Contacts", systemImage: "person.crop.circle.badge.questionmark", description: Text("Contacts tagged with Nearify metadata will appear here."))
             } else {
-                List(contacts) { contact in
-                    NavigationLink(destination: NearifyContactDetailView(contact: contact)) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                Text(contact.displayName).font(.headline)
-                                Image(systemName: "sparkles")
-                                    .font(.caption2)
-                                    .foregroundColor(.blue.opacity(0.8))
-                            }
-                            if let org = contact.organizationName, !org.isEmpty {
-                                Text(org).font(.subheadline).foregroundColor(.secondary)
-                            }
-                            if let event = contact.eventName {
-                                Text("Event: \(event)").font(.caption).foregroundColor(.secondary)
-                            }
-                            if let preview = contact.contextSummary ?? contact.followUp {
-                                Text(preview).font(.caption).lineLimit(2).foregroundColor(.secondary)
+                VStack(spacing: 0) {
+                    if shouldShowLimitedBanner {
+                        limitedAccessBanner
+                    }
+
+                    if contacts.isEmpty {
+                        ContentUnavailableView("No Nearify Contacts", systemImage: "person.crop.circle.badge.questionmark", description: Text("Contacts tagged with Nearify metadata will appear here."))
+                    } else {
+                        List(contacts) { contact in
+                            NavigationLink(destination: NearifyContactDetailView(contact: contact)) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 6) {
+                                        Text(contact.displayName).font(.headline)
+                                        Image(systemName: "sparkles")
+                                            .font(.caption2)
+                                            .foregroundColor(.blue.opacity(0.8))
+                                    }
+                                    if let org = contact.organizationName, !org.isEmpty {
+                                        Text(org).font(.subheadline).foregroundColor(.secondary)
+                                    }
+                                    if let event = contact.eventName {
+                                        Text("Event: \(event)").font(.caption).foregroundColor(.secondary)
+                                    }
+                                    if let preview = contact.contextSummary ?? contact.followUp {
+                                        Text(preview).font(.caption).lineLimit(2).foregroundColor(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 2)
                             }
                         }
-                        .padding(.vertical, 2)
+                        .listStyle(.plain)
                     }
                 }
-                .listStyle(.plain)
             }
         }
         .navigationTitle("Nearify Contacts")
@@ -96,7 +104,7 @@ struct NearifyContactsView: View {
         } catch NearifyContactsError.permissionDenied {
             contacts = []
             if shouldShowOpenSettings {
-                errorMessage = "Contacts access is off. Enable access in Settings to view Nearify-enhanced contacts."
+                errorMessage = "Contacts access is off. Enable access in Settings to view contacts saved or enhanced through Nearify."
             } else {
                 errorMessage = nil
             }
@@ -136,11 +144,39 @@ extension NearifyContactsView {
         permissionStatus == .denied || permissionStatus == .restricted
     }
 
+    private var shouldShowLimitedBanner: Bool {
+        if #available(iOS 18.0, *) {
+            return permissionStatus == .limited
+        }
+        return false
+    }
+
+    private var limitedAccessBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Limited Contacts Access")
+                .font(.subheadline.weight(.semibold))
+            Text("Nearify can only search the contacts you selected. To search all Nearify-enhanced contacts, allow full Contacts access in Settings.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Button("Open Settings") {
+                openAppSettings()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal)
+        .padding(.top, 8)
+    }
+
     private func requestContactsAccess() async {
         isRequestingPermission = true
         defer { isRequestingPermission = false }
 
-        _ = await ContactSyncService.shared.requestFullContactsAccessForNearifyContacts()
+        let store = CNContactStore()
+        _ = await withCheckedContinuation { continuation in
+            store.requestAccess(for: .contacts) { granted, _ in
+                continuation.resume(returning: granted)
+            }
+        }
         await refreshPermissionAndReload()
     }
 }
