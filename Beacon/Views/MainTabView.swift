@@ -16,7 +16,7 @@ enum AppTab: Int {
 
 enum PeopleRoute: Hashable {
     case nearifyContacts
-    case nearifyContactDetail(NearifyContactSearchResult)
+    case nearifyProfile(UUID)
 }
 
 struct MainTabView: View {
@@ -47,8 +47,8 @@ struct MainTabView: View {
                         switch route {
                         case .nearifyContacts:
                             NearifyContactsView()
-                        case .nearifyContactDetail(let contact):
-                            NearifyContactDetailView(contact: contact)
+                        case .nearifyProfile(let profileId):
+                            FeedProfileDetailView(profileId: profileId)
                         }
                     }
             }
@@ -161,13 +161,6 @@ struct MainTabView: View {
             print("[TAB-WRITE] \(oldValue) -> \(newValue) source=MainTabView.TabViewBinding file=MainTabView")
             print("[PeopleNav] visible-route tab changed; activeTab=\(newValue)")
             #endif
-            if NavigationState.shared.activeNavigationTransaction == .openInNearify,
-               newValue == .people {
-                NavigationState.shared.activeNavigationTransaction = nil
-                #if DEBUG
-                print("[PeopleNav] openInNearify transaction completed on people tab activation")
-                #endif
-            }
         }
         .onChange(of: peopleNavigationPath) { _, _ in
             #if DEBUG

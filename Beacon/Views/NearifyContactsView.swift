@@ -65,25 +65,12 @@ struct NearifyContactsView: View {
                         )
                     } else {
                         List(contacts) { contact in
-                            NavigationLink(value: PeopleRoute.nearifyContactDetail(contact)) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Text(contact.displayName).font(.headline)
-                                        Image(systemName: "sparkles")
-                                            .font(.caption2)
-                                            .foregroundColor(.blue.opacity(0.8))
-                                    }
-                                    if let org = contact.organizationName, !org.isEmpty {
-                                        Text(org).font(.subheadline).foregroundColor(.secondary)
-                                    }
-                                    if let event = contact.eventName {
-                                        Text("Event: \(event)").font(.caption).foregroundColor(.secondary)
-                                    }
-                                    if let preview = contact.contextSummary ?? contact.followUp {
-                                        Text(preview).font(.caption).lineLimit(2).foregroundColor(.secondary)
-                                    }
+                            if let profileID = contact.profileID {
+                                NavigationLink(value: PeopleRoute.nearifyProfile(profileID)) {
+                                    contactRow(contact)
                                 }
-                                .padding(.vertical, 2)
+                            } else {
+                                contactRow(contact)
                             }
                         }
                         .listStyle(.plain)
@@ -177,7 +164,27 @@ struct NearifyContactsView: View {
     }
 }
 
-
+    @ViewBuilder
+    private func contactRow(_ contact: NearifyContactSearchResult) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(contact.displayName).font(.headline)
+                Image(systemName: "sparkles")
+                    .font(.caption2)
+                    .foregroundColor(.blue.opacity(0.8))
+            }
+            if let org = contact.organizationName, !org.isEmpty {
+                Text(org).font(.subheadline).foregroundColor(.secondary)
+            }
+            if let event = contact.eventName {
+                Text("Event: \(event)").font(.caption).foregroundColor(.secondary)
+            }
+            if let preview = contact.contextSummary ?? contact.followUp {
+                Text(preview).font(.caption).lineLimit(2).foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
 
 extension NearifyContactsView {
     private var shouldShowAllowAccess: Bool {

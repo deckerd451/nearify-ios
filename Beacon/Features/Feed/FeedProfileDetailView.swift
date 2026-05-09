@@ -17,6 +17,7 @@ struct FeedProfileDetailView: View {
     @State private var showNotConnectedAlert = false
     @State private var metAtEventName: String?
     @State private var publicProfile: PublicProfileSummary?
+    @State private var isSavedToContacts = false
 
     var body: some View {
         ZStack {
@@ -69,6 +70,15 @@ struct FeedProfileDetailView: View {
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
+
+                if isSavedToContacts {
+                    Label("Saved to Contacts", systemImage: "person.crop.circle.badge.checkmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.blue.opacity(0.9))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Color.blue.opacity(0.14)))
+                }
 
                 // "Met at" context — reinforces that connections persist beyond events
                 if let eventName = metAtEventName {
@@ -252,6 +262,13 @@ struct FeedProfileDetailView: View {
 
         // Resolve "Met at [Event]" context via MessagingService
         metAtEventName = await MessagingService.shared.eventName(forConversationWith: profileId)
+
+        // Track whether this profile exists in Saved to Contacts index
+        if let savedContact = try? await NearifyContactsIndexService.shared.loadNearifyContacts().first(where: { $0.profileID == profileId }) {
+            isSavedToContacts = savedContact.isNearifyEnhanced
+        } else {
+            isSavedToContacts = false
+        }
 
         // Generate public-facing dynamic profile sections
         publicProfile = await DynamicProfileService.shared.generatePublicProfile(
