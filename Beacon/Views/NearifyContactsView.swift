@@ -54,7 +54,7 @@ struct NearifyContactsView: View {
                     }
 
                     if contacts.isEmpty {
-                        ContentUnavailableView("No Nearify Contacts", systemImage: "person.crop.circle.badge.questionmark", description: Text("Contacts tagged with Nearify metadata will appear here."))
+                        ContentUnavailableView("No Nearify Contacts Yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("Contacts saved through Nearify will appear here once they include Nearify profile links."))
                     } else {
                         List(contacts) { contact in
                             NavigationLink(destination: NearifyContactDetailView(contact: contact)) {
@@ -108,9 +108,12 @@ struct NearifyContactsView: View {
             } else {
                 errorMessage = nil
             }
+        } catch NearifyContactsError.loadFailed {
+            contacts = []
+            errorMessage = "Unable to load contacts right now."
         } catch {
             contacts = []
-            errorMessage = "Unable to load local contacts right now."
+            errorMessage = "Unable to load contacts right now."
         }
     }
 
