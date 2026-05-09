@@ -14,6 +14,11 @@ enum AppTab: Int {
     static let myQR = AppTab.profile
 }
 
+enum PeopleRoute: Hashable {
+    case nearifyContacts
+    case nearifyContactDetail(NearifyContactSearchResult)
+}
+
 struct MainTabView: View {
     let currentUser: User
     @Binding var selectedTab: AppTab
@@ -37,6 +42,14 @@ struct MainTabView: View {
 
             NavigationStack(path: $peopleNavigationPath) {
                 PeopleView()
+                    .navigationDestination(for: PeopleRoute.self) { route in
+                        switch route {
+                        case .nearifyContacts:
+                            NearifyContactsView()
+                        case .nearifyContactDetail(let contact):
+                            NearifyContactDetailView(contact: contact)
+                        }
+                    }
             }
             .tabItem {
                 Label("People", systemImage: "person.2.fill")
@@ -127,16 +140,15 @@ struct MainTabView: View {
             #if DEBUG
             print("[PeopleNav] reset signal received; tab=\(selectedTab) estimatedPathCount(before)=\(debugPeoplePathCount())")
             #endif
-            guard !peopleNavigationPath.isEmpty else {
-                #if DEBUG
-                print("[PeopleNav] reset skipped; path already empty")
-                #endif
-                return
-            }
             peopleNavigationPath = NavigationPath()
             #if DEBUG
             print("[PeopleNav] path cleared; estimatedPathCount(after)=\(debugPeoplePathCount())")
             #endif
+            DispatchQueue.main.async {
+                #if DEBUG
+                print("[PeopleNav] peopleFocusTarget assignment window opened after reset")
+                #endif
+            }
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }

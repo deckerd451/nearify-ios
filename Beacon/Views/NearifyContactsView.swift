@@ -57,7 +57,7 @@ struct NearifyContactsView: View {
                         ContentUnavailableView("No Nearify Contacts Yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("Contacts saved through Nearify will appear here once they include Nearify profile links."))
                     } else {
                         List(contacts) { contact in
-                            NavigationLink(destination: NearifyContactDetailView(contact: contact)) {
+                            NavigationLink(value: PeopleRoute.nearifyContactDetail(contact)) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 6) {
                                         Text(contact.displayName).font(.headline)
