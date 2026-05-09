@@ -8,8 +8,11 @@ enum PreEventBriefBuilder {
     struct Brief {
         let isLive: Bool
         let goalLine: String
+        let goalContextLine: String
+        let joinedSummary: [String]
         let priorityPeople: [PriorityPerson]
         let conversationStarters: [String]
+        let liveStatusLine: String
     }
 
     struct PriorityPerson: Identifiable {
@@ -46,12 +49,65 @@ enum PreEventBriefBuilder {
             relationships: relationships
         )
 
+        let joinedSummary = buildJoinedSummary(
+            isCheckedIn: isCheckedIn,
+            chosenPeople: chosenPeople,
+            relationships: relationships,
+            goal: resolvedGoal
+        )
+
         return Brief(
             isLive: isCheckedIn,
             goalLine: resolvedGoal,
+            goalContextLine: buildGoalContextLine(goal: resolvedGoal, relationships: relationships),
+            joinedSummary: joinedSummary,
             priorityPeople: chosenPeople,
-            conversationStarters: starters
+            conversationStarters: starters,
+            liveStatusLine: isCheckedIn
+                ? "Live proximity recommendations are active now."
+                : "Live proximity recommendations activate after check-in."
         )
+    }
+    
+    private static func buildGoalContextLine(goal: String, relationships: [RelationshipMemory]) -> String {
+        let goalTokens = tokenize(goal)
+        let aligned = relationships.filter { relation in
+            !goalTokens.isDisjoint(with: Set(relation.sharedInterests.map { $0.lowercased() }))
+        }.count
+        if aligned >= 3 { return "Several attendees aligned with your goal are already joining." }
+        if aligned > 0 { return "People with similar goals are already joining." }
+        return "This event is beginning to attract attendees aligned with your goal."
+    }
+
+    private static func buildJoinedSummary(
+        isCheckedIn: Bool,
+        chosenPeople: [PriorityPerson],
+        relationships: [RelationshipMemory],
+        goal: String
+    ) -> [String] {
+        let attendees = EventAttendeesService.shared.attendees
+        let joinedCount = max(attendees.count, chosenPeople.count)
+        var summary: [String] = ["\(joinedCount) people already joined"]
+        let goalTokens = tokenize(goal)
+        let overlapCount = relationships.filter { relation in
+            !goalTokens.isDisjoint(with: Set(relation.sharedInterests.map { $0.lowercased() }))
+        }.count
+        if overlapCount > 0 {
+            summary.append("\(overlapCount) attendees show intent overlap with your goal")
+        }
+        let returning = relationships.filter { $0.encounterCount >= 2 }.count
+        if returning > 1 {
+            summary.append("Several returning community members are attending")
+        }
+        if !isCheckedIn {
+            let collaboration = relationships.filter { relation in
+                relation.sharedInterests.contains { $0.lowercased().contains("cofounder") || $0.lowercased().contains("collab") }
+            }.count
+            if collaboration > 0 {
+                summary.append("\(collaboration) attendees are also looking for collaborators")
+            }
+        }
+        return Array(summary.prefix(3))
     }
 
     private static func buildPredictivePeople(

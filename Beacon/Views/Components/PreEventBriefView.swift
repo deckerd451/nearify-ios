@@ -19,7 +19,7 @@ struct PreEventBriefView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Event Brief")
+            Text("Pre-Event Intelligence Brief")
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
@@ -30,68 +30,61 @@ struct PreEventBriefView: View {
                     .font(.body)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
+                Text(brief.goalContextLine)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                if let recommendation = primaryRecommendation {
-                    sectionTitle("Live recommendation")
-                    recommendationCard(recommendation)
-                } else if brief.isLive {
-                    sectionTitle("Live recommendation")
-                    Text("No strong live match yet.")
+                sectionTitle("Joined attendee intelligence")
+                ForEach(Array(brief.joinedSummary.enumerated()), id: \.offset) { _, line in
+                    Text("• \(line)")
                         .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-
-                    Text("Check in or wait as more attendees arrive. Nearify updates this brief as stronger signals appear.")
-                        .font(.footnote)
                         .foregroundColor(.primary)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                sectionTitle("You may want to meet")
+                if brief.priorityPeople.isEmpty {
+                    Text("We’re still building your early connection preview. Check in when you arrive for live matching.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 } else {
-                    sectionTitle("Live recommendation")
-                    Text("Live matches unlock after check-in. You can still prepare before the room goes live.")
-                        .font(.footnote)
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(brief.priorityPeople.prefix(3)) { person in
+                        recommendationCard(person)
+                    }
                 }
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                sectionTitle("Try this")
-                if let recommendation = primaryRecommendation {
-                    Text("Start with \(recommendation.name) now while they’re \(recommendation.statusLabel ?? "active").")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if brief.isLive {
-                    Text("Check in or wait by high-traffic areas while Nearify updates this brief in real time.")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("Choose your goal and plan your first conversation opener now, then check in when you arrive.")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Button {
-                debugLog("[Brief] launching find flow for \(primaryRecommendation?.name ?? "fallback")")
-                onContinue(primaryRecommendation)
-            } label: {
-                Text(callToActionTitle)
+                sectionTitle("Suggested opener")
+                Text(brief.conversationStarters.first ?? "What kind of project are you hoping to build?")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.top, 4)
+            
+            Text(brief.liveStatusLine)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            Button {
+                debugLog("[Brief] dismissing pre-event brief")
+                onContinue(nil)
+            } label: {
+                Text("Got it")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.15)))
+            }
         }
         .padding(.vertical, 8)
         .onAppear {
@@ -110,18 +103,7 @@ struct PreEventBriefView: View {
             .padding(.bottom, -2)
     }
 
-    private var primaryRecommendation: PreEventBriefBuilder.PriorityPerson? {
-        guard brief.isLive else { return nil }
-        return brief.priorityPeople.first
-    }
-
-    private var callToActionTitle: String {
-        if let recommendation = primaryRecommendation {
-            return "Find \(firstName(recommendation.name))"
-        }
-
-        return brief.isLive ? "See Nearby Attendees" : "Open Find"
-    }
+    private var primaryRecommendation: PreEventBriefBuilder.PriorityPerson? { brief.priorityPeople.first }
 
     private var recommendationLogState: String {
         if let person = primaryRecommendation {
@@ -133,11 +115,6 @@ struct PreEventBriefView: View {
     }
 
     private func recommendationCard(_ person: PreEventBriefBuilder.PriorityPerson) -> some View {
-        Button {
-            debugLog("[Brief] recommendation card tapped")
-            debugLog("[Brief] launching find flow for \(person.name)")
-            onContinue(person)
-        } label: {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     AvatarView(
@@ -148,7 +125,7 @@ struct PreEventBriefView: View {
                     )
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Best person to start with right now")
+                        Text("Early connection preview")
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
@@ -160,10 +137,6 @@ struct PreEventBriefView: View {
                             .lineLimit(1)
                     }
                     Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.blue.opacity(0.9))
                 }
 
                 if let status = person.statusLabel {
@@ -182,7 +155,6 @@ struct PreEventBriefView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-        }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
@@ -193,8 +165,6 @@ struct PreEventBriefView: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.blue.opacity(0.35), lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 14))
-        .buttonStyle(.plain)
     }
 
     private func logRecommendationIfNeeded() {
