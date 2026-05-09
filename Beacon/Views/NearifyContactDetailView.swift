@@ -43,15 +43,24 @@ struct NearifyContactDetailView: View {
                         let shortId = String(profileID.uuidString.prefix(8))
                         print("[NearifyContacts] Open in Nearify tapped profile=\(shortId)")
                         #endif
-                        NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
-                            profileId: profileID,
-                            source: "nearifyContactDetail"
-                        )
                         #if DEBUG
-                        print("[Navigation] peopleFocusTarget set from Nearify Contacts")
+                        print("[PeopleNav] Open in Nearify start; requesting path reset + tab route")
                         #endif
-                        NavigationState.shared.requestGlobalTabRoute(to: .people)
                         NavigationState.shared.requestPeopleSubroutePopToRoot()
+                        NavigationState.shared.requestGlobalTabRoute(to: .people)
+                        DispatchQueue.main.async {
+                            #if DEBUG
+                            print("[PeopleNav] assigning focus target on next main cycle")
+                            #endif
+                            NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
+                                profileId: profileID,
+                                source: "nearifyContactDetail"
+                            )
+                            #if DEBUG
+                            print("[Navigation] peopleFocusTarget set from Nearify Contacts")
+                            #endif
+                            isRoutingToPeople = false
+                        }
 
                     }
                     .disabled(isRoutingToPeople)
@@ -60,6 +69,11 @@ struct NearifyContactDetailView: View {
         }
         .navigationTitle(contact.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear {
+            #if DEBUG
+            print("[PeopleNav] NearifyContactDetailView unmounted")
+            #endif
+        }
     }
 
     private func row(_ title: String, _ value: String) -> some View {
