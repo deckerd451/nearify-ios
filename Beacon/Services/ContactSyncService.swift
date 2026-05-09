@@ -56,6 +56,11 @@ struct ContactSyncPayload {
     let intentAlignment: Double
 }
 
+struct NearifyContactMetadata {
+    let profileID: UUID?
+    let isNearifyEnhanced: Bool
+}
+
 final class ContactSyncService {
     static let shared = ContactSyncService()
 
@@ -147,34 +152,91 @@ final class ContactSyncService {
         return defaults.bool(forKey: persistedKey(for: key))
     }
 
-    // MARK: - Note Builder
+    // MARK: - Nearify Metadata Helpers
 
-    func buildNote(from payload: ContactSyncPayload) -> String {
-        let eventName = payload.eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedEvent = eventName.isEmpty ? "a Nearify event" : eventName
-        let context = payload.interactionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+    func buildNearifyNotesBlock(from payload: ContactSyncPayload) -> String {
+        let trimmedEventName = payload.eventName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedContext = payload.interactionSummary.trimmingCharacters(in: .whitespacesAndNewlines)
 
         var lines: [String] = [
-            "Met at \(normalizedEvent)",
-            "via Nearify"
+            "[Nearify]",
+            "Saved via Nearify"
         ]
 
-        var bullets: [String] = []
-        if !context.isEmpty {
-            bullets.append("• Why this person matters: \(context)")
-            bullets.append("• Follow up: continue conversation from \(normalizedEvent)")
+        if !trimmedEventName.isEmpty {
+            lines.append("")
+            lines.append("Met at: \(trimmedEventName)")
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            lines.append("Event date: \(formatter.string(from: payload.eventDate))")
+        }
+
+        if !trimmedContext.isEmpty {
+            lines.append("")
+            lines.append("Context:")
+            lines.append(trimmedContext)
         }
 
         if payload.signalScore >= 1.5 {
-            bullets.append("• Strongest interaction: high interaction signal")
-        }
-
-        if !bullets.isEmpty {
             lines.append("")
-            lines.append(contentsOf: bullets)
+            lines.append("Follow up:")
+            lines.append("High interaction signal — continue the conversation.")
         }
 
+        lines.append("")
+        lines.append("NearifyID: \(payload.profileId.uuidString.lowercased())")
         return lines.joined(separator: "\n")
+    }
+
+    func upsertNearifyNotesBlock(existingNotes: String, metadataBlock: String) -> String {
+        let pattern = #"(?s)(?:\n{2,})?\[Nearify\]\n.*?(?=(?:\n{2,}\[Nearify\]\n)|\z)"#
+        let regex = try? NSRegularExpression(pattern: pattern)
+        let range = NSRange(existingNotes.startIndex..<existingNotes.endIndex, in: existingNotes)
+        let cleaned = regex?.stringByReplacingMatches(in: existingNotes, options: [], range: range, withTemplate: "")
+            ?? existingNotes
+        let preserved = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        if preserved.isEmpty { return metadataBlock }
+        return preserved + "\n\n" + metadataBlock
+    }
+
+    func hasNearifyTag(contact: CNContact) -> Bool {
+        let note = contact.note
+        if note.contains("[Nearify]") || note.contains("NearifyID:") {
+            return true
+        }
+        return contact.urlAddresses.contains {
+            String($0.value).lowercased().hasPrefix("nearify://profile/")
+        }
+    }
+
+    func extractNearifyProfileID(contact: CNContact) -> UUID? {
+        if let urlValue = contact.urlAddresses.first(where: {
+            String($0.value).lowercased().hasPrefix("nearify://profile/")
+        }) {
+            let raw = String(urlValue.value)
+            let prefix = "nearify://profile/"
+            let suffix = raw.lowercased().hasPrefix(prefix) ? String(raw.dropFirst(prefix.count)) : raw
+            if let id = UUID(uuidString: suffix.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return id
+            }
+        }
+
+        let pattern = #"NearifyID:\s*([0-9a-fA-F-]{36})"#
+        if let regex = try? NSRegularExpression(pattern: pattern) {
+            let range = NSRange(contact.note.startIndex..<contact.note.endIndex, in: contact.note)
+            if let match = regex.firstMatch(in: contact.note, options: [], range: range),
+               let idRange = Range(match.range(at: 1), in: contact.note) {
+                return UUID(uuidString: String(contact.note[idRange]))
+            }
+        }
+        return nil
+    }
+
+    func inspectMetadata(contact: CNContact) -> NearifyContactMetadata {
+        let profileID = extractNearifyProfileID(contact: contact)
+        return NearifyContactMetadata(profileID: profileID, isNearifyEnhanced: hasNearifyTag(contact: contact))
     }
 
     // MARK: - Write
@@ -195,7 +257,7 @@ final class ContactSyncService {
             return false
         }
 
-        let newNote = buildNote(from: payload)
+        let nearifyBlock = buildNearifyNotesBlock(from: payload)
         let didSave = await Task.detached(priority: .utility) { () -> Bool in
             do {
                 let store = CNContactStore()
@@ -225,15 +287,13 @@ final class ContactSyncService {
                 }
 
                 if let existing {
-                    if existing.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        existing.note = newNote
-                    } else {
-                        existing.note = existing.note + "\n\n---\n" + newNote
-                    }
-                    self.upsertNearifyURL(on: existing, profileId: payload.profileId)
+                    existing.note = self.upsertNearifyNotesBlock(existingNotes: existing.note, metadataBlock: nearifyBlock)
+                    self.upsertNearifyURL(contact: existing, profileID: payload.profileId)
                     saveRequest.update(existing)
                     try store.execute(saveRequest)
+#if DEBUG
                     print("[ContactSync] Updated existing contact")
+#endif
                     self.defaults.set(existing.identifier, forKey: identifierKey)
                     return true
                 }
@@ -263,13 +323,15 @@ final class ContactSyncService {
                     newContact.emailAddresses = [labeled]
                 }
 
-                newContact.note = newNote
-                self.upsertNearifyURL(on: newContact, profileId: payload.profileId)
+                newContact.note = self.upsertNearifyNotesBlock(existingNotes: newContact.note, metadataBlock: nearifyBlock)
+                self.upsertNearifyURL(contact: newContact, profileID: payload.profileId)
 
                 let containerId = store.defaultContainerIdentifier()
                 saveRequest.add(newContact, toContainerWithIdentifier: containerId)
                 try store.execute(saveRequest)
-                print("[ContactSync] Created contact for \(payload.name)")
+#if DEBUG
+                print("[ContactSync] Created contact")
+#endif
                 self.defaults.set(newContact.identifier, forKey: identifierKey)
                 return true
             } catch {
@@ -288,16 +350,16 @@ final class ContactSyncService {
         return false
     }
 
-    private func upsertNearifyURL(on contact: CNMutableContact, profileId: UUID) {
-        // TODO: Implement https://nearify.org/profile/<id> web route and universal-link handoff to Nearify app.
-        let target = "https://nearify.org/profile/\(profileId.uuidString.lowercased())"
+    func upsertNearifyURL(contact: CNMutableContact, profileID: UUID?) {
+        guard let profileID else { return }
+        let target = "nearify://profile/\(profileID.uuidString.lowercased())"
         let alreadyPresent = contact.urlAddresses.contains {
-            String($0.value).trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(target) == .orderedSame
+            String($0.value).trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == target
         }
         guard !alreadyPresent else { return }
 
         var urls = contact.urlAddresses
-        urls.append(CNLabeledValue(label: "Nearify Profile", value: target as NSString))
+        urls.append(CNLabeledValue(label: "Nearify", value: target as NSString))
         contact.urlAddresses = urls
     }
 }
