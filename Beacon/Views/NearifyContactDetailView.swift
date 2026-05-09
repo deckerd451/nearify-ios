@@ -19,7 +19,7 @@ struct NearifyContactDetailView: View {
 
             if contact.isNearifyEnhanced {
                 Section("Connected via Nearify") {
-                    Text("Saved via Nearify")
+                    Text("Saved to Contacts")
                 }
             }
 
