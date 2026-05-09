@@ -36,11 +36,19 @@ struct NearifyContactDetailView: View {
 
             if let profileID = contact.profileID {
                 Section {
-                    Button("Open in Nearify") {
+                                        Button("Open in Nearify") {
+                        #if DEBUG
+                        let shortId = String(profileID.uuidString.prefix(8))
+                        print("[NearifyContacts] Open in Nearify tapped profile=\(shortId)")
+                        #endif
                         NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
                             profileId: profileID,
                             source: "nearifyContactDetail"
                         )
+                        #if DEBUG
+                        print("[Navigation] peopleFocusTarget set from Nearify Contacts")
+                        #endif
+                        NavigationState.shared.requestGlobalTabRoute(to: .people)
                         dismiss()
 
                     }
