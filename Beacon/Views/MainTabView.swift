@@ -22,6 +22,7 @@ struct MainTabView: View {
     @StateObject private var contactShareService = ContactShareService.shared
     @State private var isConsumingPendingEvent = false
     @State private var incomingRequesterName = "Someone nearby"
+    @State private var peopleNavigationPath = NavigationPath()
     @ObservedObject private var messaging = MessagingService.shared
     @ObservedObject private var navigationState = NavigationState.shared
 
@@ -34,7 +35,7 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.home)
 
-            NavigationStack {
+            NavigationStack(path: $peopleNavigationPath) {
                 PeopleView()
             }
             .tabItem {
@@ -121,6 +122,13 @@ struct MainTabView: View {
             if NavigationState.shared.pendingTabRoute == pendingTab {
                 NavigationState.shared.pendingTabRoute = nil
             }
+        }
+        .onReceive(navigationState.$peopleSubrouteResetSignal.removeDuplicates()) { _ in
+            guard !peopleNavigationPath.isEmpty else { return }
+            peopleNavigationPath = NavigationPath()
+            #if DEBUG
+            print("[PeopleNav] cleared People navigation stack to root")
+            #endif
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }

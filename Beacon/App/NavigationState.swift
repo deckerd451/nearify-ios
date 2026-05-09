@@ -21,11 +21,17 @@ final class NavigationState: ObservableObject {
 
     /// Global tab route requests for flows that cannot directly access the tab binding.
     @Published var pendingTabRoute: AppTab?
+    /// Monotonic signal used to pop the People tab's nested navigation stack to root.
+    @Published private(set) var peopleSubrouteResetSignal: Int = 0
 
     private init() {}
 
     func requestGlobalTabRoute(to target: AppTab) {
         pendingTabRoute = target
+    }
+
+    func requestPeopleSubroutePopToRoot() {
+        peopleSubrouteResetSignal &+= 1
     }
 
     /// Attempts a tab change with source guard.

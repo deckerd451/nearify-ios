@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NearifyContactDetailView: View {
     let contact: NearifyContactSearchResult
-    @Environment(\.dismiss) private var dismiss
+    @State private var isRoutingToPeople = false
 
     var body: some View {
         List {
@@ -36,7 +36,9 @@ struct NearifyContactDetailView: View {
 
             if let profileID = contact.profileID {
                 Section {
-                                        Button("Open in Nearify") {
+                    Button("Open in Nearify") {
+                        guard let profileID = contact.profileID, !isRoutingToPeople else { return }
+                        isRoutingToPeople = true
                         #if DEBUG
                         let shortId = String(profileID.uuidString.prefix(8))
                         print("[NearifyContacts] Open in Nearify tapped profile=\(shortId)")
@@ -49,9 +51,10 @@ struct NearifyContactDetailView: View {
                         print("[Navigation] peopleFocusTarget set from Nearify Contacts")
                         #endif
                         NavigationState.shared.requestGlobalTabRoute(to: .people)
-                        dismiss()
+                        NavigationState.shared.requestPeopleSubroutePopToRoot()
 
                     }
+                    .disabled(isRoutingToPeople)
                 }
             }
         }
