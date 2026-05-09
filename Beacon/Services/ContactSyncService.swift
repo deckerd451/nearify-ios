@@ -128,6 +128,47 @@ final class ContactSyncService {
         }
     }
 
+
+
+    func requestFullContactsAccessForNearifyContacts() async -> Bool {
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        let store = CNContactStore()
+
+        switch status {
+        case .authorized:
+            return true
+        case .limited:
+            if #available(iOS 18.0, *) {
+                return true
+            }
+            return false
+        case .notDetermined:
+            if #available(iOS 18.0, *) {
+                return await withCheckedContinuation { continuation in
+                    store.requestFullAccessToContacts { granted, error in
+                        if let error = error {
+                            print("[ContactSync] Full contacts permission request error: \(error.localizedDescription)")
+                        }
+                        continuation.resume(returning: granted)
+                    }
+                }
+            } else {
+                return await withCheckedContinuation { continuation in
+                    store.requestAccess(for: .contacts) { granted, error in
+                        if let error = error {
+                            print("[ContactSync] Contacts permission request error: \(error.localizedDescription)")
+                        }
+                        continuation.resume(returning: granted)
+                    }
+                }
+            }
+        case .denied, .restricted:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
     // MARK: - Idempotency
 
     func shouldCreateContact(profileId: UUID, eventId: UUID) async -> Bool {
