@@ -32,7 +32,17 @@ actor NearifyContactsIndexService {
         // Do not trigger Apple's contact-selection/share flow from the People entry point.
         // Nearify Contacts should only read already-granted permissions.
         let status = CNContactStore.authorizationStatus(for: .contacts)
-        guard status == .authorized || status == .limited else {
+
+        let canReadContacts: Bool
+        if status == .authorized {
+            canReadContacts = true
+        } else if #available(iOS 18.0, *), status == .limited {
+            canReadContacts = true
+        } else {
+            canReadContacts = false
+        }
+
+        guard canReadContacts else {
             throw NearifyContactsError.permissionDenied
         }
 
