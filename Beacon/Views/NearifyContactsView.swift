@@ -13,14 +13,14 @@ struct NearifyContactsView: View {
     var body: some View {
         Group {
             if isLoading {
-                ProgressView("Loading Nearify Contacts…")
+                ProgressView("Loading Saved Contacts…")
                     .tint(.white)
                     .foregroundColor(.white)
             } else if shouldShowAllowAccess {
                 VStack(spacing: 10) {
                     Text("Allow Contact Access")
                         .font(.headline)
-                    Text("Nearify can search contacts that were saved or enhanced through Nearify.\n\nOn iOS, you may be asked whether to share selected contacts or all contacts.\n\nChoose “Share All Contacts” to let Nearify search all Nearify-enhanced contacts.\nChoose “Select Contacts” if you only want Nearify to search specific contacts.")
+                    Text("Nearify can search contacts you’ve saved to Apple Contacts.\n\nOn iOS, you may be asked whether to share selected contacts or all contacts.\n\nChoose “Share All Contacts” to let Nearify search all saved contacts.\nChoose “Select Contacts” if you only want Nearify to search specific contacts.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -54,7 +54,7 @@ struct NearifyContactsView: View {
                     }
 
                     if contacts.isEmpty {
-                        ContentUnavailableView("No Nearify Contacts Yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("Contacts saved through Nearify will appear here once they include Nearify profile links."))
+                        ContentUnavailableView("No Saved Contacts Yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("People you save to Apple Contacts through Nearify will appear here."))
                     } else {
                         List(contacts) { contact in
                             NavigationLink(value: PeopleRoute.nearifyContactDetail(contact)) {
@@ -83,7 +83,7 @@ struct NearifyContactsView: View {
                 }
             }
         }
-        .navigationTitle("Nearify Contacts")
+        .navigationTitle("Saved to Contacts")
         .searchable(text: $query, prompt: "Search people, event, context")
         .task { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -109,7 +109,7 @@ struct NearifyContactsView: View {
         } catch NearifyContactsError.permissionDenied {
             contacts = []
             if shouldShowOpenSettings {
-                errorMessage = "Contacts access is off. Enable access in Settings to view contacts saved or enhanced through Nearify."
+                errorMessage = "Contacts access is off. Enable access in Settings to view people you’ve saved to Apple Contacts through Nearify."
             } else {
                 errorMessage = nil
             }
@@ -163,7 +163,7 @@ extension NearifyContactsView {
         VStack(alignment: .leading, spacing: 6) {
             Text("Limited Contacts Access")
                 .font(.subheadline.weight(.semibold))
-            Text("Nearify can only search the contacts you selected. To search all Nearify-enhanced contacts, allow full Contacts access in Settings.")
+            Text("Nearify can only search the contacts you selected. To search all contacts you’ve saved to Apple Contacts, allow full Contacts access in Settings.")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Button("Open Settings") {

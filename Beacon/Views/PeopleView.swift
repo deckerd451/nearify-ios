@@ -196,10 +196,10 @@ struct PeopleView: View {
                 .font(.title3)
                 .foregroundColor(.blue.opacity(0.9))
             VStack(alignment: .leading, spacing: 3) {
-                Text("Nearify Contacts")
+                Text("Saved to Contacts")
                     .font(.headline)
                     .foregroundColor(.white)
-                Text("People saved or enhanced through Nearify")
+                Text("People you’ve saved to Apple Contacts through Nearify")
                     .font(.caption)
                     .foregroundColor(.gray)
             }
