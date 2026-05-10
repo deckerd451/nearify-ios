@@ -58,6 +58,18 @@ struct PersonIntelligence: Identifiable {
     // Source data (for actions)
     let liveEventName: String?
     let lastEventName: String?
+    let relationshipState: PeopleRelationshipState
+}
+
+enum PeopleRelationshipState: Int, Comparable {
+    case encountered = 0
+    case repeated = 1
+    case connected = 2
+    case savedContact = 3
+
+    static func < (lhs: PeopleRelationshipState, rhs: PeopleRelationshipState) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
 }
 
 // MARK: - Person Action

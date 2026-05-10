@@ -13,6 +13,7 @@ struct PeopleBuildSignature: Equatable {
     let isAtEvent: Bool
     let eventContextName: String?
     let claimedGuestMemoryIds: Set<UUID>
+    let savedContactIds: Set<UUID>
 }
 
 // MARK: - People Intelligence Controller
@@ -79,6 +80,11 @@ final class PeopleIntelligenceController: ObservableObject {
         ClaimedGuestInteractionService.shared.$memories
             .removeDuplicates { $0.map(\.profileId) == $1.map(\.profileId) }
             .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "claimed-guest-interactions") }
+            .store(in: &cancellables)
+        
+        SavedContactsStateService.shared.$savedProfileIds
+            .removeDuplicates()
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "saved-contacts") }
             .store(in: &cancellables)
 
         // Navigation event context changes
@@ -179,7 +185,8 @@ final class PeopleIntelligenceController: ObservableObject {
             connectedIds: connectedIds,
             isAtEvent: isAtEvent,
             eventContextName: eventContext?.eventName,
-            claimedGuestMemoryIds: Set(ClaimedGuestInteractionService.shared.memories.map(\.profileId))
+            claimedGuestMemoryIds: Set(ClaimedGuestInteractionService.shared.memories.map(\.profileId)),
+            savedContactIds: SavedContactsStateService.shared.savedProfileIds
         )
     }
 
@@ -383,24 +390,20 @@ struct PeopleIntelligenceBuilder {
         followUp.sort { $0.priorityScore > $1.priorityScore }
         notHere.sort { $0.priorityScore > $1.priorityScore }
 
-        // Add claimed guest interactions as one-sided interaction memory entries.
-        // Never override stronger existing relationship/connection rows.
-        for memory in claimedGuestMemories where !processedIds.contains(memory.profileId) {
-            processedIds.insert(memory.profileId)
-            let model = buildFromClaimedGuestMemory(memory)
-            notHere.append(model)
+        let merged = PeopleRelationshipAdapter.merge(
+            basePeople: hereNow + followUp + notHere,
+            claimedGuestMemories: claimedGuestMemories,
+            savedProfileIds: SavedContactsStateService.shared.savedProfileIds
+        )
 
-            #if DEBUG
-            print("[People] Added claimed guest interaction memory for profile: \(memory.profileId.uuidString)")
-            #endif
-        }
+        let mergedHereNow = merged.filter { $0.presence == .hereNow }.sorted { $0.priorityScore > $1.priorityScore }
+        let mergedFollowUp = merged.filter { $0.presence == .followUp }.sorted { $0.priorityScore > $1.priorityScore }
+        let mergedNotHere = merged.filter { $0.presence == .notHere }.sorted { $0.priorityScore > $1.priorityScore }
 
-        notHere.sort { $0.priorityScore > $1.priorityScore }
-
-        return Sections(hereNow: hereNow, followUp: followUp, notHere: notHere)
+        return Sections(hereNow: mergedHereNow, followUp: mergedFollowUp, notHere: mergedNotHere)
     }
 
-    private static func buildFromClaimedGuestMemory(_ memory: ClaimedGuestInteractionMemory) -> PersonIntelligence {
+    static func buildFromClaimedGuestMemory(_ memory: ClaimedGuestInteractionMemory) -> PersonIntelligence {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         let relative = formatter.localizedString(for: memory.createdAt, relativeTo: Date())
@@ -434,7 +437,8 @@ struct PeopleIntelligenceBuilder {
             deepInsights: deep,
             priorityScore: 10,
             liveEventName: nil,
-            lastEventName: memory.eventName
+            lastEventName: memory.eventName,
+            relationshipState: memory.interactionCount > 1 ? .repeated : .encountered
         )
     }
 
@@ -563,7 +567,8 @@ struct PeopleIntelligenceBuilder {
             deepInsights: deep,
             priorityScore: score,
             liveEventName: isHere ? eventName : nil,
-            lastEventName: rel.eventContexts.first
+            lastEventName: rel.eventContexts.first,
+            relationshipState: relationshipState(for: rel, isConnected: isConnected)
         )
     }
 
@@ -643,8 +648,15 @@ struct PeopleIntelligenceBuilder {
             deepInsights: deep,
             priorityScore: score,
             liveEventName: eventName,
-            lastEventName: nil
+            lastEventName: nil,
+            relationshipState: isConnected ? .connected : .encountered
         )
+    }
+
+    private static func relationshipState(for rel: RelationshipMemory, isConnected: Bool) -> PeopleRelationshipState {
+        if isConnected || rel.connectionStatus == .accepted { return .connected }
+        if rel.encounterCount > 1 { return .repeated }
+        return .encountered
     }
 
     // MARK: - Distilled Insight (via Engine)

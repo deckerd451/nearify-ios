@@ -62,12 +62,14 @@ struct PeopleView: View {
         .refreshable {
             memory.requestRefresh(reason: "people-pull")
             claimedGuestInteractions.requestRefresh()
+            SavedContactsStateService.shared.requestRefresh()
             PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-pull")
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
         .onAppear {
             memory.requestRefresh(reason: "people-appear")
             claimedGuestInteractions.requestRefresh()
+            SavedContactsStateService.shared.requestRefresh()
             PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-appear")
         }
         .onChange(of: eventJoin.isEventJoined) { _, isJoined in
@@ -309,7 +311,7 @@ struct PeopleView: View {
                 HStack(spacing: 6) {
                     Text(person.name)
                         .font(.subheadline).fontWeight(.medium).foregroundColor(.white)
-                    if person.connectionStatus == .accepted {
+                    if person.connectionStatus == .accepted && person.relationshipState >= .connected {
                         Image(systemName: "link").font(.system(size: 9)).foregroundColor(.green)
                     }
                     if person.isTargetIntent {
@@ -317,7 +319,12 @@ struct PeopleView: View {
                     }
                 }
 
-                if !person.topTraits.isEmpty {
+                if person.relationshipState == .encountered || person.relationshipState == .repeated {
+                    Text(person.distilledInsight)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.75))
+                        .lineLimit(1)
+                } else if !person.topTraits.isEmpty {
                     Text(person.topTraits.joined(separator: " · "))
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.75))

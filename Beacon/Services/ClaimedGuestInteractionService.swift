@@ -83,7 +83,7 @@ final class ClaimedGuestInteractionService: ObservableObject {
                 .value
 
             #if DEBUG
-            print("[People] Loaded claimed guest interactions: \(rows.count)")
+            print("[PeopleRelationship] Loaded claimed guest interactions: \(rows.count)")
             #endif
 
             let grouped = Dictionary(grouping: rows, by: \.toProfileId)
@@ -124,7 +124,7 @@ final class ClaimedGuestInteractionService: ObservableObject {
 
             memories = built
         } catch {
-            print("[People] Failed to load claimed guest interactions: \(error)")
+            print("[PeopleRelationship] Failed to load claimed guest interactions: \(error)")
             memories = []
         }
     }
