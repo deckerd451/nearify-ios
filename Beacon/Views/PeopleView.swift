@@ -323,8 +323,10 @@ struct PeopleView: View {
                     Text(displayName)
                         .font(.subheadline).fontWeight(.medium).foregroundColor(.white)
                     let relationshipState = person.relationshipState
-                    logRelationshipState(relationshipState)
                     relationshipBadge(for: relationshipState)
+                        .onAppear {
+                            logRelationshipState(relationshipState)
+                        }
                     if person.isTargetIntent {
                         Image(systemName: "eye.fill").font(.system(size: 9)).foregroundColor(.cyan)
                     }
