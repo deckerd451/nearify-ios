@@ -17,6 +17,7 @@ struct PeopleView: View {
     @ObservedObject private var targetIntent = TargetIntentManager.shared
     @ObservedObject private var navigationState = NavigationState.shared
     @ObservedObject private var controller = PeopleIntelligenceController.shared
+    @ObservedObject private var claimedGuestInteractions = ClaimedGuestInteractionService.shared
 
     @State private var expandedPersonId: UUID?
     @State private var activeConversation: PeopleConversationTarget?
@@ -60,11 +61,13 @@ struct PeopleView: View {
         .navigationBarTitleDisplayMode(.large)
         .refreshable {
             memory.requestRefresh(reason: "people-pull")
+            claimedGuestInteractions.requestRefresh()
             PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-pull")
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
         .onAppear {
             memory.requestRefresh(reason: "people-appear")
+            claimedGuestInteractions.requestRefresh()
             PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-appear")
         }
         .onChange(of: eventJoin.isEventJoined) { _, isJoined in
