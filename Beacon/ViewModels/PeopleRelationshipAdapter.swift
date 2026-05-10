@@ -18,9 +18,9 @@ enum PeopleRelationshipAdapter {
         }
 
         for id in savedProfileIds {
-            if var existing = merged[id], existing.relationshipState != .savedContact {
+            if var existing = merged[id], existing.relationshipState != PeopleRelationshipState.savedContact {
                 let before = existing.relationshipState
-                existing = PeopleIntelligence(
+                existing = PersonIntelligence(
                     id: existing.id, name: existing.name, avatarUrl: existing.avatarUrl,
                     presence: existing.presence, presenceSource: existing.presenceSource,
                     connectionStatus: existing.connectionStatus, isTargetIntent: existing.isTargetIntent,
@@ -29,7 +29,7 @@ enum PeopleRelationshipAdapter {
                     deepInsights: existing.deepInsights,
                     priorityScore: existing.priorityScore + 12,
                     liveEventName: existing.liveEventName, lastEventName: existing.lastEventName,
-                    relationshipState: .savedContact
+                    relationshipState: PeopleRelationshipState.savedContact
                 )
                 merged[id] = existing
                 #if DEBUG
