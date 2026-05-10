@@ -307,7 +307,7 @@ struct PeopleView: View {
 
     private func surfaceRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
         let displayName = displayName(for: person.name)
-        HStack(spacing: 12) {
+        return HStack(spacing: 12) {
             // Avatar
             ZStack(alignment: .bottomTrailing) {
                 avatarView(person, color: sectionColor)
