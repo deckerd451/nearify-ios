@@ -726,24 +726,23 @@ struct PeopleIntelligenceBuilder {
         eventName: String?
     ) -> [DeepInsight] {
         var insights: [DeepInsight] = []
+        let eventsSummary = summarizeEvents(for: rel, currentEventName: eventName, isHere: isHere)
 
         // A. Interaction — what happened between you
-        if rel.totalOverlapSeconds > 600 {
-            if let event = rel.eventContexts.first {
-                insights.append(DeepInsight(category: "Interaction", text: "You spent meaningful time together at \(event)"))
-            } else {
-                insights.append(DeepInsight(category: "Interaction", text: "You spent meaningful time together"))
-            }
+        if let eventsSummary {
+            insights.append(DeepInsight(category: "Interaction", text: eventsSummary))
+        } else if rel.totalOverlapSeconds > 600 {
+            insights.append(DeepInsight(category: "Interaction", text: "Met and talked"))
         } else if rel.totalOverlapSeconds > 120 {
-            insights.append(DeepInsight(category: "Interaction", text: "You crossed paths recently"))
+            insights.append(DeepInsight(category: "Interaction", text: "Seen recently"))
         }
 
         if rel.encounterCount >= 3 {
-            insights.append(DeepInsight(category: "Interaction", text: "You've been near each other multiple times"))
+            insights.append(DeepInsight(category: "Interaction", text: "Seen multiple times"))
         }
 
         if let enc = encounter, enc.totalSeconds > 0, isHere {
-            insights.append(DeepInsight(category: "Interaction", text: "You crossed paths again just now"))
+            insights.append(DeepInsight(category: "Interaction", text: "Seen again just now"))
         }
 
         if let lastSeen = rel.lastEncounterAt {
@@ -791,5 +790,27 @@ struct PeopleIntelligenceBuilder {
         }
 
         return insights
+    }
+
+    private static func summarizeEvents(for rel: RelationshipMemory, currentEventName: String?, isHere: Bool) -> String? {
+        var orderedEvents = rel.eventContexts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if let currentEventName, isHere {
+            orderedEvents.removeAll { $0.caseInsensitiveCompare(currentEventName) == .orderedSame }
+            orderedEvents.insert(currentEventName, at: 0)
+        }
+        guard let first = orderedEvents.first else { return nil }
+        if orderedEvents.count >= 3 {
+            #if DEBUG
+            print("[PeopleRelationshipUI] Summarized event memory")
+            #endif
+            return "Met at \(first) · \(orderedEvents.count - 1) other events"
+        }
+        if orderedEvents.count == 2 {
+            #if DEBUG
+            print("[PeopleRelationshipUI] Summarized event memory")
+            #endif
+            return "Met at \(first) and 1 other event"
+        }
+        return "Met at \(first)"
     }
 }

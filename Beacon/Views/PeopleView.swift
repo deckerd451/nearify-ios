@@ -123,7 +123,7 @@ struct PeopleView: View {
                     if !sections.hereNow.isEmpty {
                         sectionBlock(
                             title: "Here Now", icon: "circle.fill",
-                            color: .green, subtitle: "Active at this event right now",
+                            color: .green, subtitle: "Live now · go say hi",
                             people: sections.hereNow
                         )
                     }
@@ -139,7 +139,7 @@ struct PeopleView: View {
                     if !sections.notHere.isEmpty {
                         sectionBlock(
                             title: "Past / Other", icon: "sparkles",
-                            color: .white.opacity(0.6), subtitle: "People you've interacted with",
+                            color: .white.opacity(0.6), subtitle: "Memory + continuity from past events",
                             people: sections.notHere
                         )
                     }
@@ -247,6 +247,7 @@ struct PeopleView: View {
 
     private func personCard(_ person: PersonIntelligence, sectionColor: Color) -> some View {
         let isExpanded = expandedPersonId == person.id
+        let strengthAccent = relationshipAccent(for: person.relationshipState)
 
         return VStack(alignment: .leading, spacing: 0) {
             // ── Surface Layer ──
@@ -284,7 +285,7 @@ struct PeopleView: View {
                 .stroke(
                     highlightedProfileId == person.id
                         ? Color.green.opacity(0.6)
-                        : (person.isTargetIntent ? sectionColor.opacity(0.25) : Color.clear),
+                        : (person.isTargetIntent ? sectionColor.opacity(0.25) : strengthAccent.opacity(0.3)),
                     lineWidth: highlightedProfileId == person.id ? 2 : 1
                 )
         )
@@ -293,9 +294,19 @@ struct PeopleView: View {
         .id(person.id)
     }
 
+    private func relationshipAccent(for state: PeopleRelationshipState) -> Color {
+        switch state {
+        case .encountered: return .gray
+        case .repeated: return .blue
+        case .connected: return .green
+        case .savedContact: return .green.opacity(0.9)
+        }
+    }
+
     // MARK: - Surface Row
 
     private func surfaceRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
+        let displayName = displayName(for: person.name)
         HStack(spacing: 12) {
             // Avatar
             ZStack(alignment: .bottomTrailing) {
@@ -309,11 +320,9 @@ struct PeopleView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(person.name)
+                    Text(displayName)
                         .font(.subheadline).fontWeight(.medium).foregroundColor(.white)
-                    if person.connectionStatus == .accepted && person.relationshipState >= .connected {
-                        Image(systemName: "link").font(.system(size: 9)).foregroundColor(.green)
-                    }
+                    relationshipBadge(for: person.relationshipState)
                     if person.isTargetIntent {
                         Image(systemName: "eye.fill").font(.system(size: 9)).foregroundColor(.cyan)
                     }
@@ -351,6 +360,77 @@ struct PeopleView: View {
                 .font(.system(size: 10)).foregroundColor(.gray.opacity(0.4))
         }
         .padding(.vertical, 10).padding(.horizontal, 14)
+    }
+
+    @ViewBuilder
+    private func relationshipBadge(for state: PeopleRelationshipState) -> some View {
+        #if DEBUG
+        debugLog("[PeopleRelationshipUI] Rendered state: \(state)")
+        #endif
+        switch state {
+        case .encountered:
+            Circle()
+                .stroke(Color.gray.opacity(0.7), lineWidth: 1)
+                .frame(width: 10, height: 10)
+        case .repeated:
+            ZStack {
+                Circle().stroke(Color.blue.opacity(0.55), lineWidth: 1).frame(width: 11, height: 11)
+                Circle().stroke(Color.blue.opacity(0.35), lineWidth: 1).frame(width: 7, height: 7)
+            }
+        case .connected:
+            Image(systemName: "link")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(.green.opacity(0.85))
+        case .savedContact:
+            Circle()
+                .fill(Color.green.opacity(0.9))
+                .frame(width: 12, height: 12)
+                .overlay(
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 6, weight: .bold))
+                        .foregroundColor(.black.opacity(0.85))
+                )
+        }
+    }
+
+    private func displayName(for rawName: String) -> String {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty && !trimmed.contains("@") {
+            return trimmed
+        }
+
+        let localPart = trimmed.components(separatedBy: "@").first ?? ""
+        let separatorsReplaced = localPart.replacingOccurrences(of: "[._-]+", with: " ", options: .regularExpression)
+        let cleaned = separatorsReplaced.replacingOccurrences(of: "[^A-Za-z0-9 ]", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        if cleaned.isEmpty {
+            #if DEBUG
+            debugLog("[PeopleRelationshipUI] Using fallback display name")
+            #endif
+            return "Nearify Member"
+        }
+
+        let splitDigits = cleaned.replacingOccurrences(of: "([a-z])([A-Z0-9])", with: "$1 $2", options: .regularExpression)
+            .replacingOccurrences(of: "([A-Z])([A-Z][a-z])", with: "$1 $2", options: .regularExpression)
+
+        let readable = splitDigits
+            .split(separator: " ")
+            .prefix(2)
+            .map { token -> String in
+                let lower = token.lowercased()
+                return lower.prefix(1).uppercased() + lower.dropFirst()
+            }
+            .joined(separator: " ")
+
+        if readable.isEmpty {
+            #if DEBUG
+            debugLog("[PeopleRelationshipUI] Using fallback display name")
+            #endif
+            return "Nearify Member"
+        }
+        #if DEBUG
+        debugLog("[PeopleRelationshipUI] Using fallback display name")
+        #endif
+        return readable
     }
 
     // MARK: - Deep Layer
