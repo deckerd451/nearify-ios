@@ -12,6 +12,7 @@ struct PeopleBuildSignature: Equatable {
     let connectedIds: Set<UUID>
     let isAtEvent: Bool
     let eventContextName: String?
+    let claimedGuestMemoryIds: Set<UUID>
 }
 
 // MARK: - People Intelligence Controller
@@ -73,6 +74,11 @@ final class PeopleIntelligenceController: ObservableObject {
         EventJoinService.shared.$isEventJoined
             .removeDuplicates()
             .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "event-join") }
+            .store(in: &cancellables)
+
+        ClaimedGuestInteractionService.shared.$memories
+            .removeDuplicates { $0.map(\.profileId) == $1.map(\.profileId) }
+            .sink { _ in PeopleRefreshCoordinator.shared.requestRefresh(reason: "claimed-guest-interactions") }
             .store(in: &cancellables)
 
         // Navigation event context changes
@@ -172,7 +178,8 @@ final class PeopleIntelligenceController: ObservableObject {
             relationshipIds: Set(relationships.map(\.profileId)),
             connectedIds: connectedIds,
             isAtEvent: isAtEvent,
-            eventContextName: eventContext?.eventName
+            eventContextName: eventContext?.eventName,
+            claimedGuestMemoryIds: Set(ClaimedGuestInteractionService.shared.memories.map(\.profileId))
         )
     }
 
@@ -219,6 +226,7 @@ struct PeopleIntelligenceBuilder {
         let encounters = EncounterService.shared.activeEncounters
         let connectedIds = AttendeeStateResolver.shared.connectedIds
         let targetIntent = TargetIntentManager.shared
+        let claimedGuestMemories = ClaimedGuestInteractionService.shared.memories
         let isAtEvent = EventJoinService.shared.isEventJoined
         let eventName = EventJoinService.shared.currentEventName
 
@@ -375,7 +383,59 @@ struct PeopleIntelligenceBuilder {
         followUp.sort { $0.priorityScore > $1.priorityScore }
         notHere.sort { $0.priorityScore > $1.priorityScore }
 
+        // Add claimed guest interactions as one-sided interaction memory entries.
+        // Never override stronger existing relationship/connection rows.
+        for memory in claimedGuestMemories where !processedIds.contains(memory.profileId) {
+            processedIds.insert(memory.profileId)
+            let model = buildFromClaimedGuestMemory(memory)
+            notHere.append(model)
+
+            #if DEBUG
+            print("[People] Added claimed guest interaction memory for profile: \(memory.profileId.uuidString)")
+            #endif
+        }
+
+        notHere.sort { $0.priorityScore > $1.priorityScore }
+
         return Sections(hereNow: hereNow, followUp: followUp, notHere: notHere)
+    }
+
+    private static func buildFromClaimedGuestMemory(_ memory: ClaimedGuestInteractionMemory) -> PersonIntelligence {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let relative = formatter.localizedString(for: memory.createdAt, relativeTo: Date())
+
+        let eventName = memory.eventName?.isEmpty == false ? memory.eventName! : "an event"
+        let metLine = "Met at \(eventName)"
+        let countLine = memory.interactionCount > 1 ? "Met \(memory.interactionCount) times" : nil
+
+        var deep: [DeepInsight] = [
+            DeepInsight(category: "Interaction", text: metLine),
+            DeepInsight(category: "Interaction", text: "Met \(relative)")
+        ]
+        if let countLine {
+            deep.append(DeepInsight(category: "Interaction", text: countLine))
+        }
+        deep.append(DeepInsight(category: "Relationship", text: "Interaction memory only"))
+
+        return PersonIntelligence(
+            id: memory.profileId,
+            name: memory.profileName,
+            avatarUrl: memory.avatarUrl,
+            presence: .notHere,
+            presenceSource: .none,
+            connectionStatus: .none,
+            isTargetIntent: false,
+            distilledInsight: metLine,
+            topTraits: [],
+            whyThisMatters: nil,
+            primaryAction: .viewProfile,
+            secondaryAction: nil,
+            deepInsights: deep,
+            priorityScore: 10,
+            liveEventName: nil,
+            lastEventName: memory.eventName
+        )
     }
 
     // MARK: - Build from RelationshipMemory
