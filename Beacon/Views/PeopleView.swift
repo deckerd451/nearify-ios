@@ -322,7 +322,9 @@ struct PeopleView: View {
                 HStack(spacing: 6) {
                     Text(displayName)
                         .font(.subheadline).fontWeight(.medium).foregroundColor(.white)
-                    relationshipBadge(for: person.relationshipState)
+                    let relationshipState = person.relationshipState
+                    logRelationshipState(relationshipState)
+                    relationshipBadge(for: relationshipState)
                     if person.isTargetIntent {
                         Image(systemName: "eye.fill").font(.system(size: 9)).foregroundColor(.cyan)
                     }
@@ -362,11 +364,14 @@ struct PeopleView: View {
         .padding(.vertical, 10).padding(.horizontal, 14)
     }
 
-    @ViewBuilder
-    private func relationshipBadge(for state: PeopleRelationshipState) -> some View {
+    private func logRelationshipState(_ state: PeopleRelationshipState) {
         #if DEBUG
         debugLog("[PeopleRelationshipUI] Rendered state: \(state)")
         #endif
+    }
+
+    @ViewBuilder
+    private func relationshipBadge(for state: PeopleRelationshipState) -> some View {
         switch state {
         case .encountered:
             Circle()
