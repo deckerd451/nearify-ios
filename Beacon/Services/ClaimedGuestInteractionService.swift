@@ -1,5 +1,6 @@
 import Foundation
 import Supabase
+import Combine
 
 struct ClaimedGuestInteractionMemory: Identifiable {
     let id: UUID
