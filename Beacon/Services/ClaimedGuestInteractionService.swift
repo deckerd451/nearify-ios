@@ -74,6 +74,8 @@ final class ClaimedGuestInteractionService: ObservableObject {
                 .from("interaction_events")
                 .select("to_profile_id,event_id,created_at,interaction_type")
                 .eq("claimed_by_profile_id", value: currentProfileId.uuidString)
+                .neq("to_profile_id", value: currentProfileId.uuidString)
+                .filter("from_profile_id", operator: "neq", value: "to_profile_id")
                 .not("from_ghost_id", operator: .is, value: "null")
                 .not("to_profile_id", operator: .is, value: "null")
                 .in("interaction_type", values: ["qr_confirmed", "guest_qr_confirmed"])

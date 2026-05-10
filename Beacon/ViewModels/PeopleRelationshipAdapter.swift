@@ -42,7 +42,19 @@ enum PeopleRelationshipAdapter {
         #if DEBUG
         print("[PeopleRelationship] Merged people count: \(merged.count)")
         #endif
-        return Array(merged.values)
+        var mergedPeople = Array(merged.values)
+
+        if let currentProfileId = AuthService.shared.currentUser?.id {
+            let before = mergedPeople.count
+            mergedPeople.removeAll { $0.id == currentProfileId }
+            if mergedPeople.count != before {
+                #if DEBUG
+                print("[PeopleRelationship] Filtered self profile from relationship results")
+                #endif
+            }
+        }
+
+        return mergedPeople
     }
 
     private static func promote(person current: PersonIntelligence?, with candidate: PersonIntelligence, reason: String) -> PersonIntelligence {
