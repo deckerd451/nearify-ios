@@ -69,13 +69,24 @@ final class ClaimedGuestInteractionService: ObservableObject {
             return
         }
 
+        #if DEBUG
+        print("[PeopleRelationshipQuery] loading claimed guest interactions")
+        print("[PeopleRelationshipQuery] currentProfileId=\(currentProfileId.uuidString.prefix(8))")
+        #endif
+
         do {
             let rows: [ClaimedGuestInteractionRow] = try await supabase
                 .from("interaction_events")
                 .select("to_profile_id,event_id,created_at,interaction_type")
                 .eq("claimed_by_profile_id", value: currentProfileId.uuidString)
                 .neq("to_profile_id", value: currentProfileId.uuidString)
-                .filter("from_profile_id", operator: "neq", value: "to_profile_id")
+                // Note: column-to-column filter (from_profile_id != to_profile_id) is not
+                // expressible as a value comparison in PostgREST — the previous
+                // .filter("from_profile_id", operator: "neq", value: "to_profile_id")
+                // was passing the literal string "to_profile_id" as a UUID, causing
+                // PostgrestError code 22P02. The combination of claimed_by_profile_id,
+                // from_ghost_id IS NOT NULL, and to_profile_id IS NOT NULL already
+                // excludes degenerate rows with equal from/to IDs in practice.
                 .not("from_ghost_id", operator: .is, value: "null")
                 .not("to_profile_id", operator: .is, value: "null")
                 .in("interaction_type", values: ["qr_confirmed", "guest_qr_confirmed"])
@@ -85,7 +96,7 @@ final class ClaimedGuestInteractionService: ObservableObject {
                 .value
 
             #if DEBUG
-            print("[PeopleRelationship] Loaded claimed guest interactions: \(rows.count)")
+            print("[PeopleRelationshipQuery] success count=\(rows.count)")
             #endif
 
             let grouped = Dictionary(grouping: rows, by: \.toProfileId)
@@ -115,7 +126,7 @@ final class ClaimedGuestInteractionService: ObservableObject {
                 return ClaimedGuestInteractionMemory(
                     id: profileId,
                     profileId: profileId,
-                    profileName: profile.name,
+                    profileName: cleanedDisplayName(profile.name),
                     avatarUrl: profile.avatarUrl,
                     eventName: newest.eventId.flatMap { eventMap[$0] },
                     createdAt: newest.createdAt,
@@ -126,8 +137,30 @@ final class ClaimedGuestInteractionService: ObservableObject {
 
             memories = built
         } catch {
-            print("[PeopleRelationship] Failed to load claimed guest interactions: \(error)")
+            #if DEBUG
+            print("[PeopleRelationshipQuery] failed error=\(error.localizedDescription)")
+            #endif
             memories = []
         }
+    }
+
+    /// Returns the best available display name, avoiding raw email addresses.
+    /// Mirrors the fallback logic in ProfileService without introducing a dependency.
+    private func cleanedDisplayName(_ raw: String) -> String {
+        guard !raw.isEmpty else { return "Nearify Member" }
+        // If it doesn't look like an email, use as-is
+        guard raw.contains("@") else { return raw }
+        // Extract and title-case the local part
+        if let localPart = raw.split(separator: "@").first.map(String.init), !localPart.isEmpty {
+            let cleaned = localPart
+                .replacingOccurrences(of: ".", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+                .joined(separator: " ")
+            if !cleaned.isEmpty { return cleaned }
+        }
+        return "Nearify Member"
     }
 }
