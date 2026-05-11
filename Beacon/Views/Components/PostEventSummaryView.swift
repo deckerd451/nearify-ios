@@ -59,7 +59,7 @@ struct PostEventSummaryView: View {
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.85))
                     }
-                    Text("\(summary.snapshot.meaningfulPeopleCount) meaningful \(summary.snapshot.meaningfulPeopleCount == 1 ? "contact" : "contacts")")
+                    Text("\(summary.snapshot.meaningfulPeopleCount) active \(summary.snapshot.meaningfulPeopleCount == 1 ? "connection" : "connections")")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.85))
                     Text(summary.snapshot.activityLine)
