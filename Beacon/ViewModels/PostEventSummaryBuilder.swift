@@ -110,13 +110,32 @@ enum PostEventSummaryBuilder {
                 .filter { $0 != myId }
         )
 
-        // Session-scoped people met (encountered, connected, or touched in-session)
+        // Session-evidence-only people met.
+        // Only count confirmed interaction evidence from THIS check-in session.
+        // eventRelationships is intentionally excluded — it includes contacts from
+        // previous sessions at the same event via hasEventContext, and contacts
+        // whose RelationshipMemory was touched by unrelated events during the
+        // inferred session window. Those are display signals, not interaction proof.
         let sessionEncounterIds = Set(sessionEncounters.keys)
-        let localEncounterIds = Set(localSignals.keys)
+
+        // Local BLE: require ≥30 s accumulated proximity to exclude fleeting detections.
+        // Consistent with the 30 s threshold used in HomeView.unsavedInteractionNames.
+        let qualifiedLocalEncounterIds = Set(
+            localSignals.filter { $0.value.totalSeconds >= 30 }.keys
+        )
+
         var metIds = sessionEncounterIds
-        metIds.formUnion(localEncounterIds)
+        metIds.formUnion(qualifiedLocalEncounterIds)
         metIds.formUnion(recentConnectionIds)
-        metIds.formUnion(eventRelationships.map(\.profileId))
+
+        #if DEBUG
+        print("[PostEventAudit] source=liveAttendees count=\(sessionEncounterIds.count)")
+        print("[PostEventAudit] source=encounterFragments count=\(qualifiedLocalEncounterIds.count)")
+        print("[PostEventAudit] source=connections count=\(recentConnectionIds.count)")
+        print("[PostEventAudit] source=preEventRecommendations count=0")
+        print("[PostEventAudit] source=relationshipMemory count=\(eventRelationships.count)")
+        print("[PostEventAudit] finalPeopleMet count=\(metIds.count)")
+        #endif
 
         let personSignals = buildPersonSignals(
             eventRelationships: eventRelationships,
@@ -200,7 +219,6 @@ enum PostEventSummaryBuilder {
 
         #if DEBUG
         print("[PostEvent] Summary built for \(eventName)")
-        print("[PostEvent]   totalPeopleMet: \(metIds.count)")
         print("[PostEvent]   strongest: \(strongest?.name ?? "none")")
         print("[PostEvent]   keyPeople: \(keyPeople.count)")
         print("[PostEvent]   recentConnections: \(recentConnections.count)")
