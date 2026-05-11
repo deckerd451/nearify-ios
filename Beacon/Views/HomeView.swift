@@ -570,7 +570,9 @@ struct HomeView: View {
                             .foregroundColor(.white)
                             .lineLimit(1)
 
-                        Text("\(summary.totalPeopleMet) people met")
+                        Text(summary.totalPeopleMet > 0
+                             ? "\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "person" : "people") met"
+                             : "No confirmed interactions captured")
                             .font(.caption2)
                             .foregroundColor(.gray)
 
