@@ -42,7 +42,7 @@ struct PostEventSummaryView: View {
                     .tracking(0.8)
 
                 if summary.totalPeopleMet > 0 {
-                    Text("You met \(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "person" : "people") at \(summary.eventName)")
+                    Text("\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") captured at \(summary.eventName)")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }

@@ -151,7 +151,7 @@ final class ProfileService {
 
     private func ensureProfile(authUser: Supabase.User) async throws -> User {
         let email = authUser.email ?? "user@example.com"
-        let name = email
+        let name = ProfileService.cleanDisplayName(name: nil, email: email)
 
         let params = EnsureProfileParams(
             p_name: name,
@@ -224,13 +224,38 @@ final class ProfileService {
         print("[Profile] ✅ public.profiles updated for id: \(profileId)")
     }
 
+    // MARK: - Display name helper
+
+    /// Returns the best available display name.
+    /// Falls back to email local-part (title-cased) then "Nearify Member" so raw
+    /// email addresses never appear as the primary display name in the UI.
+    private static func cleanDisplayName(name: String?, email: String?) -> String {
+        // Use the stored name if it isn't a raw email address
+        if let n = name, !n.isEmpty, !n.contains("@") {
+            return n
+        }
+        // Name is missing or is itself an email — extract the local part
+        let raw = (name?.contains("@") == true ? name : nil) ?? email
+        if let localPart = raw?.split(separator: "@").first.map(String.init), !localPart.isEmpty {
+            let cleaned = localPart
+                .replacingOccurrences(of: ".", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+                .replacingOccurrences(of: "-", with: " ")
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+                .joined(separator: " ")
+            if !cleaned.isEmpty { return cleaned }
+        }
+        return "Nearify Member"
+    }
+
     // MARK: - Mapping
 
     private func mapToUser(_ profile: NearifyProfile) -> User {
         User(
             id: profile.id,
             userId: profile.user_id,
-            name: profile.name ?? "User",
+            name: ProfileService.cleanDisplayName(name: profile.name, email: profile.email),
             email: profile.email,
             bio: profile.bio,
             skills: profile.skills,
