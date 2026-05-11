@@ -68,6 +68,12 @@ struct HomeView: View {
             .onChange(of: eventJoin.isCheckedIn) { _, _ in
                 maybePresentEventBrief()
             }
+            .onChange(of: eventJoin.isRestoringFromPersist) { _, isRestoring in
+                // When cold-launch restore completes, decide whether to show the brief.
+                if !isRestoring {
+                    maybePresentEventBrief()
+                }
+            }
             .onChange(of: showEventBrief) { _, isPresented in
                 if !isPresented {
                     cachedEventBrief = nil
@@ -76,10 +82,16 @@ struct HomeView: View {
             .onChange(of: eventJoin.isCheckedIn) { oldValue, newValue in
                 guard !oldValue, newValue else { return }
                 presentCheckInConfirmation()
+                #if DEBUG
+                EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.checkedIn")
+                #endif
             }
             .onAppear {
                 guard !hasMounted else { return }
                 hasMounted = true
+                #if DEBUG
+                EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.onAppear")
+                #endif
                 DispatchQueue.main.async {
                     maybePresentEventBrief()
                 }
@@ -175,19 +187,41 @@ struct HomeView: View {
     }
 
     private var eventHeader: some View {
-        VStack(spacing: 12) {
-            if eventJoin.isCheckedIn {
+        let state = EventParticipationStateResolver.resolve()
+        return VStack(spacing: 12) {
+            switch state {
+            case .checkedIn:
                 joinedCard
-            } else if eventJoin.isEventJoined {
+            case .joinedTodayNotCheckedIn, .nearVenueNotCheckedIn, .joinedUpcoming:
                 preCheckInCard
-            } else if presence.currentEvent != nil {
-                legacyCard
-            } else {
-                scanCard
+            case .restoring:
+                restoringCard
+            case .left, .none:
+                // Only show the legacy presence card when there is an active EventPresence
+                // session AND no explicit join state — this covers the rare edge case of a
+                // stale heartbeat surviving a force-quit. If there's no presence context either,
+                // fall through to the standard scan card.
+                if presence.currentEvent != nil && !eventJoin.isEventJoined {
+                    legacyCard
+                } else {
+                    scanCard
+                }
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: eventJoin.isCheckedIn)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: eventJoin.isEventJoined)
+    }
+
+    private var restoringCard: some View {
+        HStack(spacing: 12) {
+            ProgressView().tint(VisualStyle.primaryAction)
+            Text("Restoring your event…")
+                .font(.subheadline)
+                .foregroundColor(VisualStyle.secondaryText)
+            Spacer()
+        }
+        .padding()
+        .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.1)
     }
 
     // MARK: - Scan Card (State A)
@@ -673,6 +707,9 @@ struct HomeView: View {
 
     private func maybePresentEventBrief() {
         guard hasMounted else { return }
+        // Do not auto-present during cold-launch restore — wait for backend confirmation
+        // so the brief doesn't flash and disappear if membership was revoked.
+        guard !eventJoin.isRestoringFromPersist else { return }
         guard eventJoin.isEventJoined,
               !eventJoin.isCheckedIn,
               let eventId = eventJoin.currentEventID else {
@@ -682,6 +719,9 @@ struct HomeView: View {
         autoPresentedBriefEventId = eventId
         cachedEventBrief = resolvedBriefForCurrentEvent()
         showEventBrief = true
+        #if DEBUG
+        EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
+        #endif
     }
 
     private var resolvedBriefForSheet: PreEventBriefBuilder.Brief? {

@@ -75,6 +75,10 @@ final class EventJoinService: ObservableObject {
     /// Whether the reconnect prompt was dismissed this app session.
     @Published private(set) var reconnectDismissedThisSession = false
 
+    /// True from init until the async backend reconciliation of persisted join state finishes.
+    /// Views should hold brief presentation and live-mode surfaces until this clears.
+    @Published private(set) var isRestoringFromPersist: Bool = false
+
     /// Last event context persisted to UserDefaults for reconnect recovery.
     struct LastEventContext: Codable {
         let eventId: String
@@ -197,9 +201,19 @@ final class EventJoinService: ObservableObject {
     }
 
     private init() {
+        // Gate the brief and live surfaces until we confirm the persisted join is still valid.
+        if UserDefaults.standard.data(forKey: activeJoinedEventKey) != nil {
+            isRestoringFromPersist = true
+        }
         restorePersistedJoinedState()
         startBeaconRecoveryObservation()
-        Task { await reconcilePersistedJoinedStateWithBackend() }
+        Task {
+            await reconcilePersistedJoinedStateWithBackend()
+            isRestoringFromPersist = false
+            #if DEBUG
+            EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.init.restored")
+            #endif
+        }
     }
 
     // MARK: - Intent
@@ -376,6 +390,10 @@ final class EventJoinService: ObservableObject {
             // Persist for reconnect recovery
             saveLastEventContext(eventId: event.id.uuidString, eventName: event.name)
 
+            #if DEBUG
+            EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.performJoin")
+            #endif
+
             // Preload event context for intelligence pipeline (fire-and-forget)
             Task(priority: .utility) {
                 await EventContextService.shared.fetchContext(eventId: event.id)
@@ -430,6 +448,9 @@ final class EventJoinService: ObservableObject {
             membershipState = .inEvent(eventName: eventName)
             joinError = nil
             persistActiveJoinedState()
+            #if DEBUG
+            EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.checkIn")
+            #endif
         } catch {
             joinError = error.localizedDescription
             print("[EventJoin] ❌ Check-in failed: \(error)")
@@ -528,6 +549,7 @@ final class EventJoinService: ObservableObject {
 
         #if DEBUG
         print("[LeaveEvent] state cleared — isEventJoined=false, membership=left")
+        EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.leaveEvent")
         #endif
         return true
     }

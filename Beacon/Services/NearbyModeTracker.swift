@@ -70,6 +70,17 @@ final class NearbyModeTracker: ObservableObject {
     func startTracking() {
         guard cancellable == nil else { return }
 
+        // Never override a joined event's BLE session. The event's BLE is already
+        // active and managed by EventJoinService/EventPresenceService.
+        // Nearby Mode is only a passive fallback when no valid joined event exists.
+        let participation = EventParticipationStateResolver.resolve()
+        guard participation.allowsNearbyModeFallback else {
+            #if DEBUG
+            print("[NearbyMode] skipping startTracking — joined event is active (state=\(participation.debugLabel))")
+            #endif
+            return
+        }
+
         // Ensure BLE scanner is running — in Nearby Mode we scan without an event join
         if !BLEScannerService.shared.isScanning {
             BLEScannerService.shared.startScanning()
