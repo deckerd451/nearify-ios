@@ -60,7 +60,7 @@ struct PreEventBriefView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("You may want to meet")
+                sectionTitle("Worth looking for")
                 if brief.priorityPeople.isEmpty {
                     if hydrationState.isLoading {
                         HStack(spacing: 8) {
