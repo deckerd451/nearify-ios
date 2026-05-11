@@ -399,6 +399,10 @@ final class EventJoinService: ObservableObject {
                 await EventContextService.shared.fetchContext(eventId: event.id)
             }
 
+            // Begin brief hydration pipeline — sequences context, intelligence, and
+            // a direct attendee count so the brief is rich on first join.
+            BriefHydrationController.shared.startHydration(eventId: event.id, eventName: event.name)
+
             #if DEBUG
             print("[EventJoin] ✅ Joined event (ready for check-in): \(event.name)")
             #endif
@@ -448,6 +452,10 @@ final class EventJoinService: ObservableObject {
             membershipState = .inEvent(eventName: eventName)
             joinError = nil
             persistActiveJoinedState()
+
+            // Pre-event brief hydration no longer needed — live mode takes over.
+            BriefHydrationController.shared.stopHydration()
+
             #if DEBUG
             EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.checkIn")
             #endif

@@ -27,7 +27,9 @@ enum PreEventBriefBuilder {
     }
 
     /// Builds a brief for the current joined event state.
-    static func build(eventId: UUID, eventName: String) -> Brief {
+    /// - Parameter joinedCount: Pre-fetched attendee count bypassing EventAttendeesService's
+    ///   presence gate. Nil falls back to attendees.count (zero for pre-check-in users).
+    static func build(eventId: UUID, eventName: String, joinedCount: Int? = nil) -> Brief {
         let relationships = RelationshipMemoryService.shared.relationships
         let myId = AuthService.shared.currentUser?.id
         let isCheckedIn = EventJoinService.shared.isCheckedIn
@@ -53,7 +55,8 @@ enum PreEventBriefBuilder {
             isCheckedIn: isCheckedIn,
             chosenPeople: chosenPeople,
             relationships: relationships,
-            goal: resolvedGoal
+            goal: resolvedGoal,
+            joinedCount: joinedCount
         )
 
         return Brief(
@@ -83,11 +86,12 @@ enum PreEventBriefBuilder {
         isCheckedIn: Bool,
         chosenPeople: [PriorityPerson],
         relationships: [RelationshipMemory],
-        goal: String
+        goal: String,
+        joinedCount: Int? = nil
     ) -> [String] {
         let attendees = EventAttendeesService.shared.attendees
-        let joinedCount = max(attendees.count, chosenPeople.count)
-        var summary: [String] = ["\(joinedCount) people already joined"]
+        let resolvedJoinedCount = joinedCount ?? max(attendees.count, chosenPeople.count)
+        var summary: [String] = ["\(resolvedJoinedCount) people already joined"]
         let goalTokens = tokenize(goal)
         let overlapCount = relationships.filter { relation in
             !goalTokens.isDisjoint(with: Set(relation.sharedInterests.map { $0.lowercased() }))
