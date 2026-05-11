@@ -225,7 +225,8 @@ final class BriefHydrationController: ObservableObject {
             return a.name < b.name
         }
 
-        let people = sorted.prefix(3).map { attendee -> PreEventBriefBuilder.PriorityPerson in
+        let topAttendees = Array(sorted.prefix(3))
+        let people = topAttendees.map { attendee -> PreEventBriefBuilder.PriorityPerson in
             let rel = relationships.first { $0.profileId == attendee.id }
             let reason = buildPreEventReason(relationship: rel, goalTokens: goalTokens)
             return PreEventBriefBuilder.PriorityPerson(
@@ -234,8 +235,8 @@ final class BriefHydrationController: ObservableObject {
                 avatarUrl: attendee.avatarUrl,
                 statusLabel: nil,
                 reason: reason,
-                matchScore: nil,
-                confidence: nil,
+                matchScore: 0,
+                confidence: 0,
                 isNearby: nil
             )
         }

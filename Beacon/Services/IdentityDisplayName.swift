@@ -55,7 +55,7 @@ enum IdentityDisplayName {
         var token = localPart
             .replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression)
             .replacingOccurrences(of: "[._-]+", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "\d{4,}$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\d{4,}$", with: "", options: .regularExpression)
             .replacingOccurrences(of: "[^a-z0-9 ]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
