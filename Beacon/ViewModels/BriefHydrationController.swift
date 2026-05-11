@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Supabase
 
 /// Manages the hydration lifecycle for the pre-event intelligence brief.
 ///
@@ -230,7 +231,7 @@ final class BriefHydrationController: ObservableObject {
                 break
             }
             #if DEBUG
-            let count = rebuilt?.priorityPeople.count ?? 0
+            let count = rebuilt.priorityPeople.count
             print("[BriefHydration] reactive rebuild — reason=\(reason) priorityPeople=\(count)")
             #endif
         }
