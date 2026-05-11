@@ -196,7 +196,7 @@ final class BriefHydrationController: ObservableObject {
             let profiles = Dictionary(uniqueKeysWithValues: profileRows.map { ($0.id, $0) })
             let attendees: [PreEventAttendee] = attendeeRows.compactMap { row in
                 guard let profile = profiles[row.profileId] else { return nil }
-                return PreEventAttendee(id: row.profileId, name: profile.name, avatarUrl: profile.avatarUrl)
+                return PreEventAttendee(id: row.profileId, name: IdentityDisplayName.primaryName(name: profile.name, email: profile.email, debugSource: "BriefHydrationController.swift"), avatarUrl: profile.avatarUrl)
             }
 
             #if DEBUG
@@ -230,7 +230,7 @@ final class BriefHydrationController: ObservableObject {
             let reason = buildPreEventReason(relationship: rel, goalTokens: goalTokens)
             return PreEventBriefBuilder.PriorityPerson(
                 id: attendee.id,
-                name: attendee.name,
+                name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "BriefHydrationController.swift"),
                 avatarUrl: attendee.avatarUrl,
                 statusLabel: nil,
                 reason: reason,

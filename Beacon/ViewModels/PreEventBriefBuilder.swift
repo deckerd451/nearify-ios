@@ -194,7 +194,7 @@ enum PreEventBriefBuilder {
             let confidence = max(0.0, min(1.0, liveScore / 140.0))
             return PriorityPerson(
                 id: attendee.id,
-                name: attendee.name,
+                name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PreEventBriefBuilder.swift"),
                 avatarUrl: attendee.avatarUrl,
                 statusLabel: statusLabel(isHereNow: attendee.isHereNow, proximity: proximity),
                 reason: buildLiveReason(

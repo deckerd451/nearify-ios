@@ -556,7 +556,7 @@ struct PersonDetailView: View {
         let sanitizedWebsite = sanitizedContactValue(attendee.websiteUrl)
 
         return ContactDraftData(
-            name: attendee.name,
+            name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PersonDetailView.swift"),
             nearifyProfileIdentifier: attendee.id,
             eventName: EventJoinService.shared.currentEventName,
             imageData: avatarImageData,
@@ -642,7 +642,7 @@ struct PersonDetailView: View {
         let targetUser = User(
             id: attendee.id,
             userId: nil,
-            name: attendee.name,
+            name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PersonDetailView.swift"),
             email: nil,
             bio: attendee.bio,
             skills: attendee.skills,

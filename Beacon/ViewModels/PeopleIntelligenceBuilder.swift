@@ -585,7 +585,7 @@ struct PeopleIntelligenceBuilder {
         let topTraits = TraitReasoning.topTraits(for: attendee)
         let whyThisMatters = TraitReasoning.whyThisMattersLine(traits: topTraits)
         let insight = generateInsight(
-            name: attendee.name,
+            name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PeopleIntelligenceBuilder.swift"),
             isHere: true,
             isTarget: isTarget,
             encounter: encounter,
@@ -634,7 +634,7 @@ struct PeopleIntelligenceBuilder {
 
         return PersonIntelligence(
             id: attendee.id,
-            name: attendee.name,
+            name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PeopleIntelligenceBuilder.swift"),
             avatarUrl: attendee.avatarUrl,
             presence: .hereNow,
             presenceSource: presenceSource,
