@@ -169,7 +169,7 @@ struct PreEventBriefView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionTitle("Why this match")
+                    sectionTitle(hasScoreEvidence(person) ? "Why this may be useful" : "Context")
                     Text(person.reason)
                         .font(.subheadline)
                         .foregroundColor(.primary)
@@ -189,6 +189,10 @@ struct PreEventBriefView: View {
         )
     }
 
+    private func hasScoreEvidence(_ person: PreEventBriefBuilder.PriorityPerson) -> Bool {
+        (person.confidence ?? 0) > 0 || (person.matchScore ?? 0) > 0
+    }
+
     private func logRecommendationIfNeeded() {
         guard recommendationLogState != lastLoggedRecommendationState else { return }
         lastLoggedRecommendationState = recommendationLogState
@@ -197,6 +201,11 @@ struct PreEventBriefView: View {
             let confidence = String(format: "%.2f", person.confidence ?? 0.0)
             let score = String(format: "%.2f", person.matchScore ?? 0.0)
             print("[Brief] recommendation rendered: \(person.name), confidence=\(confidence), score=\(score), nearby=\(person.isNearby ?? false)")
+            #if DEBUG
+            if !hasScoreEvidence(person) {
+                print("[RecommendationSafety] downgraded zero-confidence recommendation name=\(person.name)")
+            }
+            #endif
         } else {
             let reason = brief.isLive ? "no-strong-live-match" : "pre-check-in"
             print("[Brief] no recommendation rendered: \(reason)")
