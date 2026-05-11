@@ -120,14 +120,29 @@ struct HomeSurfaceView: View {
             return .eventContinuation(suggestion: suggestion, continuePerson: continueWithPersonCandidate)
         }
 
-        // 3. LIVE EVENT — user is actively in an event (liveGuidance intent)
-        if isJoined {
+        // 3. LIVE EVENT — user is checked in with an active heartbeat.
+        //    Joined-but-not-checked-in must NOT enter this branch.
+        //    The distinction: join = intent, check-in = physical presence.
+        if eventJoin.isCheckedIn {
             let eventName = eventJoin.currentEventName ?? surface.liveEventName ?? "Event"
             let featured = featuredArrivalItem
             #if DEBUG
             print("[HomePresentation] liveEvent: \(eventName)")
             #endif
             return .liveEvent(featuredPerson: featured, eventName: eventName)
+        }
+
+        // 3b. JOINED BUT NOT CHECKED IN — pre-event preparation state.
+        //     Fall through to event/person continuation so the surface shows
+        //     attendee context without live-mode surfaces or proximity actions.
+        if isJoined {
+            #if DEBUG
+            print("[HomePresentation] joinedNotCheckedIn — falling to continuation")
+            #endif
+            if let suggestion = bestEventSuggestion {
+                return .eventContinuation(suggestion: suggestion, continuePerson: continueWithPersonCandidate)
+            }
+            return .onboarding
         }
 
         // 3. EXPLAIN AND JOIN — new user or no history

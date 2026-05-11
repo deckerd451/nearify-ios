@@ -67,12 +67,19 @@ enum LaunchStateResolver {
             return .returningNoActiveEvent
         }
 
-        // 3b. Dormant — still a member but heartbeat paused
+        // 3b. Dormant — still a member but heartbeat paused. Not live.
         if case .dormant = eventJoin.membershipState {
             return .returningNoActiveEvent
         }
 
-        // 4. In active event — check zone
+        // 3c. Joined but NOT checked in — user has expressed intent to attend but is not
+        //     physically present yet. Treat as preparation state, not live event mode.
+        //     Must not resolve to liveGuidance or show live attendee surfaces.
+        if !eventJoin.isCheckedIn {
+            return .returningNoActiveEvent
+        }
+
+        // 4. Checked in to an active event — check zone for full live context
         if presence == .insideEvent {
             return .returningInsideEvent
         }
