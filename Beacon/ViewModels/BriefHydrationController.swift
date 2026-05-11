@@ -129,7 +129,7 @@ final class BriefHydrationController: ObservableObject {
         hydrationState = intelligenceArrived ? .hydrated : .timeoutFallback
 
         #if DEBUG
-        let peopleCount = finalBrief?.priorityPeople.count ?? 0
+        let peopleCount = finalBrief.priorityPeople.count
         print("[BriefHydration] hydration complete — state=\(hydrationState) priorityPeople=\(peopleCount) intelligenceArrived=\(intelligenceArrived)")
         #endif
 
