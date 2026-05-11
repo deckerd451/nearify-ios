@@ -4,16 +4,19 @@ import Foundation
 struct PreEventBriefView: View {
     let brief: PreEventBriefBuilder.Brief
     let ctaTitle: String
+    let hydrationState: BriefHydrationController.BriefHydrationState
     let onContinue: (PreEventBriefBuilder.PriorityPerson?) -> Void
     @State private var lastLoggedRecommendationState: String?
 
     init(
         brief: PreEventBriefBuilder.Brief,
         ctaTitle: String = "Go to event",
+        hydrationState: BriefHydrationController.BriefHydrationState = .hydrated,
         onContinue: @escaping (PreEventBriefBuilder.PriorityPerson?) -> Void
     ) {
         self.brief = brief
         self.ctaTitle = ctaTitle
+        self.hydrationState = hydrationState
         self.onContinue = onContinue
     }
 
@@ -23,6 +26,16 @@ struct PreEventBriefView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
+
+            if let message = hydrationState.loadingMessage {
+                HStack(spacing: 8) {
+                    ProgressView().scaleEffect(0.8)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 sectionTitle("Goal")
@@ -49,9 +62,18 @@ struct PreEventBriefView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionTitle("You may want to meet")
                 if brief.priorityPeople.isEmpty {
-                    Text("We’re still building your early connection preview. Check in when you arrive for live matching.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                    if hydrationState.isLoading {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.8)
+                            Text("Scanning for strong connections…")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text("We’re still building your early connection preview. Check in when you arrive for live matching.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
                 } else {
                     ForEach(brief.priorityPeople.prefix(3)) { person in
                         recommendationCard(person)

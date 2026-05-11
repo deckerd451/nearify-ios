@@ -12,6 +12,7 @@ struct HomeView: View {
     @ObservedObject private var eventJoin = EventJoinService.shared
     @ObservedObject private var explore = ExploreEventsService.shared
     @ObservedObject private var resolver = AttendeeStateResolver.shared
+    @ObservedObject private var briefController = BriefHydrationController.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
     @State private var showLastSummaryRecap = false
@@ -22,7 +23,6 @@ struct HomeView: View {
     @State private var autoPresentedBriefEventId: String?
     @State private var briefConnectionDestination: BriefConnectionDestination?
     @State private var pendingBriefConnectionDestination: BriefConnectionDestination?
-    @State private var cachedEventBrief: PreEventBriefBuilder.Brief?
     @State private var showCheckInConfirmation = false
     @State private var checkInDismissTask: Task<Void, Never>?
     @State private var hasMounted = false
@@ -62,7 +62,6 @@ struct HomeView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable { attendeesService.refresh() }
             .onChange(of: eventJoin.currentEventID) { _, _ in
-                cachedEventBrief = nil
                 maybePresentEventBrief()
             }
             .onChange(of: eventJoin.isCheckedIn) { _, _ in
@@ -72,11 +71,6 @@ struct HomeView: View {
                 // When cold-launch restore completes, decide whether to show the brief.
                 if !isRestoring {
                     maybePresentEventBrief()
-                }
-            }
-            .onChange(of: showEventBrief) { _, isPresented in
-                if !isPresented {
-                    cachedEventBrief = nil
                 }
             }
             .onChange(of: eventJoin.isCheckedIn) { oldValue, newValue in
@@ -528,9 +522,7 @@ struct HomeView: View {
     }
 
     private var activePreEventBrief: PreEventBriefBuilder.Brief? {
-        guard let eventIdString = eventJoin.currentEventID,
-              let eventId = UUID(uuidString: eventIdString) else { return nil }
-        return PreEventBriefBuilder.build(eventId: eventId, eventName: eventDisplayName)
+        briefController.currentBrief
     }
 
     private var notJoinedState: some View {
@@ -645,7 +637,8 @@ struct HomeView: View {
             if let brief = resolvedBriefForSheet {
                 ScrollView {
                     PreEventBriefView(
-                        brief: brief
+                        brief: brief,
+                        hydrationState: briefController.hydrationState
                     ) { recommendation in
                         showEventBrief = false
                         pendingBriefConnectionDestination = destinationForBriefRecommendation(recommendation)
@@ -717,7 +710,6 @@ struct HomeView: View {
         }
         guard autoPresentedBriefEventId != eventId else { return }
         autoPresentedBriefEventId = eventId
-        cachedEventBrief = resolvedBriefForCurrentEvent()
         showEventBrief = true
         #if DEBUG
         EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
@@ -725,19 +717,12 @@ struct HomeView: View {
     }
 
     private var resolvedBriefForSheet: PreEventBriefBuilder.Brief? {
-        cachedEventBrief ?? resolvedBriefForCurrentEvent()
-    }
-
-    private func resolvedBriefForCurrentEvent() -> PreEventBriefBuilder.Brief? {
+        // Prefer the live hydrated brief; fall back to an inline build if hydration
+        // hasn't started yet (e.g. user taps "Briefing" before join flow completes).
+        if let live = briefController.currentBrief { return live }
         guard let eventIdString = eventJoin.currentEventID,
-              let eventId = UUID(uuidString: eventIdString) else {
-            return nil
-        }
-
-        return PreEventBriefBuilder.build(
-            eventId: eventId,
-            eventName: eventDisplayName
-        )
+              let eventId = UUID(uuidString: eventIdString) else { return nil }
+        return PreEventBriefBuilder.build(eventId: eventId, eventName: eventDisplayName)
     }
 
     private func destinationForBriefRecommendation(
