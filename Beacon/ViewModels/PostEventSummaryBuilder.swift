@@ -350,7 +350,7 @@ enum PostEventSummaryBuilder {
         } else if best.encounterCount >= 2 {
             context = "Crossed paths \(best.encounterCount) times at \(eventName)"
         } else {
-            context = "Strongest interaction this session"
+            context = "Most active interaction this session"
         }
 
         return ProfileSnapshot(
@@ -402,9 +402,9 @@ enum PostEventSummaryBuilder {
 
         let activityLine: String
         if highSignalCount >= 3 {
-            activityLine = "High-activity session with multiple strong contacts"
+            activityLine = "High activity session with multiple active attendees"
         } else if highSignalCount >= 1 || meaningfulCount >= 3 {
-            activityLine = "Steady activity with clear follow-up candidates"
+            activityLine = "Steady activity with several attendees surfaced"
         } else if !eventRelationships.isEmpty {
             activityLine = "Light session with at least one meaningful overlap"
         } else {
@@ -603,7 +603,7 @@ enum PostEventSummaryBuilder {
         }
 
         if snapshot.meaningfulPeopleCount > 0 {
-            lines.append("You had \(snapshot.meaningfulPeopleCount) meaningful contact\(snapshot.meaningfulPeopleCount == 1 ? "" : "s") and \(suggestions.count) concrete follow-up option\(suggestions.count == 1 ? "" : "s").")
+            lines.append("You had \(snapshot.meaningfulPeopleCount) active connection\(snapshot.meaningfulPeopleCount == 1 ? "" : "s") and \(suggestions.count) concrete follow-up option\(suggestions.count == 1 ? "" : "s").")
         }
 
         if let topMiss = missedConnections.first {
