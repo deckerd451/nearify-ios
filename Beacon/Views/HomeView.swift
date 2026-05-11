@@ -487,7 +487,8 @@ struct HomeView: View {
             }
 
             if let recommendation {
-                Text("Potential strong match: \(recommendation.name)")
+                let isZeroConfidence = (recommendation.confidence ?? 0) == 0 && (recommendation.matchScore ?? 0) == 0
+                Text(isZeroConfidence ? "Also attending: \(recommendation.name)" : "Potential strong match: \(recommendation.name)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(VisualStyle.intelligence)
                 Text("\(recommendation.reason)")
