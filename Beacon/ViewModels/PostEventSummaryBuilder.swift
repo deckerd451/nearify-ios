@@ -186,7 +186,7 @@ enum PostEventSummaryBuilder {
                 let mins = signal.totalSeconds / 60
                 return ProfileSnapshot(
                     id: signal.relationship.profileId,
-                    name: signal.relationship.name,
+                    name: IdentityDisplayName.primaryName(name: signal.relationship.name, debugSource: "PostEventSummaryBuilder.swift"),
                     avatarUrl: signal.relationship.avatarUrl,
                     contextLine: mins > 0 ? "Repeated overlap (\(mins) min) · no connection yet" : "Repeated overlap · no connection yet"
                 )
@@ -355,7 +355,7 @@ enum PostEventSummaryBuilder {
 
         return ProfileSnapshot(
             id: best.relationship.profileId,
-            name: best.relationship.name,
+            name: IdentityDisplayName.primaryName(name: best.relationship.name, debugSource: "PostEventSummaryBuilder.swift"),
             avatarUrl: best.relationship.avatarUrl,
             contextLine: context
         )
@@ -561,7 +561,7 @@ enum PostEventSummaryBuilder {
     private static func makeKeyPerson(from signal: PersonSignal) -> KeyPerson {
         let profile = ProfileSnapshot(
             id: signal.relationship.profileId,
-            name: signal.relationship.name,
+            name: IdentityDisplayName.primaryName(name: signal.relationship.name, debugSource: "PostEventSummaryBuilder.swift"),
             avatarUrl: signal.relationship.avatarUrl,
             contextLine: signal.relationship.whyLine
         )

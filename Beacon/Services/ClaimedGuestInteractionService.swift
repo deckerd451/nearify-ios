@@ -126,7 +126,7 @@ final class ClaimedGuestInteractionService: ObservableObject {
                 return ClaimedGuestInteractionMemory(
                     id: profileId,
                     profileId: profileId,
-                    profileName: cleanedDisplayName(profile.name),
+                    profileName: IdentityDisplayName.primaryName(name: profile.name, debugSource: "RelationshipMemory.row"),
                     avatarUrl: profile.avatarUrl,
                     eventName: newest.eventId.flatMap { eventMap[$0] },
                     createdAt: newest.createdAt,
@@ -144,23 +144,4 @@ final class ClaimedGuestInteractionService: ObservableObject {
         }
     }
 
-    /// Returns the best available display name, avoiding raw email addresses.
-    /// Mirrors the fallback logic in ProfileService without introducing a dependency.
-    private func cleanedDisplayName(_ raw: String) -> String {
-        guard !raw.isEmpty else { return "Nearify Member" }
-        // If it doesn't look like an email, use as-is
-        guard raw.contains("@") else { return raw }
-        // Extract and title-case the local part
-        if let localPart = raw.split(separator: "@").first.map(String.init), !localPart.isEmpty {
-            let cleaned = localPart
-                .replacingOccurrences(of: ".", with: " ")
-                .replacingOccurrences(of: "_", with: " ")
-                .replacingOccurrences(of: "-", with: " ")
-                .split(separator: " ")
-                .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
-                .joined(separator: " ")
-            if !cleaned.isEmpty { return cleaned }
-        }
-        return "Nearify Member"
-    }
 }

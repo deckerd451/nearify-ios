@@ -190,7 +190,7 @@ struct ProfileView: View {
         let sanitizedWebsite = sanitizedContactValue(profile.websiteUrl)
 
         return ContactDraftData(
-            name: profile.name,
+            name: IdentityDisplayName.primaryName(name: profile.name, email: profile.email, debugSource: "ProfileView.swift"),
             nearifyProfileIdentifier: profile.id,
             eventName: EventJoinService.shared.currentEventName,
             imageData: avatarImageData,
@@ -289,7 +289,7 @@ struct ProfileView: View {
     private func profileToAttendee() -> EventAttendee {
         EventAttendee(
             id: profile.id,
-            name: profile.name,
+            name: IdentityDisplayName.primaryName(name: profile.name, email: profile.email, debugSource: "ProfileView.swift"),
             avatarUrl: nil,
             bio: nil,
             skills: [],

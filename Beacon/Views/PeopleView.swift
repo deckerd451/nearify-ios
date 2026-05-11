@@ -306,7 +306,7 @@ struct PeopleView: View {
     // MARK: - Surface Row
 
     private func surfaceRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
-        let displayName = displayName(for: person.name)
+        let displayName = IdentityDisplayName.primaryName(name: person.name, debugSource: "PeopleView.card")
         return HStack(spacing: 12) {
             // Avatar
             ZStack(alignment: .bottomTrailing) {
@@ -398,46 +398,6 @@ struct PeopleView: View {
                         .foregroundColor(.black.opacity(0.85))
                 )
         }
-    }
-
-    private func displayName(for rawName: String) -> String {
-        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && !trimmed.contains("@") {
-            return trimmed
-        }
-
-        let localPart = trimmed.components(separatedBy: "@").first ?? ""
-        let separatorsReplaced = localPart.replacingOccurrences(of: "[._-]+", with: " ", options: .regularExpression)
-        let cleaned = separatorsReplaced.replacingOccurrences(of: "[^A-Za-z0-9 ]", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
-        if cleaned.isEmpty {
-            #if DEBUG
-            debugLog("[PeopleRelationshipUI] Using fallback display name")
-            #endif
-            return "Nearify Member"
-        }
-
-        let splitDigits = cleaned.replacingOccurrences(of: "([a-z])([A-Z0-9])", with: "$1 $2", options: .regularExpression)
-            .replacingOccurrences(of: "([A-Z])([A-Z][a-z])", with: "$1 $2", options: .regularExpression)
-
-        let readable = splitDigits
-            .split(separator: " ")
-            .prefix(2)
-            .map { token -> String in
-                let lower = token.lowercased()
-                return lower.prefix(1).uppercased() + lower.dropFirst()
-            }
-            .joined(separator: " ")
-
-        if readable.isEmpty {
-            #if DEBUG
-            debugLog("[PeopleRelationshipUI] Using fallback display name")
-            #endif
-            return "Nearify Member"
-        }
-        #if DEBUG
-        debugLog("[PeopleRelationshipUI] Using fallback display name")
-        #endif
-        return readable
     }
 
     // MARK: - Deep Layer
