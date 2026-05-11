@@ -29,7 +29,14 @@ enum PreEventBriefBuilder {
     /// Builds a brief for the current joined event state.
     /// - Parameter joinedCount: Pre-fetched attendee count bypassing EventAttendeesService's
     ///   presence gate. Nil falls back to attendees.count (zero for pre-check-in users).
-    static func build(eventId: UUID, eventName: String, joinedCount: Int? = nil) -> Brief {
+    /// - Parameter preEventPeople: Pre-built people list from BriefHydrationController's
+    ///   direct attendee fetch. Overrides buildPredictivePeople for pre-check-in users.
+    static func build(
+        eventId: UUID,
+        eventName: String,
+        joinedCount: Int? = nil,
+        preEventPeople: [PriorityPerson]? = nil
+    ) -> Brief {
         let relationships = RelationshipMemoryService.shared.relationships
         let myId = AuthService.shared.currentUser?.id
         let isCheckedIn = EventJoinService.shared.isCheckedIn
@@ -40,9 +47,14 @@ enum PreEventBriefBuilder {
             ? intentPrimary!
             : "Choose your goal to tune recommendations at check-in"
 
-        let chosenPeople = isCheckedIn
-            ? buildLivePeople(myId: myId, relationships: relationships, goal: resolvedGoal)
-            : buildPredictivePeople(myId: myId, relationships: relationships, eventName: eventName, goal: resolvedGoal)
+        let chosenPeople: [PriorityPerson]
+        if isCheckedIn {
+            chosenPeople = buildLivePeople(myId: myId, relationships: relationships, goal: resolvedGoal)
+        } else if let preEventPeople, !preEventPeople.isEmpty {
+            chosenPeople = preEventPeople
+        } else {
+            chosenPeople = buildPredictivePeople(myId: myId, relationships: relationships, eventName: eventName, goal: resolvedGoal)
+        }
 
         let starters = buildStarters(
             isCheckedIn: isCheckedIn,

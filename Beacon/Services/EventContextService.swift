@@ -1,5 +1,6 @@
 import Foundation
 import Supabase
+import Combine
 
 // MARK: - Event Context Model
 
@@ -39,6 +40,10 @@ final class EventContextService {
     private(set) var cachedContext: EventContext?
     private var cachedEventId: UUID?
 
+    /// Fires whenever `cachedContext` is updated (fetch or local goal change).
+    /// Allows BriefHydrationController to rebuild without polling.
+    let contextDidChange = PassthroughSubject<Void, Never>()
+
     private init() {}
     
     static let supportedIntents: [String] = [
@@ -75,6 +80,7 @@ final class EventContextService {
 
             cachedContext = context
             cachedEventId = eventId
+            contextDidChange.send()
 
             #if DEBUG
             print("[EventContext] ✅ Context cached — profile: \(context.profileId), intent: \(context.intentPrimary ?? "none")")
@@ -152,6 +158,7 @@ final class EventContextService {
                 joinedAt: nil
             )
         }
+        contextDidChange.send()
         print("[EventContext] intent updated locally")
     }
 }

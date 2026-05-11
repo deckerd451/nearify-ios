@@ -4,15 +4,14 @@ import Supabase
 
 /// Manages the hydration lifecycle for the pre-event intelligence brief.
 ///
-/// On first join the brief opens before EventContextService, RelationshipMemoryService,
-/// and PeopleIntelligenceController have populated — resulting in a sparse snapshot.
-/// This controller sequences the async dependencies correctly and drives a live
-/// `currentBrief` that updates as each layer arrives.
+/// Fetches joined attendees directly from Supabase (bypassing EventAttendeesService's
+/// presence gate, which requires check-in). Enriches people with RelationshipMemory.
+/// Rebuilds reactively when the goal changes or relationship data updates.
 ///
 /// Pipeline:
-///   waitingForContext  → polls EventContextService.cachedContext (3s timeout)
-///   loadingIntelligence→ waits for PeopleIntelligenceController.sections (8s timeout)
-///   hydrated / timeoutFallback → final brief set; reactive rebuilds continue
+///   waitingForContext   → polls EventContextService.cachedContext (3s timeout)
+///   loadingIntelligence → attendees + profiles fetch in flight
+///   hydrated            → brief built with real people; reactive rebuilds active
 @MainActor
 final class BriefHydrationController: ObservableObject {
 
@@ -51,11 +50,20 @@ final class BriefHydrationController: ObservableObject {
 
     private var activeEventId: UUID?
     private var activeEventName: String?
-    private var preEventJoinedCount: Int?
+    private var preEventAttendees: [PreEventAttendee] = []
+    private var cachedGoal: String?
 
     private let supabase = AppEnvironment.shared.supabaseClient
 
     private init() {}
+
+    // MARK: - Pre-event attendee model
+
+    struct PreEventAttendee {
+        let id: UUID
+        let name: String
+        let avatarUrl: String?
+    }
 
     // MARK: - Public API
 
@@ -65,7 +73,8 @@ final class BriefHydrationController: ObservableObject {
         stopHydration()
         activeEventId = eventId
         activeEventName = eventName
-        preEventJoinedCount = nil
+        preEventAttendees = []
+        cachedGoal = nil
         currentBrief = nil
         hydrationState = .waitingForContext
 
@@ -96,44 +105,37 @@ final class BriefHydrationController: ObservableObject {
     // MARK: - Pipeline
 
     private func runHydrationPipeline(eventId: UUID, eventName: String) async {
-        // Phase 1: Kick supporting services immediately.
-        // EventContext was already kicked as fire-and-forget in performJoin() but may not
-        // have arrived yet; RelationshipMemory and Intelligence need explicit triggers.
+        // Phase 1: kick relationship memory refresh and begin concurrent fetches.
         RelationshipMemoryService.shared.requestRefresh(reason: "brief-hydration-join")
-        PeopleIntelligenceController.shared.scheduleRebuild(reason: "brief-hydration-join")
 
-        // Fetch real joined count directly — EventAttendeesService is permanently idle
-        // for pre-check-in users, so we bypass its presence gate with a raw query.
-        async let joinedCountFetch: Int = fetchJoinedCount(eventId: eventId)
-
+        // Fetch attendees and wait for event context concurrently.
+        async let attendeesFetch: [PreEventAttendee] = fetchPreEventAttendees(eventId: eventId)
         let contextArrived = await waitForEventContext(timeout: 3.0)
-        preEventJoinedCount = await joinedCountFetch
+
+        preEventAttendees = await attendeesFetch
 
         guard !Task.isCancelled else { return }
 
         #if DEBUG
-        print("[BriefHydration] phase1 done — contextArrived=\(contextArrived) joinedCount=\(preEventJoinedCount ?? 0)")
+        print("[BriefHydration] phase1 done — contextArrived=\(contextArrived) joinedCount=\(preEventAttendees.count)")
+        print("[BriefHydration] preEventAttendeesFetched count=\(preEventAttendees.count)")
         #endif
 
-        // Phase 2: Build a partial brief with whatever we have so far.
+        // Phase 2: build brief immediately from real attendee data.
         hydrationState = .loadingIntelligence
         currentBrief = buildCurrentBrief(eventId: eventId, eventName: eventName)
-
-        // Phase 3: Wait for PeopleIntelligenceController sections.
-        let intelligenceArrived = await waitForIntelligence(timeout: 8.0)
 
         guard !Task.isCancelled else { return }
 
         let finalBrief = buildCurrentBrief(eventId: eventId, eventName: eventName)
         currentBrief = finalBrief
-        hydrationState = intelligenceArrived ? .hydrated : .timeoutFallback
+        hydrationState = .hydrated
 
         #if DEBUG
-        let peopleCount = finalBrief.priorityPeople.count
-        print("[BriefHydration] hydration complete — state=\(hydrationState) priorityPeople=\(peopleCount) intelligenceArrived=\(intelligenceArrived)")
+        print("[BriefHydration] hydration complete — state=\(hydrationState) priorityPeople=\(finalBrief.priorityPeople.count)")
         #endif
 
-        // Phase 4: Continue reactively — brief updates as new data trickles in.
+        // Phase 3: keep brief live as relationships refresh and goal changes arrive.
         observeReactiveSources()
     }
 
@@ -149,49 +151,129 @@ final class BriefHydrationController: ObservableObject {
         return EventContextService.shared.cachedContext != nil
     }
 
-    private func waitForIntelligence(timeout: TimeInterval) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if hasIntelligence { return true }
-            guard !Task.isCancelled else { return false }
-            try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+    // MARK: - Direct attendee + profile fetch (bypasses EventAttendeesService)
+
+    private struct JoinedAttendeeRow: Decodable {
+        let profileId: UUID
+        enum CodingKeys: String, CodingKey { case profileId = "profile_id" }
+    }
+
+    private struct PreEventProfileRow: Decodable {
+        let id: UUID
+        let name: String
+        let avatarUrl: String?
+        enum CodingKeys: String, CodingKey {
+            case id, name
+            case avatarUrl = "avatar_url"
         }
-        return hasIntelligence
     }
 
-    private var hasIntelligence: Bool {
-        let s = PeopleIntelligenceController.shared.sections
-        return !s.hereNow.isEmpty || !s.followUp.isEmpty || !s.notHere.isEmpty
-    }
-
-    // MARK: - Direct attendee count (bypasses EventAttendeesService)
-
-    private struct JoinedCountRow: Decodable { let id: UUID }
-
-    private func fetchJoinedCount(eventId: UUID) async -> Int {
+    private func fetchPreEventAttendees(eventId: UUID) async -> [PreEventAttendee] {
         do {
-            // Exclude self from the count. Falls back to a nil-UUID that matches nothing
-            // if current user is somehow unavailable (should not happen during join flow).
             let myIdString = AuthService.shared.currentUser?.id.uuidString
                 ?? "00000000-0000-0000-0000-000000000000"
-            let rows: [JoinedCountRow] = try await supabase
+
+            let attendeeRows: [JoinedAttendeeRow] = try await supabase
                 .from("event_attendees")
-                .select("id")
+                .select("profile_id")
                 .eq("event_id", value: eventId.uuidString)
                 .neq("status", value: "left")
                 .neq("profile_id", value: myIdString)
+                .limit(50)
                 .execute()
                 .value
+
+            guard !attendeeRows.isEmpty else { return [] }
+
+            let profileIds = attendeeRows.map { $0.profileId.uuidString }
+            let profileRows: [PreEventProfileRow] = try await supabase
+                .from("profiles")
+                .select("id, name, avatar_url")
+                .in("id", values: profileIds)
+                .execute()
+                .value
+
+            let profiles = Dictionary(uniqueKeysWithValues: profileRows.map { ($0.id, $0) })
+            let attendees: [PreEventAttendee] = attendeeRows.compactMap { row in
+                guard let profile = profiles[row.profileId] else { return nil }
+                return PreEventAttendee(id: row.profileId, name: profile.name, avatarUrl: profile.avatarUrl)
+            }
+
             #if DEBUG
-            print("[BriefHydration] fetchJoinedCount=\(rows.count) event=\(eventId.uuidString.prefix(8))")
+            print("[BriefHydration] preEventAttendeesFetched count=\(attendees.count)")
             #endif
-            return rows.count
+            return attendees
         } catch {
             #if DEBUG
-            print("[BriefHydration] fetchJoinedCount failed: \(error.localizedDescription)")
+            print("[BriefHydration] fetchPreEventAttendees failed: \(error.localizedDescription)")
             #endif
-            return 0
+            return []
         }
+    }
+
+    // MARK: - People builder
+
+    private func buildPreEventPeople(goal: String) -> [PreEventBriefBuilder.PriorityPerson] {
+        let relationships = RelationshipMemoryService.shared.relationships
+        let goalTokens = tokenize(goal)
+
+        // Sort: people with relationship memory first (richer reason), then alphabetically.
+        let sorted = preEventAttendees.sorted { a, b in
+            let aHasRel = relationships.contains { $0.profileId == a.id }
+            let bHasRel = relationships.contains { $0.profileId == b.id }
+            if aHasRel != bHasRel { return aHasRel }
+            return a.name < b.name
+        }
+
+        let people = sorted.prefix(3).map { attendee -> PreEventBriefBuilder.PriorityPerson in
+            let rel = relationships.first { $0.profileId == attendee.id }
+            let reason = buildPreEventReason(relationship: rel, goalTokens: goalTokens)
+            return PreEventBriefBuilder.PriorityPerson(
+                id: attendee.id,
+                name: attendee.name,
+                avatarUrl: attendee.avatarUrl,
+                statusLabel: nil,
+                reason: reason,
+                matchScore: nil,
+                confidence: nil,
+                isNearby: nil
+            )
+        }
+
+        #if DEBUG
+        print("[BriefHydration] preEventRecommendationsBuilt count=\(people.count)")
+        #endif
+        return Array(people)
+    }
+
+    private func buildPreEventReason(relationship: RelationshipMemory?, goalTokens: Set<String>) -> String {
+        guard let rel = relationship else {
+            return "Also attending this event"
+        }
+        let goalAligned = !goalTokens.isDisjoint(with: Set(rel.sharedInterests.map { $0.lowercased() }))
+        if goalAligned, let topic = rel.sharedInterests.first {
+            return "Overlapping interests in \(topic), aligned with your goal"
+        }
+        if rel.encounterCount >= 3 {
+            return "You keep showing up at the same events"
+        }
+        let minutes = max(rel.totalOverlapSeconds / 60, 0)
+        if minutes >= 5 {
+            return "You've spent time together (\(minutes) min)"
+        }
+        if let topic = rel.sharedInterests.first {
+            return "Shared interest in \(topic)"
+        }
+        return "Familiar face from past events"
+    }
+
+    private func tokenize(_ text: String) -> Set<String> {
+        Set(
+            text.lowercased()
+                .split { !$0.isLetter && !$0.isNumber }
+                .map(String.init)
+                .filter { $0.count > 2 }
+        )
     }
 
     // MARK: - Reactive observation
@@ -207,13 +289,24 @@ final class BriefHydrationController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        PeopleIntelligenceController.shared.$sections
-            .dropFirst()
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.scheduleBriefRebuild(reason: "sections-updated")
+        EventContextService.shared.contextDidChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in
+                self?.handleGoalChange()
             }
             .store(in: &cancellables)
+    }
+
+    private func handleGoalChange() {
+        let newGoal = EventContextService.shared.cachedContext?.intentPrimary?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let oldGoal = cachedGoal ?? ""
+        guard newGoal != oldGoal else { return }
+        #if DEBUG
+        print("[BriefHydration] goalChanged old=\"\(oldGoal)\" new=\"\(newGoal)\"")
+        #endif
+        cachedGoal = newGoal.isEmpty ? nil : newGoal
+        scheduleBriefRebuild(reason: "goal-changed")
     }
 
     private func scheduleBriefRebuild(reason: String) {
@@ -224,15 +317,14 @@ final class BriefHydrationController: ObservableObject {
             guard let eventId = activeEventId, let eventName = activeEventName else { return }
             let rebuilt = buildCurrentBrief(eventId: eventId, eventName: eventName)
             currentBrief = rebuilt
-            switch hydrationState {
-            case .loadingIntelligence, .partial:
-                hydrationState = .hydrated
-            default:
-                break
-            }
+            if case .loadingIntelligence = hydrationState { hydrationState = .hydrated }
+            if case .partial = hydrationState { hydrationState = .hydrated }
             #if DEBUG
-            let count = rebuilt.priorityPeople.count
-            print("[BriefHydration] reactive rebuild — reason=\(reason) priorityPeople=\(count)")
+            if reason == "goal-changed" {
+                print("[BriefHydration] rebuiltForGoal priorityPeople=\(rebuilt.priorityPeople.count)")
+            } else {
+                print("[BriefHydration] reactive rebuild — reason=\(reason) priorityPeople=\(rebuilt.priorityPeople.count)")
+            }
             #endif
         }
     }
@@ -240,10 +332,17 @@ final class BriefHydrationController: ObservableObject {
     // MARK: - Builder call
 
     private func buildCurrentBrief(eventId: UUID, eventName: String) -> PreEventBriefBuilder.Brief {
-        PreEventBriefBuilder.build(
+        let goal = EventContextService.shared.cachedContext?.intentPrimary?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let resolvedGoal = goal.isEmpty
+            ? "Choose your goal to tune recommendations at check-in"
+            : goal
+        let people = preEventAttendees.isEmpty ? nil : buildPreEventPeople(goal: resolvedGoal)
+        return PreEventBriefBuilder.build(
             eventId: eventId,
             eventName: eventName,
-            joinedCount: preEventJoinedCount
+            joinedCount: preEventAttendees.isEmpty ? nil : preEventAttendees.count,
+            preEventPeople: people
         )
     }
 }
