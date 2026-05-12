@@ -20,20 +20,27 @@ struct CustomTabBar: View {
     ]
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(items, id: \.tab) { item in
-                tabButton(item)
+        GeometryReader { proxy in
+            let bottomInset = proxy.safeAreaInsets.bottom
+            let baseBarHeight: CGFloat = 66
+            let totalBarHeight = baseBarHeight + max(8, bottomInset)
+
+            HStack(spacing: 0) {
+                ForEach(items, id: \.tab) { item in
+                    tabButton(item)
+                }
             }
+            .frame(maxWidth: .infinity, minHeight: baseBarHeight)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 8 + max(0, bottomInset - 2))
+            .background(glassBackground)
+            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 6)
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .frame(height: totalBarHeight)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .background(glassBackground)
-        .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 6)
-        .padding(.horizontal, 16)
-        // Gap between pill bottom edge and home indicator.
-        // .safeAreaInset already positions the view at the safe area
-        // bottom boundary, so this 8pt floats the pill above the indicator.
-        .padding(.bottom, 8)
+        .frame(height: 96)
     }
 
     // MARK: - Tab button
@@ -69,7 +76,7 @@ struct CustomTabBar: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(isSelected ? Color.primary : Color.secondary)
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .padding(.horizontal, 4)
             .frame(maxWidth: .infinity)
             .background {

@@ -100,6 +100,16 @@ struct ExploreView: View {
     private var mainContent: some View {
         ScrollView {
             VStack(spacing: DesignTokens.sectionSpacing) {
+                HStack {
+                    Text("Explore")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(.white)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+
                 joinFeedbackSection
                 statusBannerSection
                 activeEventSection
@@ -820,6 +830,7 @@ private struct PastEventRecapView: View {
             }
         }
     }
+
 }
 
 private struct ExploreRecapProfileSheetTarget: Identifiable {
