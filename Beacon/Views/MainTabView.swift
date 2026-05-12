@@ -32,13 +32,18 @@ struct MainTabView: View {
     @ObservedObject private var messaging = MessagingService.shared
     @ObservedObject private var navigationState = NavigationState.shared
 
+    init(currentUser: User, selectedTab: Binding<AppTab>) {
+        self.currentUser = currentUser
+        self._selectedTab = selectedTab
+        // Hide the system tab bar so the custom floating bar takes its place.
+        // .safeAreaInset(edge: .bottom) in body provides the bottom inset for
+        // scroll views and content, so no explicit bottom padding is needed.
+        UITabBar.appearance().isHidden = true
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             HomeView(selectedTab: $selectedTab)
-                .tabItem {
-                    Label("Home", systemImage: "house")
-                }
                 .tag(AppTab.home)
 
             NavigationStack(path: $peopleNavigationPath) {
@@ -52,29 +57,22 @@ struct MainTabView: View {
                         }
                     }
             }
-            .tabItem {
-                Label("People", systemImage: "person.2.fill")
-            }
             .tag(AppTab.people)
 
             ExploreView(selectedTab: $selectedTab)
-                .tabItem {
-                    Label("Explore", systemImage: "safari")
-                }
                 .tag(AppTab.event)
 
             MyQRView(currentUser: currentUser)
-                .tabItem {
-                    Label("Profile", systemImage: "person.circle")
-                }
                 .tag(AppTab.profile)
 
             MessagesHubView()
-                .tabItem {
-                    Label("Messages", systemImage: "bubble.left.and.bubble.right.fill")
-                }
-                .badge(messagesTabBadgeText)
                 .tag(AppTab.messages)
+        }
+        .safeAreaInset(edge: .bottom) {
+            CustomTabBar(
+                selectedTab: $selectedTab,
+                messagesUnreadCount: messaging.totalUnreadCount
+            )
         }
         .onAppear {
             #if DEBUG
@@ -170,12 +168,6 @@ struct MainTabView: View {
         .onChange(of: messaging.totalUnreadCount) { _, newCount in
             print("[MessagesBadge] unread count=\(newCount)")
         }
-    }
-
-    private var messagesTabBadgeText: String? {
-        let unreadCount = messaging.totalUnreadCount
-        guard unreadCount > 0 else { return nil }
-        return unreadCount > 99 ? "99+" : String(unreadCount)
     }
 
     @ViewBuilder
