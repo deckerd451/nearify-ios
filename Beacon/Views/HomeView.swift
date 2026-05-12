@@ -31,6 +31,16 @@ struct HomeView: View {
         ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(spacing: 0) {
+                        HStack {
+                            Text("Home")
+                                .font(.largeTitle.bold())
+                                .foregroundStyle(.white)
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+
                         eventHeader
                             .padding(.horizontal)
                             .padding(.top, 16)

@@ -107,6 +107,16 @@ struct PeopleView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: DesignTokens.sectionSpacing) {
+                    HStack {
+                        Text("People")
+                            .font(.largeTitle.bold())
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+
                     // Event context banner — shown when navigated from Home
                     if let ctx = navigationState.eventContext {
                         eventContextBanner(ctx)
@@ -618,6 +628,7 @@ struct PeopleView: View {
         }
         return String(name.prefix(2)).uppercased()
     }
+
 }
 
 // MARK: - Sheet Targets
