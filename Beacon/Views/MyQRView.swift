@@ -30,8 +30,7 @@ struct MyQRView: View {
     @ObservedObject private var latelyService = DynamicProfileService.shared
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { proxy in
+        GeometryReader { proxy in
                 let layout = layoutMetrics(for: proxy)
 
                 ScrollView(showsIndicators: false) {
@@ -102,7 +101,6 @@ struct MyQRView: View {
                 await loadAuthDetails()
                 latelyService.refresh()
             }
-        }
     }
 
     private func layoutMetrics(for proxy: GeometryProxy) -> MyProfileLayoutMetrics {

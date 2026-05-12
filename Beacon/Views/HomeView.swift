@@ -28,8 +28,7 @@ struct HomeView: View {
     @State private var hasMounted = false
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottom) {
+        ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(spacing: 0) {
                         eventHeader
@@ -134,7 +133,6 @@ struct HomeView: View {
                     connectionMode: .briefRecommendation(destination.attendee)
                 )
             }
-        }
     }
 
     private var leaveEventMessage: String {
