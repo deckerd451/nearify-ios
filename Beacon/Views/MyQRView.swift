@@ -48,8 +48,6 @@ struct MyQRView: View {
                 .background(Color.black)
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button("Edit Profile") {
