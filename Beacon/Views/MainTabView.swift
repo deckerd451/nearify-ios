@@ -45,11 +45,15 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 HomeView(selectedTab: $selectedTab)
+                    .navigationTitle("Home")
+                    .navigationBarTitleDisplayMode(.large)
             }
             .tag(AppTab.home)
 
             NavigationStack(path: $peopleNavigationPath) {
                 PeopleView()
+                    .navigationTitle("People")
+                    .navigationBarTitleDisplayMode(.large)
                     .navigationDestination(for: PeopleRoute.self) { route in
                         switch route {
                         case .nearifyContacts:
@@ -63,16 +67,22 @@ struct MainTabView: View {
 
             NavigationStack {
                 ExploreView(selectedTab: $selectedTab)
+                    .navigationTitle("Explore")
+                    .navigationBarTitleDisplayMode(.large)
             }
             .tag(AppTab.event)
 
             NavigationStack {
                 MyQRView(currentUser: currentUser)
+                    .navigationTitle("Profile")
+                    .navigationBarTitleDisplayMode(.inline)
             }
             .tag(AppTab.profile)
 
             NavigationStack {
                 MessagesHubView()
+                    .navigationTitle("Messages")
+                    .navigationBarTitleDisplayMode(.large)
             }
             .tag(AppTab.messages)
         }
@@ -335,7 +345,6 @@ private struct MessagesHubView: View {
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle("Messages")
         .task {
             refreshConversations()
         }

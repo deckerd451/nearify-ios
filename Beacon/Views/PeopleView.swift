@@ -57,8 +57,6 @@ struct PeopleView: View {
                 }
             }
         }
-        .navigationTitle("People")
-        .navigationBarTitleDisplayMode(.large)
         .refreshable {
             memory.requestRefresh(reason: "people-pull")
             claimedGuestInteractions.requestRefresh()

@@ -57,8 +57,6 @@ struct HomeView: View {
                 }
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("Home")
-            .navigationBarTitleDisplayMode(.large)
             .refreshable { attendeesService.refresh() }
             .onChange(of: eventJoin.currentEventID) { _, _ in
                 maybePresentEventBrief()

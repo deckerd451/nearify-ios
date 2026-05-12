@@ -39,8 +39,6 @@ struct ExploreView: View {
                     mainContent
                 }
             }
-            .navigationTitle("Explore")
-            .navigationBarTitleDisplayMode(.large)
             .refreshable {
                 explore.refresh()
             }
