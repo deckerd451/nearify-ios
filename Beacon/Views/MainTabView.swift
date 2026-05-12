@@ -43,8 +43,10 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView(selectedTab: $selectedTab)
-                .tag(AppTab.home)
+            NavigationStack {
+                HomeView(selectedTab: $selectedTab)
+            }
+            .tag(AppTab.home)
 
             NavigationStack(path: $peopleNavigationPath) {
                 PeopleView()
@@ -59,14 +61,20 @@ struct MainTabView: View {
             }
             .tag(AppTab.people)
 
-            ExploreView(selectedTab: $selectedTab)
-                .tag(AppTab.event)
+            NavigationStack {
+                ExploreView(selectedTab: $selectedTab)
+            }
+            .tag(AppTab.event)
 
-            MyQRView(currentUser: currentUser)
-                .tag(AppTab.profile)
+            NavigationStack {
+                MyQRView(currentUser: currentUser)
+            }
+            .tag(AppTab.profile)
 
-            MessagesHubView()
-                .tag(AppTab.messages)
+            NavigationStack {
+                MessagesHubView()
+            }
+            .tag(AppTab.messages)
         }
         .safeAreaInset(edge: .bottom) {
             CustomTabBar(
@@ -300,9 +308,8 @@ private struct MessagesHubView: View {
     private var myId: UUID? { AuthService.shared.currentUser?.id }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if messaging.conversations.isEmpty {
+        Group {
+            if messaging.conversations.isEmpty {
                     Text("No messages yet")
                         .foregroundColor(.gray)
                 } else {
@@ -329,7 +336,6 @@ private struct MessagesHubView: View {
                 }
             }
             .navigationTitle("Messages")
-        }
         .task {
             refreshConversations()
         }

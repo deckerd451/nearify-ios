@@ -27,8 +27,7 @@ struct ExploreView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
+        ZStack {
                 Color.black.ignoresSafeArea()
 
                 if explore.isLoading && noSections {
@@ -98,7 +97,6 @@ struct ExploreView: View {
                     }
                 )
             }
-        }
     }
 
     private var mainContent: some View {
