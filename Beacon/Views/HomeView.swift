@@ -43,8 +43,15 @@ struct HomeView: View {
                         } else if !eventJoin.isCheckedIn {
                             notJoinedState
                         } else if attendeesService.attendees.isEmpty {
+                            // Checked in but nobody visible yet — surface the best
+                            // contextual action (brief person, follow-up, messages).
+                            nextBestActionCard(minPriority: 0.35)
                             emptyState.padding(.top, 60)
                         } else {
+                            // Attendee list is the primary surface; only surface
+                            // unread messages (priority ≥ 0.95) so the card
+                            // doesn't compete with the list itself.
+                            nextBestActionCard(minPriority: 0.95)
                             attendeeList
                         }
                     }
@@ -488,6 +495,28 @@ struct HomeView: View {
             }
         }
         .buttonStyle(PressableScaleButtonStyle())
+    }
+
+    // MARK: - Next Best Action
+
+    /// Returns the NBA card configured with HomeView's navigation callbacks.
+    /// `minPriority` lets callers suppress lower-priority actions when the
+    /// surrounding UI already covers them (e.g. attendee list is the surface).
+    private func nextBestActionCard(minPriority: Double) -> some View {
+        NextBestActionCard(minPriority: minPriority) { action in
+            switch action {
+            case .openMessages:
+                switchTab(to: .messages)
+            case .findAttendee(let attendee):
+                briefConnectionDestination = BriefConnectionDestination(attendee: attendee)
+            case .showBrief:
+                showEventBrief = true
+            case .showGoalPicker:
+                showGoalPickerSheet = true
+            case .goToPeople:
+                switchTab(to: .people)
+            }
+        }
     }
 
     private var activeEventExploreModel: ExploreEvent? {
