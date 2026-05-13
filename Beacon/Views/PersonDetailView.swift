@@ -256,7 +256,7 @@ struct PersonDetailView: View {
             profileActionButton(
                 layout: layout,
                 systemImage: "bubble.left.fill",
-                title: "Message",
+                title: "Say hello",
                 accessibility: "Message \(attendee.name)"
             ) {
                 print("[ProfileHero] message tapped profileId=\(attendee.id)")
@@ -269,7 +269,7 @@ struct PersonDetailView: View {
                 profileActionButton(
                     layout: layout,
                     systemImage: "location.fill",
-                    title: "Find",
+                    title: "See nearby",
                     accessibility: "Find \(attendee.name) nearby"
                 ) {
                     print("[ProfileHero] find tapped profileId=\(attendee.id)")
