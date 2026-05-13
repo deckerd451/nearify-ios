@@ -121,23 +121,23 @@ struct PeopleView: View {
                     if !sections.hereNow.isEmpty {
                         sectionBlock(
                             title: "Here Now", icon: "circle.fill",
-                            color: .green, subtitle: "Live now · go say hi",
+                            color: .green, subtitle: "At the event right now",
                             people: sections.hereNow
                         )
                     }
 
                     if !sections.followUp.isEmpty {
                         sectionBlock(
-                            title: "Follow Up", icon: "exclamationmark.bubble",
-                            color: .yellow, subtitle: "You spent meaningful time together",
+                            title: "Worth Following Up", icon: "exclamationmark.bubble",
+                            color: .yellow, subtitle: "You spent real time together",
                             people: sections.followUp
                         )
                     }
 
                     if !sections.notHere.isEmpty {
                         sectionBlock(
-                            title: "Past / Other", icon: "sparkles",
-                            color: .white.opacity(0.6), subtitle: "Memory + continuity from past events",
+                            title: "People You've Met", icon: "sparkles",
+                            color: .white.opacity(0.6), subtitle: "From past events",
                             people: sections.notHere
                         )
                     }
@@ -593,9 +593,9 @@ struct PeopleView: View {
             Spacer()
             Image(systemName: "person.2.circle")
                 .font(.system(size: 48)).foregroundColor(.gray.opacity(0.4))
-            Text("No one here yet")
+            Text("No one nearby yet")
                 .font(.title3).fontWeight(.semibold).foregroundColor(.white.opacity(0.6))
-            Text("You'll see people appear as they arrive.\nJoin events to build your network over time.")
+            Text("People appear here as they arrive.\nCheck in to an event to start meeting people.")
                 .font(.subheadline).foregroundColor(.gray)
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
             Spacer()

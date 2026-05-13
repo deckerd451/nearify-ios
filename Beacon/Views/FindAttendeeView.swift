@@ -194,7 +194,7 @@ struct FindAttendeeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Back to event") { dismiss() }
+                Button("Done") { dismiss() }
             }
         }
         .onAppear {
@@ -287,28 +287,15 @@ struct FindAttendeeView: View {
 
     private var navigationTitle: String {
         if isBriefRecommendationMode {
-            return "Connecting with \(attendee.name)"
+            return "Finding \(attendee.name)"
         }
-        return "Find Attendee"
+        return "Finding \(attendee.name)"
     }
 
     // MARK: - Identity Section
 
     private var searchAnchor: some View {
-        HStack(spacing: 6) {
-            Text("Looking for:")
-                .font(.caption)
-                .foregroundColor(.gray.opacity(0.9))
-            Text(attendee.name)
-                .font(.caption.weight(.semibold))
-                .foregroundColor(.white)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Capsule().fill(Color.white.opacity(0.08)))
-        .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.horizontal, 24)
+        EmptyView()
     }
 
     private var identitySection: some View {
@@ -808,23 +795,23 @@ struct FindAttendeeView: View {
 
     private var fallbackActionSection: some View {
         VStack(spacing: 10) {
-            Text("Can’t find them?")
+            Text(hasEnteredExtendedSearchState ? "Give it a moment — signals can be brief." : "Keep moving slowly for a better signal.")
                 .font(.caption.weight(.semibold))
                 .foregroundColor(hasEnteredExtendedSearchState ? .white.opacity(0.9) : .gray.opacity(0.75))
 
             HStack(spacing: 10) {
-                Button("See others nearby") {
+                Button("Who else is here") {
                     dismiss()
                 }
                 .buttonStyle(fallbackButtonStyle(prominent: hasEnteredExtendedSearchState))
 
-                Button("Back to event") {
+                Button("Back") {
                     dismiss()
                 }
                 .buttonStyle(fallbackButtonStyle(prominent: hasEnteredExtendedSearchState))
             }
 
-            Button(isSearchExpanded ? "Search expanded" : "Expand search") {
+            Button(isSearchExpanded ? "Wider search on" : "Widen the search") {
                 isSearchExpanded = true
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
@@ -1230,7 +1217,7 @@ struct FindAttendeeView: View {
             HStack(spacing: 10) {
                 Button("Back") { dismiss() }
                     .buttonStyle(fallbackButtonStyle(prominent: true))
-                Button("Keep exploring") { resetArrivedStateForExploration() }
+                Button("Find someone else") { resetArrivedStateForExploration() }
                     .buttonStyle(fallbackButtonStyle(prominent: true))
             }
             .padding(.horizontal, 16)

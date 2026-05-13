@@ -22,7 +22,7 @@ struct PreEventBriefView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Pre-Event Intelligence Brief")
+            Text("People Worth Meeting")
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
@@ -38,7 +38,7 @@ struct PreEventBriefView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                sectionTitle("Goal")
+                sectionTitle("What you want from tonight")
                 Text(brief.goalLine)
                     .font(.body)
                     .fontWeight(.semibold)
@@ -50,7 +50,7 @@ struct PreEventBriefView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Joined attendee intelligence")
+                sectionTitle("Who's coming")
                 ForEach(Array(brief.joinedSummary.enumerated()), id: \.offset) { _, line in
                     Text("• \(line)")
                         .font(.subheadline)
@@ -60,17 +60,17 @@ struct PreEventBriefView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Worth looking for")
+                sectionTitle("Worth meeting")
                 if brief.priorityPeople.isEmpty {
                     if hydrationState.isLoading {
                         HStack(spacing: 8) {
                             ProgressView().scaleEffect(0.8)
-                            Text("Scanning for strong connections…")
+                            Text("Finding good matches…")
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
                         }
                     } else {
-                        Text("We’re still building your early connection preview. Check in when you arrive for live matching.")
+                        Text("More attendees are joining. Check in when you arrive for live suggestions.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -82,7 +82,7 @@ struct PreEventBriefView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                sectionTitle("Suggested opener")
+                sectionTitle("Break the ice with")
                 Text(brief.conversationStarters.first ?? "What kind of project are you hoping to build?")
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -147,11 +147,6 @@ struct PreEventBriefView: View {
                     )
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Early connection preview")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-
                         Text(person.name)
                             .font(.title3)
                             .fontWeight(.bold)
@@ -169,7 +164,7 @@ struct PreEventBriefView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionTitle(hasScoreEvidence(person) ? "Why this may be useful" : "Context")
+                    sectionTitle("Why a good match")
                     Text(person.reason)
                         .font(.subheadline)
                         .foregroundColor(.primary)
