@@ -41,6 +41,8 @@ struct FeedProfileDetailView: View {
         }
         .navigationTitle(profile?.name ?? "Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(Color.black, for: .navigationBar)
         .task { await loadProfile() }
         .alert("Can't message yet", isPresented: $showNotConnectedAlert) {
             Button("OK", role: .cancel) {}

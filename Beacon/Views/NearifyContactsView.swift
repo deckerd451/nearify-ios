@@ -80,6 +80,8 @@ struct NearifyContactsView: View {
         }
         .navigationTitle("Saved to Contacts")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(Color.black, for: .navigationBar)
         .task { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             Task { await refreshPermissionAndReload() }
