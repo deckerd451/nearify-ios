@@ -589,13 +589,13 @@ struct PeopleView: View {
     // MARK: - Empty / Loading
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Spacer()
             Image(systemName: "person.2.circle")
                 .font(.system(size: 48)).foregroundColor(.gray.opacity(0.4))
-            Text("No one nearby yet")
+            Text("You're early.")
                 .font(.title3).fontWeight(.semibold).foregroundColor(.white.opacity(0.6))
-            Text("People appear here as they arrive.\nCheck in to an event to start meeting people.")
+            Text("People will appear here as they arrive.")
                 .font(.subheadline).foregroundColor(.gray)
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
             Spacer()
@@ -605,7 +605,7 @@ struct PeopleView: View {
     private var loadingState: some View {
         VStack(spacing: 12) {
             ProgressView().tint(.white)
-            Text("Loading…").font(.subheadline).foregroundColor(.gray)
+            Text("Looking around…").font(.subheadline).foregroundColor(.gray)
         }
     }
 

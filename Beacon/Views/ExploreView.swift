@@ -140,10 +140,22 @@ struct ExploreView: View {
     @ViewBuilder
     private var activeEventSection: some View {
         if let current = explore.currentEvent {
+            let isJoined = eventJoin.isEventJoined && eventJoin.currentEventID == current.id.uuidString
+            let isCheckedIn = isJoined && eventJoin.isCheckedIn
+            let statusText: String = {
+                if isCheckedIn { return "You're here now" }
+                if isJoined { return "You're going" }
+                return "Happening now"
+            }()
+            let actionTitle: String = {
+                if isCheckedIn { return "Open Event" }
+                if isJoined { return "Check In" }
+                return "Open Event"
+            }()
             EventFocusCardView(
                 title: current.name,
-                statusText: eventJoin.isEventJoined ? "Live / Joined" : "Live",
-                actionTitle: "Go to event",
+                statusText: statusText,
+                actionTitle: actionTitle,
                 isPrimary: true,
                 isActionDisabled: false,
                 onAction: {
@@ -326,7 +338,7 @@ struct ExploreView: View {
                 .foregroundColor(.green)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("✓ Joined")
+                Text("You're going")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
@@ -338,7 +350,7 @@ struct ExploreView: View {
 
             Spacer()
 
-            Button("Go to event") {
+            Button("Open Event") {
                 switchTab(to: .home)
             }
             .font(.caption)
@@ -466,11 +478,11 @@ struct ExploreView: View {
                 .font(.system(size: 36))
                 .foregroundColor(.gray.opacity(0.5))
 
-            Text("No public events right now")
+            Text("Nothing scheduled yet")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.7))
 
-            Text("Events will appear here as they're created.")
+            Text("Check back soon — events appear here when they go live.")
                 .font(.caption)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
@@ -562,7 +574,7 @@ private struct SimpleEventCardView: View {
                 if isJoined {
                     HStack(spacing: 8) {
                         joinedBadge
-                        Button("Go to event", action: onGoToEvent)
+                        Button("Open Event", action: onGoToEvent)
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.black)
@@ -579,7 +591,7 @@ private struct SimpleEventCardView: View {
                                     .tint(.black)
                             }
 
-                            Text(isJoining ? "Joining Event…" : (isJoinedElsewhere ? "Switch" : "Join Event"))
+                            Text(isJoining ? "Joining…" : (isJoinedElsewhere ? "Switch Event" : "Join Event"))
                                 .font(.subheadline)
                                 .fontWeight(.semibold)
                         }
@@ -608,7 +620,7 @@ private struct SimpleEventCardView: View {
         HStack(spacing: 4) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.caption)
-            Text("Joined")
+            Text("You're going")
                 .font(.caption)
                 .fontWeight(.semibold)
         }

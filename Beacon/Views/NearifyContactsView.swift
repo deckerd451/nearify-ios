@@ -57,11 +57,11 @@ struct NearifyContactsView: View {
 
                     if contacts.isEmpty {
                         ContentUnavailableView(
-                            isSearchActive ? "No people found" : "No Saved Contacts Yet",
+                            isSearchActive ? "Nobody matched that" : "No Saved Contacts Yet",
                             systemImage: isSearchActive ? "magnifyingglass" : "person.crop.circle.badge.questionmark",
                             description: Text(isSearchActive
-                                              ? "Try a different name, event, email, or context."
-                                              : "People you save to Apple Contacts through Nearify will appear here.")
+                                              ? "Try a name, event, or shared interest."
+                                              : "People you save to contacts through Nearify will appear here.")
                         )
                     } else {
                         List(contacts) { contact in
