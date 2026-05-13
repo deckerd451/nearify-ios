@@ -547,6 +547,8 @@ private struct SimpleEventCardView: View {
     let onGoToEvent: () -> Void
     let onOpenPastEvent: () -> Void
 
+    @State private var isDescriptionExpanded = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(event.name)
@@ -560,10 +562,21 @@ private struct SimpleEventCardView: View {
             )
 
             if let desc = event.eventDescription, !desc.isEmpty {
-                Text(desc)
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.6))
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(desc)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.6))
+                        .lineLimit(isDescriptionExpanded ? nil : 2)
+                        .animation(.easeInOut(duration: 0.2), value: isDescriptionExpanded)
+
+                    Button(isDescriptionExpanded ? "Less" : "More") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isDescriptionExpanded.toggle()
+                        }
+                    }
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(.white.opacity(0.35))
+                }
             }
 
             if role == .rejoin {

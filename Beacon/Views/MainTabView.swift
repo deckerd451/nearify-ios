@@ -47,6 +47,7 @@ struct MainTabView: View {
                 HomeView(selectedTab: $selectedTab)
                     .navigationTitle("Home")
                     .navigationBarTitleDisplayMode(.large)
+                    .toolbarBackground(.visible, for: .navigationBar)
             }
             .tag(AppTab.home)
 
@@ -54,6 +55,7 @@ struct MainTabView: View {
                 PeopleView()
                     .navigationTitle("People")
                     .navigationBarTitleDisplayMode(.large)
+                    .toolbarBackground(.visible, for: .navigationBar)
                     .navigationDestination(for: PeopleRoute.self) { route in
                         switch route {
                         case .nearifyContacts:
@@ -69,6 +71,7 @@ struct MainTabView: View {
                 ExploreView(selectedTab: $selectedTab)
                     .navigationTitle("Explore")
                     .navigationBarTitleDisplayMode(.large)
+                    .toolbarBackground(.visible, for: .navigationBar)
             }
             .tag(AppTab.event)
 
@@ -76,6 +79,7 @@ struct MainTabView: View {
                 MyQRView(currentUser: currentUser)
                     .navigationTitle("Profile")
                     .navigationBarTitleDisplayMode(.inline)
+                    .toolbarBackground(.visible, for: .navigationBar)
             }
             .tag(AppTab.profile)
 
@@ -83,6 +87,7 @@ struct MainTabView: View {
                 MessagesHubView()
                     .navigationTitle("Messages")
                     .navigationBarTitleDisplayMode(.large)
+                    .toolbarBackground(.visible, for: .navigationBar)
             }
             .tag(AppTab.messages)
         }

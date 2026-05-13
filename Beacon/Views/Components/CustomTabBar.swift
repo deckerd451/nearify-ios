@@ -20,27 +20,17 @@ struct CustomTabBar: View {
     ]
 
     var body: some View {
-        GeometryReader { proxy in
-            let bottomInset = proxy.safeAreaInsets.bottom
-            let baseBarHeight: CGFloat = 66
-            let totalBarHeight = baseBarHeight + max(8, bottomInset)
-
-            HStack(spacing: 0) {
-                ForEach(items, id: \.tab) { item in
-                    tabButton(item)
-                }
+        HStack(spacing: 0) {
+            ForEach(items, id: \.tab) { item in
+                tabButton(item)
             }
-            .frame(maxWidth: .infinity, minHeight: baseBarHeight)
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 8 + max(0, bottomInset - 2))
-            .background(glassBackground)
-            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 6)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .frame(height: totalBarHeight)
         }
-        .frame(height: 96)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(glassBackground)
+        .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 6)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Tab button
