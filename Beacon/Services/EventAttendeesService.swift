@@ -184,13 +184,14 @@ struct EventAttendee: Identifiable, Equatable {
     }
 
     var initials: String {
-        let components = name.components(separatedBy: " ")
+        let sanitized = IdentityDisplayName.primaryName(name: name)
+        let components = sanitized.components(separatedBy: " ")
         if components.count >= 2 {
             let first = components[0].prefix(1)
             let last = components[1].prefix(1)
             return "\(first)\(last)".uppercased()
         } else {
-            return String(name.prefix(2)).uppercased()
+            return String(sanitized.prefix(2)).uppercased()
         }
     }
 }

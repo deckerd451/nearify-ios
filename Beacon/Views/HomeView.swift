@@ -164,7 +164,7 @@ struct HomeView: View {
             return []
         }
 
-        let attendeeNamesById = Dictionary(uniqueKeysWithValues: attendeesService.attendees.map { ($0.id, $0.name) })
+        let attendeeNamesById = Dictionary(uniqueKeysWithValues: attendeesService.attendees.map { ($0.id, IdentityDisplayName.primaryName(name: $0.name)) })
 
         let profileIds = LocalEncounterStore.shared.encounters(forEvent: eventUUID)
             .filter { $0.duration >= 30 }
@@ -261,8 +261,9 @@ struct HomeView: View {
                     .tracking(1.1)
                     .foregroundColor(VisualStyle.live.opacity(0.9))
                 Spacer()
-                if attendeesService.attendeeCount > 0 {
-                    Text("\(attendeesService.attendeeCount) around you")
+                let liveCount = attendeesService.liveOtherCount
+                if liveCount > 0 {
+                    Text(liveCount == 1 ? "1 person nearby" : "\(liveCount) people nearby")
                         .font(.caption2.weight(.semibold))
                         .foregroundColor(VisualStyle.tertiaryText)
                 }
@@ -287,7 +288,7 @@ struct HomeView: View {
             Button {
                 showEventBrief = true
             } label: {
-                Text("Who to Talk To")
+                Text(briefCTALabel)
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
@@ -322,8 +323,17 @@ struct HomeView: View {
     }
 
     private var nearbyCountLine: String {
-        let count = attendeesService.attendeeCount
-        return count == 1 ? "1 person around you" : "\(count) people around you"
+        let count = attendeesService.liveOtherCount
+        return count == 1 ? "1 person nearby" : "\(count) people nearby"
+    }
+
+    private var briefCTALabel: String {
+        guard let brief = briefController.currentBrief,
+              let topPerson = brief.priorityPeople.first else {
+            return "See suggestions"
+        }
+        let name = IdentityDisplayName.primaryName(name: topPerson.name)
+        return "Meet \(name)"
     }
 
     private var preCheckInCard: some View {
@@ -435,7 +445,7 @@ struct HomeView: View {
     private var attendeeList: some View {
         LazyVStack(spacing: 8) {
             HStack {
-                Text("People here now")
+                Text("People nearby")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(VisualStyle.secondaryText)
@@ -611,13 +621,13 @@ struct HomeView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Image(systemName: "person.3")
+            Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: 40))
                 .foregroundColor(VisualStyle.tertiaryText)
-            Text("You’re live.")
+            Text("Looking for people")
                 .font(.headline)
                 .foregroundColor(VisualStyle.secondaryText)
-            Text("People will appear here as they check in — keep Nearify open.")
+            Text("Walk around — Nearify will surface the right people as they arrive.")
                 .font(.subheadline)
                 .foregroundColor(VisualStyle.tertiaryText)
                 .multilineTextAlignment(.center)
