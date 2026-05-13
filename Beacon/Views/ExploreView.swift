@@ -549,108 +549,169 @@ private struct SimpleEventCardView: View {
 
     @State private var isDescriptionExpanded = false
 
+    // Rough heuristic: caption font at ~343pt line width ≈ 56 chars/line × 3 lines.
+    // Descriptions longer than this threshold are likely to be clipped.
+    private var descriptionOverflows: Bool {
+        (event.eventDescription?.count ?? 0) > 100
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
+            // ── Title ──────────────────────────────────────────────────────
             Text(event.name)
-                .font(.subheadline)
-                .fontWeight(.semibold)
+                .font(.headline)
                 .foregroundColor(.white)
+                .fixedSize(horizontal: false, vertical: true)
 
-            EventMetadataRow(
-                dateDisplay: event.dateDisplay,
-                location: event.location
-            )
+            // ── Metadata ───────────────────────────────────────────────────
+            if event.dateDisplay != nil || !(event.location?.isEmpty ?? true) {
+                EventMetadataRow(dateDisplay: event.dateDisplay, location: event.location)
+                    .padding(.top, 6)
+            }
 
+            // ── Description ────────────────────────────────────────────────
             if let desc = event.eventDescription, !desc.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(desc)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
-                        .lineLimit(isDescriptionExpanded ? nil : 2)
-                        .animation(.easeInOut(duration: 0.2), value: isDescriptionExpanded)
-
-                    Button(isDescriptionExpanded ? "Less" : "More") {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isDescriptionExpanded.toggle()
-                        }
-                    }
-                    .font(.caption.weight(.medium))
-                    .foregroundColor(.white.opacity(0.35))
-                }
+                descriptionBlock(desc)
+                    .padding(.top, 10)
             }
 
-            if role == .rejoin {
-                Button("Open recap", action: onOpenPastEvent)
-                    .font(.caption)
-                    .foregroundColor(.orange)
-            } else {
-                if isJoined {
-                    HStack(spacing: 8) {
-                        joinedBadge
-                        Button("Open Event", action: onGoToEvent)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(Color.green))
-                    }
-                } else {
-                    Button(action: onJoin) {
-                        HStack(spacing: 6) {
-                            if isJoining {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(.black)
-                            }
-
-                            Text(isJoining ? "Joining…" : (isJoinedElsewhere ? "Switch Event" : "Join Event"))
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                        }
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(role == .happeningNow ? Color.green : Color.blue))
-                    }
-                    .disabled(isJoining)
-                }
-            }
+            // ── CTA cluster ────────────────────────────────────────────────
+            ctaCluster
+                .padding(.top, 14)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color.white.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(borderColor, lineWidth: 1)
         )
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: isDescriptionExpanded)
     }
 
-    private var joinedBadge: some View {
-        HStack(spacing: 4) {
+    // MARK: - Description
+
+    @ViewBuilder
+    private func descriptionBlock(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(text)
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.55))
+                .lineSpacing(2.5)
+                .lineLimit(isDescriptionExpanded ? nil : 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                // Gradient-mask fade on the last line when collapsed.
+                // Uses mask so no background-color matching is needed.
+                .mask {
+                    if isDescriptionExpanded {
+                        Rectangle()
+                    } else {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white, location: 0.0),
+                                .init(color: .white, location: 0.55),
+                                .init(color: .clear,  location: 1.0),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+                }
+
+            // Expand / collapse control — only when the text can actually overflow.
+            if descriptionOverflows {
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                        isDescriptionExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(isDescriptionExpanded ? "Less" : "More")
+                        Image(systemName: isDescriptionExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.45))
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: - CTA cluster
+
+    @ViewBuilder
+    private var ctaCluster: some View {
+        if role == .rejoin {
+            // Past event — open recap
+            Button(action: onOpenPastEvent) {
+                HStack(spacing: 5) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.caption)
+                    Text("Open recap")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundColor(.orange)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(Color.orange.opacity(0.12)))
+            }
+        } else if isJoined {
+            // Status and action on separate rows — "state" vs "action" clearly distinct.
+            VStack(alignment: .leading, spacing: 8) {
+                joinedStatusChip
+                Button("Open Event", action: onGoToEvent)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green))
+            }
+        } else {
+            // Join / Switch action
+            Button(action: onJoin) {
+                HStack(spacing: 6) {
+                    if isJoining {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.black)
+                    }
+                    Text(isJoining ? "Joining…" : (isJoinedElsewhere ? "Switch Event" : "Join Event"))
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundColor(.black)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(role == .happeningNow ? Color.green : Color.blue))
+            }
+            .disabled(isJoining)
+        }
+    }
+
+    // MARK: - Supporting views
+
+    private var joinedStatusChip: some View {
+        HStack(spacing: 5) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.caption)
             Text("You're going")
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(.caption.weight(.semibold))
         }
         .foregroundColor(.green)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.vertical, 5)
         .background(Capsule().fill(Color.green.opacity(0.12)))
     }
 
     private var borderColor: Color {
         switch role {
-        case .happeningNow:
-            return Color.green.opacity(0.2)
-        case .rejoin:
-            return Color.orange.opacity(0.2)
-        case .upcoming:
-            return Color.white.opacity(0.06)
+        case .happeningNow: return Color.green.opacity(0.25)
+        case .rejoin:       return Color.orange.opacity(0.25)
+        case .upcoming:     return Color.white.opacity(0.08)
         }
     }
 }
@@ -660,15 +721,16 @@ private struct EventMetadataRow: View {
     let location: String?
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if let dateDisplay {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
                         .font(.system(size: 10))
                     Text(dateDisplay)
+                        .lineLimit(1)
                 }
                 .font(.caption)
-                .foregroundColor(.gray)
+                .foregroundColor(.white.opacity(0.45))
             }
 
             if let location, !location.isEmpty {
@@ -676,9 +738,10 @@ private struct EventMetadataRow: View {
                     Image(systemName: "mappin")
                         .font(.system(size: 10))
                     Text(location)
+                        .lineLimit(1)
                 }
                 .font(.caption)
-                .foregroundColor(.gray)
+                .foregroundColor(.white.opacity(0.45))
             }
         }
     }
