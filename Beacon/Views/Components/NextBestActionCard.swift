@@ -77,8 +77,18 @@ struct NextBestActionCard: View {
            let topPerson = briefController.currentBrief?.priorityPeople.first {
             let matchedAttendee = attendeesService.attendees.first { $0.id == topPerson.id }
             let isLocatable = matchedAttendee != nil || topPerson.isNearby == true
+            let displayName = IdentityDisplayName.primaryName(name: topPerson.name)
+            let score = topPerson.matchScore ?? 0.5
+            let headline: String
+            if score >= 0.75 {
+                headline = "You should talk to \(displayName)"
+            } else if score >= 0.45 {
+                headline = "You'd probably enjoy talking with \(displayName)"
+            } else {
+                headline = "You might enjoy meeting \(displayName)"
+            }
             candidates.append(DisplayAction(
-                headline: "You'd probably enjoy talking with \(topPerson.name)",
+                headline: headline,
                 subtitle: topPerson.reason.isEmpty ? nil : topPerson.reason,
                 ctaLabel: isLocatable && matchedAttendee != nil ? "Find them" : "See who's here",
                 icon: "sparkles",
@@ -94,8 +104,13 @@ struct NextBestActionCard: View {
         // Shows a warm teaser before the user arrives.
         if eventJoin.isEventJoined, !eventJoin.isCheckedIn,
            let topPerson = briefController.currentBrief?.priorityPeople.first {
+            let displayName = IdentityDisplayName.primaryName(name: topPerson.name)
+            let score = topPerson.matchScore ?? 0.5
+            let headline = score >= 0.65
+                ? "Worth meeting: \(displayName)"
+                : "You might enjoy meeting \(displayName)"
             candidates.append(DisplayAction(
-                headline: "Worth meeting: \(topPerson.name)",
+                headline: headline,
                 subtitle: topPerson.reason.isEmpty ? nil : topPerson.reason,
                 ctaLabel: "See briefing",
                 icon: "sparkles",
@@ -115,8 +130,9 @@ struct NextBestActionCard: View {
                 }
                 .first
             if let rel = topFollowUp {
+                let relDisplayName = IdentityDisplayName.primaryName(name: rel.name)
                 candidates.append(DisplayAction(
-                    headline: "Follow up with \(rel.name)",
+                    headline: "Follow up with \(relDisplayName)",
                     subtitle: rel.whyLine.isEmpty ? nil : rel.whyLine,
                     ctaLabel: "Say hello",
                     icon: "arrow.turn.up.right",

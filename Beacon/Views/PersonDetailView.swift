@@ -113,7 +113,7 @@ struct PersonDetailView: View {
                             .foregroundStyle(.white.opacity(0.9))
                     }
 
-                    Text(attendee.name)
+                    Text(IdentityDisplayName.primaryName(name: attendee.name, debugSource: "PersonDetail.hero"))
                         .font(.system(size: layout.nameFontSize, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(2)

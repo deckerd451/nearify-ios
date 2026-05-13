@@ -18,7 +18,7 @@ struct AttendeeCardView: View {
             // Profile info
             VStack(alignment: .leading, spacing: 4) {
                 // Name
-                Text(attendee.name)
+                Text(IdentityDisplayName.primaryName(name: attendee.name, debugSource: "AttendeeCard"))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(isRecentlySeen ? VisualStyle.secondaryText : .white)
