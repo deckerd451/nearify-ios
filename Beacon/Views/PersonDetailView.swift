@@ -309,7 +309,7 @@ struct PersonDetailView: View {
                 }
             }
         case .ignoredOrDeclined, .none:
-            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: contactShareStatus == .ignoredOrDeclined ? "Request Again" : "Request Contact", accessibility: "Request contact sharing with \(attendee.name)") {
+            profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: contactShareStatus == .ignoredOrDeclined ? "Try Again" : "Exchange Contact", accessibility: "Exchange contact with \(attendee.name)") {
                 Task {
                     guard let currentUserId = AuthService.shared.currentUser?.id else { return }
                     let eventId = EventJoinService.shared.currentEventID.flatMap(UUID.init(uuidString:))

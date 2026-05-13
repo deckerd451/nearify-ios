@@ -351,7 +351,7 @@ struct HomeView: View {
             .foregroundColor(VisualStyle.secondaryText)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Goal")
+                Text("What do you want from tonight?")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white.opacity(0.95))
 
@@ -365,7 +365,7 @@ struct HomeView: View {
                     print("[GoalPicker] opened")
                     showGoalPickerSheet = true
                 } label: {
-                    Text(hasIntent ? "Change Goal" : "Choose Goal")
+                    Text(hasIntent ? "Change" : "Set your goal")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 12)
@@ -375,31 +375,25 @@ struct HomeView: View {
                 .buttonStyle(PressableScaleButtonStyle())
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
-                    Task { await eventJoin.checkIn() }
-                } label: {
-                    Text("Check In")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(VisualStyle.primaryAction))
-                }
+            Button {
+                EventPresenceService.shared.setActivationIntent(.userCheckIn)
+                Task { await eventJoin.checkIn() }
+            } label: {
+                Text("Check In")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(VisualStyle.primaryAction))
+            }
+            .buttonStyle(PressableScaleButtonStyle())
 
-                Button {
-                    showEventBrief = true
-                } label: {
-                    Text("Briefing")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(VisualStyle.intelligence.opacity(0.28)))
-                }
-
-                Spacer(minLength: 0)
+            Button {
+                showEventBrief = true
+            } label: {
+                Text("See who may be there")
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(VisualStyle.intelligence.opacity(0.85))
             }
             .buttonStyle(PressableScaleButtonStyle())
 
@@ -435,7 +429,7 @@ struct HomeView: View {
     private var attendeeList: some View {
         LazyVStack(spacing: 8) {
             HStack {
-                Text("Checked-In Attendees")
+                Text("People here now")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(VisualStyle.secondaryText)
@@ -476,7 +470,7 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
                     .foregroundColor(VisualStyle.intelligence)
-                Text("Prepare for Event")
+                Text("Who might be there")
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white.opacity(0.95))
                 Spacer()
@@ -484,7 +478,7 @@ struct HomeView: View {
 
             if let recommendation {
                 let isZeroConfidence = (recommendation.confidence ?? 0) == 0 && (recommendation.matchScore ?? 0) == 0
-                Text(isZeroConfidence ? "Also attending: \(recommendation.name)" : "Potential strong match: \(recommendation.name)")
+                Text(isZeroConfidence ? "Also attending: \(recommendation.name)" : "Worth meeting: \(recommendation.name)")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(VisualStyle.intelligence)
                 Text("\(recommendation.reason)")
@@ -492,7 +486,7 @@ struct HomeView: View {
                     .foregroundColor(VisualStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("More attendees are arriving. Nearify updates this brief as the room takes shape.")
+                Text("More people are joining. Suggestions appear as the room fills up.")
                     .font(.subheadline)
                     .foregroundColor(VisualStyle.secondaryText)
             }
@@ -524,17 +518,17 @@ struct HomeView: View {
 
     private var notJoinedState: some View {
         VStack(spacing: 12) {
-            Text("No live event yet")
+            Text("Find your next event")
                 .font(.headline)
                 .foregroundColor(VisualStyle.secondaryText)
-            Text("Explore events, join one, then check in when you arrive.")
+            Text("Join an event and Nearify will quietly help you meet the right people.")
                 .font(.subheadline)
                 .foregroundColor(VisualStyle.tertiaryText)
                 .multilineTextAlignment(.center)
             Button {
                 switchTab(to: .event)
             } label: {
-                Text("Go to Explore")
+                Text("Browse Events")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
@@ -601,9 +595,14 @@ struct HomeView: View {
             Image(systemName: "person.3")
                 .font(.system(size: 40))
                 .foregroundColor(VisualStyle.tertiaryText)
-            Text("You’re checked in. We’ll show people here as they appear.")
+            Text("You’re live.")
                 .font(.headline)
                 .foregroundColor(VisualStyle.secondaryText)
+            Text("People will appear here as they check in — keep Nearify open.")
+                .font(.subheadline)
+                .foregroundColor(VisualStyle.tertiaryText)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
         }
         .multilineTextAlignment(.center)
     }
@@ -653,8 +652,9 @@ struct HomeView: View {
                     }
                 }
             } else {
-                Text("No event brief available.")
+                Text("Suggestions will appear as more people join.")
                     .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
                     .padding()
             }
         }
@@ -664,7 +664,7 @@ struct HomeView: View {
     private var goalPickerSheet: some View {
         NavigationStack {
             List {
-                Section("What do you want from this event?") {
+                Section("Pick what fits tonight") {
                     ForEach(EventContextService.supportedIntents, id: \.self) { intent in
                         Button(intent) {
                             handleGoalSelection(intent)
@@ -673,7 +673,7 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationTitle("Choose Goal")
+            .navigationTitle("What do you want from tonight?")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -748,7 +748,7 @@ struct HomeView: View {
 
     private var checkInConfirmationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("You’re checked in.\nNearify is now capturing who you meet.")
+            Text("You’re live — Nearify is quietly tracking who you meet.")
                 .font(.headline)
                 .foregroundColor(.white)
 
@@ -758,7 +758,7 @@ struct HomeView: View {
                 }
                 switchTab(to: .people, source: .user)
             } label: {
-                Text("See who’s here")
+                Text("Who’s here")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
