@@ -253,23 +253,23 @@ struct BeaconApp: App {
                     switchTab(to: .people, source: .user)
                 }
             }
-            // MARK: - Event Switch Confirmation
+            // MARK: - Check-In Switch Confirmation
             //
-            // Shown when the user attempts to join a different event while already in one.
-            // The system NEVER silently switches events — user must confirm.
+            // Shown when the user tries to check in to Event B while already checked
+            // in to Event A. Joining additional events (RSVP) never requires confirmation.
             .sheet(
                 isPresented: Binding(
-                    get: { EventJoinService.shared.pendingEventSwitch != nil },
-                    set: { if !$0 { EventJoinService.shared.cancelEventSwitch() } }
+                    get: { EventJoinService.shared.pendingCheckInSwitch != nil },
+                    set: { if !$0 { EventJoinService.shared.cancelCheckInSwitch() } }
                 )
             ) {
-                EventSwitchConfirmationSheet(
-                    pending: EventJoinService.shared.pendingEventSwitch,
+                CheckInSwitchConfirmationSheet(
+                    pending: EventJoinService.shared.pendingCheckInSwitch,
                     onCancel: {
-                        EventJoinService.shared.cancelEventSwitch()
+                        EventJoinService.shared.cancelCheckInSwitch()
                     },
                     onConfirm: {
-                        Task { await EventJoinService.shared.confirmEventSwitch() }
+                        Task { await EventJoinService.shared.confirmCheckInSwitch() }
                     }
                 )
             }
@@ -337,8 +337,8 @@ struct BeaconApp: App {
         let conversation: Conversation
     }
 
-    private struct EventSwitchConfirmationSheet: View {
-        let pending: EventJoinService.PendingEventSwitch?
+    private struct CheckInSwitchConfirmationSheet: View {
+        let pending: EventJoinService.PendingCheckInSwitch?
         let onCancel: () -> Void
         let onConfirm: () -> Void
 
@@ -348,27 +348,27 @@ struct BeaconApp: App {
                     Color.black.ignoresSafeArea()
 
                     VStack(alignment: .leading, spacing: 20) {
-                        Text("Switch Events?")
+                        Text("Check in here instead?")
                             .font(.title2)
                             .fontWeight(.bold)
                             .foregroundColor(.white)
 
                         if let pending {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("You’re currently checked in to:")
+                                Text("You’re currently checked in at:")
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
 
-                                Text(pending.currentEventName)
+                                Text(pending.currentCheckedInEventName)
                                     .font(.headline)
                                     .foregroundColor(.white)
 
-                                Text("Leave this event and join:")
+                                Text("Check in here instead:")
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
                                     .padding(.top, 2)
 
-                                Text(pending.newEventName ?? "Selected event")
+                                Text(pending.targetEventName ?? "Selected event")
                                     .font(.headline)
                                     .foregroundColor(.white)
                             }
@@ -376,7 +376,7 @@ struct BeaconApp: App {
 
                         HStack(spacing: 12) {
                             Button(action: onCancel) {
-                                Text("Cancel")
+                                Text("Stay here")
                                     .font(.subheadline)
                                     .fontWeight(.semibold)
                                     .foregroundColor(.white)
@@ -387,13 +387,13 @@ struct BeaconApp: App {
                             }
 
                             Button(action: onConfirm) {
-                                Text("Switch Events")
+                                Text("Check in here")
                                     .font(.subheadline)
                                     .fontWeight(.bold)
                                     .foregroundColor(.black)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
-                                    .background(Color.blue)
+                                    .background(Color.green)
                                     .cornerRadius(12)
                             }
                         }

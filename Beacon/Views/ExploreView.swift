@@ -7,7 +7,7 @@ struct ExploreView: View {
     @ObservedObject private var eventJoin = EventJoinService.shared
 
     @State private var selectedPastEvent: ExploreEvent?
-    @State private var showSwitchConfirmation = false
+    @State private var showCheckInSwitchConfirmation = false
     @State private var joinInFlightEventID: String?
 
     enum ExploreJoinState: Equatable {
@@ -46,8 +46,8 @@ struct ExploreView: View {
                 explore.refresh()
                 lastJoinedEventID = eventJoin.currentEventID
             }
-            .onChange(of: eventJoin.pendingEventSwitch) { pending in
-                showSwitchConfirmation = pending != nil
+            .onChange(of: eventJoin.pendingCheckInSwitch) { pending in
+                showCheckInSwitchConfirmation = pending != nil
                 if pending == nil {
                     joinInFlightEventID = nil
                 }
@@ -66,22 +66,22 @@ struct ExploreView: View {
                 showJoinedBanner(eventName: eventJoin.currentEventName ?? "the event")
             }
             .confirmationDialog(
-                "Switch Events?",
-                isPresented: $showSwitchConfirmation,
+                "Check in here instead?",
+                isPresented: $showCheckInSwitchConfirmation,
                 titleVisibility: .visible
             ) {
-                if let pending = eventJoin.pendingEventSwitch {
-                    Button("Leave \(pending.currentEventName) and Join Event \(pending.newEventName ?? "new event")", role: .destructive) {
-                        Task { await eventJoin.confirmEventSwitch() }
+                if let pending = eventJoin.pendingCheckInSwitch {
+                    Button("Check in to \(pending.targetEventName ?? "this event")", role: .destructive) {
+                        Task { await eventJoin.confirmCheckInSwitch() }
                     }
                 }
                 Button("Cancel", role: .cancel) {
-                    eventJoin.cancelEventSwitch()
+                    eventJoin.cancelCheckInSwitch()
                     joinInFlightEventID = nil
                 }
             } message: {
-                if let pending = eventJoin.pendingEventSwitch {
-                    Text("You’re currently in \(pending.currentEventName). Confirm to switch to \(pending.newEventName ?? "the selected event").")
+                if let pending = eventJoin.pendingCheckInSwitch {
+                    Text("You’re currently checked in at \(pending.currentCheckedInEventName). Check in here instead?")
                 }
             }
             .sheet(item: $selectedPastEvent) { event in
@@ -109,13 +109,6 @@ struct ExploreView: View {
             .padding(.top, DesignTokens.titleToContent)
             .padding(.bottom, DesignTokens.scrollBottomPadding)
         }
-        .overlay(alignment: .top) {
-            if eventJoin.isSwitchingEvent {
-                switchingOverlay
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-            }
-        }
     }
 
     @ViewBuilder
@@ -140,15 +133,17 @@ struct ExploreView: View {
     @ViewBuilder
     private var activeEventSection: some View {
         if let current = explore.currentEvent {
-            let isJoined = eventJoin.isEventJoined && eventJoin.currentEventID == current.id.uuidString
-            let isCheckedIn = isJoined && eventJoin.isCheckedIn
+            let isJoined = eventJoin.joinedEventIDs.contains(current.id.uuidString)
+            let isCheckedInHere = isJoined && eventJoin.isCheckedIn && eventJoin.currentEventID == current.id.uuidString
+            let isCheckedInElsewhere = eventJoin.isCheckedIn && eventJoin.currentEventID != current.id.uuidString
             let statusText: String = {
-                if isCheckedIn { return "You're here now" }
+                if isCheckedInHere { return "You're here now" }
                 if isJoined { return "You're going" }
                 return "Happening now"
             }()
             let actionTitle: String = {
-                if isCheckedIn { return "Open Event" }
+                if isCheckedInHere { return "Open Event" }
+                if isJoined && isCheckedInElsewhere { return "Check in here instead" }
                 if isJoined { return "Check In" }
                 return "Open Event"
             }()
@@ -159,7 +154,11 @@ struct ExploreView: View {
                 isPrimary: true,
                 isActionDisabled: false,
                 onAction: {
-                    switchTab(to: .home)
+                    if isJoined && isCheckedInElsewhere {
+                        Task { await eventJoin.checkIn(targetEventID: current.id.uuidString) }
+                    } else {
+                        switchTab(to: .home)
+                    }
                 }
             )
             .padding(.horizontal)
@@ -228,12 +227,16 @@ struct ExploreView: View {
             .padding(.horizontal)
 
             ForEach(events) { event in
+                let isJoined = eventJoin.joinedEventIDs.contains(event.id.uuidString)
+                let isCheckedInHere = isJoined && eventJoin.isCheckedIn && eventJoin.currentEventID == event.id.uuidString
+                let isCheckedInElsewhere = eventJoin.isCheckedIn && eventJoin.currentEventID != event.id.uuidString
                 SimpleEventCardView(
                     event: event,
                     role: role,
-                    isJoined: eventJoin.isEventJoined && eventJoin.currentEventID == event.id.uuidString,
+                    isJoined: isJoined,
                     isJoining: joinInFlightEventID == event.id.uuidString,
-                    isJoinedElsewhere: eventJoin.isEventJoined && eventJoin.currentEventID != event.id.uuidString,
+                    isCheckedInHere: isCheckedInHere,
+                    isCheckedInElsewhere: isCheckedInElsewhere,
                     onJoin: {
                         if role == .rejoin {
                             selectedPastEvent = event
@@ -246,6 +249,9 @@ struct ExploreView: View {
                     },
                     onOpenPastEvent: {
                         selectedPastEvent = event
+                    },
+                    onCheckIn: {
+                        Task { await eventJoin.checkIn(targetEventID: event.id.uuidString) }
                     }
                 )
                 .padding(.horizontal)
@@ -272,9 +278,8 @@ struct ExploreView: View {
     private func performJoin(eventId: String) {
         guard joinInFlightEventID == nil else { return }
 
-        if eventJoin.isEventJoined && eventJoin.currentEventID == eventId {
-            return
-        }
+        // Already joined this event — no-op.
+        if eventJoin.joinedEventIDs.contains(eventId) { return }
 
         joinInFlightEventID = eventId
 
@@ -284,14 +289,9 @@ struct ExploreView: View {
             await eventJoin.joinEvent(eventID: eventId, eventName: targetEventName)
 
             await MainActor.run {
-                if eventJoin.pendingEventSwitch != nil {
-                    return
-                }
-
-                if eventJoin.isEventJoined {
-                    if eventJoin.currentEventID == lastJoinedEventID {
-                        showJoinedBanner(eventName: eventJoin.currentEventName ?? "the event")
-                    }
+                if eventJoin.joinedEventIDs.contains(eventId) {
+                    joinInFlightEventID = nil
+                    showJoinedBanner(eventName: eventJoin.joinedEventNames[eventId] ?? targetEventName ?? "the event")
                 } else {
                     let error = eventJoin.joinError ?? "Something went wrong"
                     joinState = .failed(message: error)
@@ -417,28 +417,6 @@ struct ExploreView: View {
         }
     }
 
-    private var switchingOverlay: some View {
-        HStack(spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.white)
-            Text("Switching events…")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.12))
-                .overlay(
-                    Capsule()
-                        .stroke(Color.blue.opacity(0.35), lineWidth: 1)
-                )
-        )
-    }
-
     private func errorBanner(_ error: String) -> some View {
         VStack(spacing: 10) {
             HStack(spacing: 6) {
@@ -542,10 +520,15 @@ private struct SimpleEventCardView: View {
     let role: ExploreView.SectionRole
     let isJoined: Bool
     let isJoining: Bool
-    let isJoinedElsewhere: Bool
+    /// True when the user is checked in to THIS specific event.
+    let isCheckedInHere: Bool
+    /// True when the user is checked in to a DIFFERENT event.
+    let isCheckedInElsewhere: Bool
     let onJoin: () -> Void
     let onGoToEvent: () -> Void
     let onOpenPastEvent: () -> Void
+    /// Called when the user taps "Check In" or "Check in here instead".
+    let onCheckIn: () -> Void
 
     @State private var isDescriptionExpanded = false
 
@@ -661,18 +644,56 @@ private struct SimpleEventCardView: View {
                 .background(Capsule().fill(Color.orange.opacity(0.12)))
             }
         } else if isJoined {
-            // Status and action on separate rows — "state" vs "action" clearly distinct.
+            // Joined — show status chip + contextual action.
             VStack(alignment: .leading, spacing: 8) {
-                joinedStatusChip
-                Button("Open Event", action: onGoToEvent)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.green))
+                // Status chip
+                if isCheckedInHere {
+                    checkedInStatusChip
+                } else {
+                    joinedStatusChip
+                }
+
+                // Primary action
+                if isCheckedInHere {
+                    // Already checked in here — open the live view.
+                    Button("Open Event", action: onGoToEvent)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.green))
+                } else if role == .happeningNow && isCheckedInElsewhere {
+                    // Live event + checked in elsewhere → offer check-in switch.
+                    Button(action: onCheckIn) {
+                        Text("Check in here instead")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.green))
+                    }
+                } else if role == .happeningNow {
+                    // Live event, joined but not checked in anywhere.
+                    Button(action: onCheckIn) {
+                        Text("Check In")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.green))
+                    }
+                } else {
+                    // Future/upcoming event — navigate to event view.
+                    Button("Open Event", action: onGoToEvent)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.blue))
+                }
             }
         } else {
-            // Join / Switch action
+            // Not joined — show Join button (no "Switch Event" concept).
             Button(action: onJoin) {
                 HStack(spacing: 6) {
                     if isJoining {
@@ -680,7 +701,7 @@ private struct SimpleEventCardView: View {
                             .controlSize(.small)
                             .tint(.black)
                     }
-                    Text(isJoining ? "Joining…" : (isJoinedElsewhere ? "Switch Event" : "Join Event"))
+                    Text(isJoining ? "Joining…" : "Join")
                         .font(.subheadline.weight(.semibold))
                 }
                 .foregroundColor(.black)
@@ -699,6 +720,18 @@ private struct SimpleEventCardView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.caption)
             Text("You're going")
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundColor(.green)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(Color.green.opacity(0.12)))
+    }
+
+    private var checkedInStatusChip: some View {
+        HStack(spacing: 5) {
+            PresencePulseDot(color: .green)
+            Text("You're here")
                 .font(.caption.weight(.semibold))
         }
         .foregroundColor(.green)
