@@ -567,35 +567,6 @@ struct HomeView: View {
 
     // MARK: - Empty / Loading / Neutral
 
-    /// Compact inline row replacing the old full intelligence card.
-    /// One tappable line that opens the brief sheet — minimal visual weight.
-    private var preEventIntelligenceInlineRow: some View {
-        let brief = activePreEventBrief
-        let count = brief?.priorityPeople.count ?? 0
-        let label: String = {
-            if count >= 2 { return "\(count) people may be worth meeting" }
-            if count == 1 { return "1 person may be worth meeting" }
-            return "See who may be there"
-        }()
-
-        return Button {
-            showEventBrief = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.caption2)
-                    .foregroundColor(VisualStyle.intelligence.opacity(0.7))
-                Text(label)
-                    .font(.caption)
-                    .foregroundColor(VisualStyle.intelligence.opacity(0.85))
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(VisualStyle.tertiaryText)
-            }
-        }
-        .buttonStyle(PressableScaleButtonStyle())
-    }
-
     // MARK: - Next Best Action
 
     /// Returns the NBA card configured with HomeView's navigation callbacks.
@@ -628,10 +599,6 @@ struct HomeView: View {
     private var activeEventTimeLine: String {
         guard let event = activeEventExploreModel else { return "Time pending" }
         return event.dateDisplay ?? "Time pending"
-    }
-
-    private var activePreEventBrief: PreEventBriefBuilder.Brief? {
-        briefController.currentBrief
     }
 
     private var notJoinedState: some View {
