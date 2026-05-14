@@ -81,16 +81,16 @@ struct NextBestActionCard: View {
             let score = topPerson.matchScore ?? 0.5
             let headline: String
             if score >= 0.75 {
-                headline = "You should talk to \(displayName)"
+                headline = "You might enjoy talking with \(displayName)"
             } else if score >= 0.45 {
-                headline = "You'd probably enjoy talking with \(displayName)"
+                headline = "You might enjoy talking with \(displayName)"
             } else {
                 headline = "You might enjoy meeting \(displayName)"
             }
             candidates.append(DisplayAction(
                 headline: headline,
                 subtitle: topPerson.reason.isEmpty ? nil : topPerson.reason,
-                ctaLabel: isLocatable && matchedAttendee != nil ? "Find them" : "See who's here",
+                ctaLabel: isLocatable && matchedAttendee != nil ? "Find them" : "Who's here",
                 icon: "sparkles",
                 accentColor: VisualStyle.intelligence,
                 action: isLocatable && matchedAttendee != nil
@@ -107,12 +107,12 @@ struct NextBestActionCard: View {
             let displayName = IdentityDisplayName.primaryName(name: topPerson.name)
             let score = topPerson.matchScore ?? 0.5
             let headline = score >= 0.65
-                ? "Worth meeting: \(displayName)"
+                ? "You might enjoy meeting \(displayName)"
                 : "You might enjoy meeting \(displayName)"
             candidates.append(DisplayAction(
                 headline: headline,
                 subtitle: topPerson.reason.isEmpty ? nil : topPerson.reason,
-                ctaLabel: "See briefing",
+                ctaLabel: "Open briefing",
                 icon: "sparkles",
                 accentColor: VisualStyle.intelligence,
                 action: .showBrief,

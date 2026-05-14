@@ -22,7 +22,7 @@ struct PreEventBriefView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("People Worth Meeting")
+            Text("Who's attending")
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
@@ -60,7 +60,7 @@ struct PreEventBriefView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Worth meeting")
+                sectionTitle("You might enjoy meeting")
                 if brief.priorityPeople.isEmpty {
                     if hydrationState.isLoading {
                         HStack(spacing: 8) {
@@ -157,14 +157,13 @@ struct PreEventBriefView: View {
                 }
 
                 if let status = person.statusLabel {
-                    Text(status == "nearby" ? "Nearby now" : "Currently active")
+                    Text(status == "nearby" ? "Nearby" : "Active at this event")
                         .font(.footnote)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
+                        .foregroundColor(.secondary)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionTitle("Why a good match")
+                    sectionTitle("Why")
                     Text(person.reason)
                         .font(.subheadline)
                         .foregroundColor(.primary)
