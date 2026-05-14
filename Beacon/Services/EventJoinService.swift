@@ -194,7 +194,8 @@ final class EventJoinService: ObservableObject {
                 if let first = rows.first {
                     currentEventID = first.event_id.uuidString
                     currentEventName = first.eventName
-                    membershipState = .joined(eventName: first.eventName)
+                    let restoredName = first.eventName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    membershipState = .joined(eventName: restoredName?.isEmpty == false ? restoredName! : "Event")
                 } else {
                     clearPersistedJoinedState()
                     return
