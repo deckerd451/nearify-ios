@@ -14,7 +14,6 @@ final class EventJoinService: ObservableObject {
     @Published private(set) var isEventJoined: Bool = false
     @Published private(set) var isCheckedIn: Bool = false
     @Published private(set) var joinError: String?
-    @Published private(set) var isSwitchingEvent: Bool = false
 
     /// Canonical membership state — the single source of truth for the UI.
     @Published private(set) var membershipState: EventMembershipState = .notInEvent
@@ -33,19 +32,31 @@ final class EventJoinService: ObservableObject {
         case navigateToEvent
     }
 
-    // MARK: - Event Switch Confirmation
+    // MARK: - Multi-Join State
     //
-    // When the user attempts to join a different event while already in one,
-    // the join is blocked and this state is set so the UI can show a confirmation.
-    // The user must explicitly confirm "Leave & Join" or cancel.
+    // Users may RSVP to multiple events simultaneously.
+    // joinedEventIDs tracks all events the user has joined (RSVPd).
+    // currentEventID is the checked-in event, or the most recently joined
+    // event when not checked in.
 
-    struct PendingEventSwitch: Equatable {
-        let currentEventName: String
-        let newEventId: String
-        let newEventName: String?
+    /// All events the user has joined (RSVP'd). May contain multiple entries.
+    @Published private(set) var joinedEventIDs: Set<String> = []
+    /// Maps eventID → eventName for all joined events.
+    @Published private(set) var joinedEventNames: [String: String] = [:]
+
+    // MARK: - Check-In Switch Confirmation
+    //
+    // A check-in conflict arises only when the user tries to CHECK IN to
+    // Event B while already checked in to Event A.
+    // Joining an additional event (RSVP) is always allowed without confirmation.
+
+    struct PendingCheckInSwitch: Equatable {
+        let currentCheckedInEventName: String
+        let targetEventId: String
+        let targetEventName: String?
     }
 
-    @Published var pendingEventSwitch: PendingEventSwitch?
+    @Published var pendingCheckInSwitch: PendingCheckInSwitch?
 
     private let supabase = AppEnvironment.shared.supabaseClient
     private let presence = EventPresenceService.shared
@@ -149,35 +160,64 @@ final class EventJoinService: ObservableObject {
         isEventJoined = true
         isCheckedIn = false
         membershipState = .joined(eventName: context.eventName)
+        // Seed joinedEventIDs with the persisted primary event.
+        // reconcilePersistedJoinedStateWithBackend() will expand this with the full list.
+        joinedEventIDs.insert(context.eventId)
+        joinedEventNames[context.eventId] = context.eventName
     }
 
     private func reconcilePersistedJoinedStateWithBackend() async {
-        guard isEventJoined,
-              let eventIdString = currentEventID,
-              let eventId = UUID(uuidString: eventIdString) else { return }
+        guard isEventJoined else { return }
         do {
             let profile = try await ensureProfile()
             joinedProfileId = profile.id
 
-            let rows: [NearifyAttendee] = try await supabase
+            // Load ALL active memberships for this profile — not just the one stored locally.
+            // This populates joinedEventIDs with the full multi-join set on cold launch.
+            let rows: [NearifyAttendeeWithEvent] = try await supabase
                 .from("event_attendees")
-                .select("id,event_id,profile_id,status")
-                .eq("event_id", value: eventId.uuidString)
+                .select("id,event_id,profile_id,status,events(id,name)")
                 .eq("profile_id", value: profile.id.uuidString)
-                .limit(1)
+                .in("status", values: ["joined", "inEvent"])
                 .execute()
                 .value
 
-            guard let attendee = rows.first else {
+            if rows.isEmpty {
                 clearPersistedJoinedState()
                 return
             }
 
-            if attendee.status.lowercased() == "left" {
-                clearPersistedJoinedState()
-            } else {
-                persistActiveJoinedState()
+            // Validate the primary persisted event is still active.
+            let primaryIsActive = rows.contains { $0.event_id.uuidString == currentEventID }
+            if !primaryIsActive {
+                // Primary event was left server-side — fall back to most recent active.
+                if let first = rows.first {
+                    currentEventID = first.event_id.uuidString
+                    currentEventName = first.eventName
+                    membershipState = .joined(eventName: first.eventName)
+                } else {
+                    clearPersistedJoinedState()
+                    return
+                }
             }
+
+            // Populate joinedEventIDs from the full backend list.
+            var ids: Set<String> = []
+            var names: [String: String] = [:]
+            for row in rows {
+                let idStr = row.event_id.uuidString
+                ids.insert(idStr)
+                if let name = row.eventName { names[idStr] = name }
+            }
+            joinedEventIDs = ids
+            joinedEventNames = names
+            isEventJoined = !ids.isEmpty
+
+            persistActiveJoinedState()
+
+            #if DEBUG
+            print("[EventMembership] reconciled joined events count: \(ids.count)")
+            #endif
         } catch {
             // Preserve local continuity through transient launch/network failures.
         }
@@ -190,6 +230,8 @@ final class EventJoinService: ObservableObject {
         isEventJoined = false
         isCheckedIn = false
         membershipState = .notInEvent
+        joinedEventIDs = []
+        joinedEventNames = [:]
     }
 
     /// Dismisses the reconnect prompt for the current app session.
@@ -265,10 +307,13 @@ final class EventJoinService: ObservableObject {
 
     // MARK: - Join Event
     //
-    // EVENT OWNERSHIP RULE:
-    //   The user is in EXACTLY ONE event or NO event. Never multiple.
-    //   Joining a different event while already in one is BLOCKED.
-    //   The caller must use confirmEventSwitch() after the user confirms.
+    // MULTI-JOIN MODEL:
+    //   Users may RSVP to any number of events simultaneously.
+    //   joinedEventIDs tracks all of them.
+    //   A join is NEVER blocked by being joined elsewhere.
+    //
+    //   Check-in (active presence) is the only exclusive resource — only one
+    //   event may be checked into at a time. Conflict handling lives in checkIn().
 
     func joinEvent(eventID: String, eventName: String? = nil) async {
         #if DEBUG
@@ -281,131 +326,78 @@ final class EventJoinService: ObservableObject {
         }
 
         // GUARD: Already joined this exact event — no-op.
-        if isEventJoined && currentEventID == eventID {
+        if joinedEventIDs.contains(eventID) {
             #if DEBUG
-            print("[EventJoin] ⛔ Already in event \(eventID) — skipping duplicate join")
+            print("[EventJoin] ⛔ Already joined event \(eventID) — skipping duplicate")
             #endif
             joinError = nil
             return
         }
 
-        // GUARD: Already in a DIFFERENT event — block and request confirmation.
-        // The system NEVER silently switches events.
-        if isEventJoined, let currentName = currentEventName, currentEventID != eventID {
-            if let pending = pendingEventSwitch, pending.newEventId == eventID {
-                #if DEBUG
-                print("[EventJoin] ⏳ Switch confirmation already pending for \(eventID) — ignoring duplicate join tap")
-                #endif
-                return
-            }
-            #if DEBUG
-            print("[EventJoin] ⛔ Already in \(currentName) — blocking join to \(eventID)")
-            print("[EventJoin]    User must confirm event switch via UI")
-            #endif
-            pendingEventSwitch = PendingEventSwitch(
-                currentEventName: currentName,
-                newEventId: eventID,
-                newEventName: eventName
-            )
-            return
-        }
-
-        // Clean join — no active event.
-        await performJoin(eventUUID: eventUUID)
+        // If the user is currently checked in to a different event, this join is a
+        // secondary RSVP — we call Supabase but do NOT change the primary event or
+        // disrupt the active check-in session.
+        let isPrimary = !isCheckedIn
+        await performJoin(eventUUID: eventUUID, isPrimary: isPrimary)
     }
 
-    /// Called by UI after user confirms "Leave & Join" in the event switch dialog.
-    func confirmEventSwitch() async {
-        guard let pending = pendingEventSwitch else { return }
-        isSwitchingEvent = true
-        defer { isSwitchingEvent = false }
-        let newEventId = pending.newEventId
-        pendingEventSwitch = nil
-
-        #if DEBUG
-        print("[EventJoin] ✅ User confirmed event switch → leaving current, joining \(newEventId)")
-        #endif
-
-        // Leave current event first
-        let didLeaveCurrent = await leaveEvent(source: "switch-confirmation")
-        guard didLeaveCurrent else {
-            joinError = "Couldn't leave current event. Please try again."
-            #if DEBUG
-            print("[EventJoin] ❌ Event switch aborted — failed to leave current event")
-            #endif
-            return
-        }
-
-        // Now join the new event
-        guard let eventUUID = UUID(uuidString: newEventId) else {
-            joinError = "Invalid event ID"
-            return
-        }
-        await performJoin(eventUUID: eventUUID)
-        if !isEventJoined, joinError == nil {
-            joinError = "Couldn't join new event."
-        }
-    }
-
-    /// Called by UI when user cancels the event switch dialog.
-    func cancelEventSwitch() {
-        #if DEBUG
-        print("[EventJoin] 🚫 User cancelled event switch")
-        #endif
-        pendingEventSwitch = nil
-    }
-
-    /// Internal: performs the actual join after all guards have passed.
-    private func performJoin(eventUUID: UUID) async {
+    /// Internal: performs the Supabase join and updates state.
+    /// isPrimary=true  → updates currentEventID, membershipState, brief hydration.
+    /// isPrimary=false → RSVP only; active check-in session is untouched.
+    private func performJoin(eventUUID: UUID, isPrimary: Bool = true) async {
 
         do {
             let profile = try await ensureProfile()
-
             _ = try await joinEventRPC(eventID: eventUUID)
-
             let event = try await fetchEvent(eventID: eventUUID)
 
-            currentEventID = event.id.uuidString
-            currentEventName = event.name
+            // Register in multi-join tracking (always).
+            joinedEventIDs.insert(event.id.uuidString)
+            joinedEventNames[event.id.uuidString] = event.name
             joinedProfileId = profile.id
             isEventJoined = true
-            isCheckedIn = false
-            membershipState = .joined(eventName: event.name)
             joinError = nil
-            backgroundEnteredAt = nil
-            activeSessionStartedAt = nil
-            reconnectDismissedThisSession = false
-            postEventSummary = nil // Clear previous summary
-            persistActiveJoinedState()
 
-            // STATE CONSISTENCY CHECK: all event IDs must align.
             #if DEBUG
-            let presenceCtx = presence.currentContextId
-            if let presenceCtx, presenceCtx != event.id {
-                print("[EventJoin] ⚠️ STATE MISMATCH: presence contextId=\(presenceCtx) != event.id=\(event.id)")
+            print("[EventMembership] joined event added: \(event.name)")
+            print("[EventMembership] joined events count: \(joinedEventIDs.count)")
+            #endif
+
+            if isPrimary {
+                // Primary join — update the active event context.
+                currentEventID = event.id.uuidString
+                currentEventName = event.name
+                isCheckedIn = false
+                membershipState = .joined(eventName: event.name)
+                backgroundEnteredAt = nil
+                activeSessionStartedAt = nil
+                reconnectDismissedThisSession = false
+                postEventSummary = nil
+                persistActiveJoinedState()
+                saveLastEventContext(eventId: event.id.uuidString, eventName: event.name)
+
+                // Preload event context for intelligence pipeline (fire-and-forget).
+                Task(priority: .utility) {
+                    await EventContextService.shared.fetchContext(eventId: event.id)
+                }
+                // Begin brief hydration so the brief is rich on first view.
+                BriefHydrationController.shared.startHydration(eventId: event.id, eventName: event.name)
+
+                #if DEBUG
+                let presenceCtx = presence.currentContextId
+                if let presenceCtx, presenceCtx != event.id {
+                    print("[EventJoin] ⚠️ STATE MISMATCH: presence contextId=\(presenceCtx) != event.id=\(event.id)")
+                }
+                EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.performJoin.primary")
+                print("[EventJoin] ✅ Joined event (ready for check-in): \(event.name)")
+                #endif
+            } else {
+                // Secondary join — RSVP without disrupting the active check-in.
+                #if DEBUG
+                print("[EventJoin] ✅ Secondary RSVP for \(event.name) — active check-in unchanged")
+                print("[EventCheckIn] active check-in unchanged: \(currentEventName ?? "none")")
+                #endif
             }
-            print("[EventJoin] 🔒 Event lock: activeEventId=\(event.id.uuidString)")
-            #endif
-
-            // Persist for reconnect recovery
-            saveLastEventContext(eventId: event.id.uuidString, eventName: event.name)
-
-            #if DEBUG
-            EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.performJoin")
-            #endif
-
-            // Preload event context for intelligence pipeline (fire-and-forget)
-            Task(priority: .utility) {
-                await EventContextService.shared.fetchContext(eventId: event.id)
-            }
-
-            // Begin brief hydration pipeline — sequences context, intelligence, and
-            // a direct attendee count so the brief is rich on first join.
-            BriefHydrationController.shared.startHydration(eventId: event.id, eventName: event.name)
-
-            #if DEBUG
-            print("[EventJoin] ✅ Joined event (ready for check-in): \(event.name)")
-            #endif
 
         } catch {
             joinError = error.localizedDescription
@@ -413,16 +405,89 @@ final class EventJoinService: ObservableObject {
         }
     }
 
-    // MARK: - Leave Event (explicit user action)
+    // MARK: - Check-In Switch Confirmation
 
-    func checkIn() async {
-        guard isEventJoined, !isCheckedIn else { return }
-        guard let eventIdString = currentEventID,
-              let eventId = UUID(uuidString: eventIdString),
-              let eventName = currentEventName else {
-            joinError = "Missing event context"
+    /// Called when user confirms "Check in here instead" after a check-in conflict.
+    func confirmCheckInSwitch() async {
+        guard let pending = pendingCheckInSwitch else { return }
+        pendingCheckInSwitch = nil
+
+        #if DEBUG
+        print("[EventCheckIn] switching check-in from \(currentEventName ?? "?") to \(pending.targetEventName ?? pending.targetEventId)")
+        #endif
+
+        // End the current active session without fully leaving the event (keep RSVP).
+        await endActiveCheckIn()
+        // Now check in to the target event.
+        await performCheckIn(targetEventID: pending.targetEventId)
+    }
+
+    /// Called when user cancels the check-in switch dialog.
+    func cancelCheckInSwitch() {
+        pendingCheckInSwitch = nil
+    }
+
+    /// Stops the active check-in session (writes status back to "joined")
+    /// without removing the event from joinedEventIDs.
+    private func endActiveCheckIn() async {
+        guard isCheckedIn else { return }
+
+        _ = await presence.leaveCurrentEvent()
+        BLEAdvertiserService.shared.stopEventAdvertising()
+        BLEScannerService.shared.stopScanning()
+        beaconPresence.reset()
+        LocalEncounterStore.shared.stopCapture()
+        await EncounterService.shared.flushEncounters()
+        EncounterService.shared.stopPeriodicFlush()
+
+        isCheckedIn = false
+        activeSessionStartedAt = nil
+        if let name = currentEventName {
+            membershipState = .joined(eventName: name)
+        }
+    }
+
+    // MARK: - Check In
+
+    /// Check in to an event. Pass targetEventID to check in to a specific joined event;
+    /// omit to check in to currentEventID (the primary joined event).
+    ///
+    /// If the user is already checked in to a different event, a PendingCheckInSwitch
+    /// is set so the UI can show "Check in here instead?" confirmation.
+    func checkIn(targetEventID: String? = nil) async {
+        let targetID = targetEventID ?? currentEventID
+        guard let targetID else { return }
+
+        // Must be joined to the target event.
+        guard joinedEventIDs.contains(targetID) || (!isCheckedIn && currentEventID == targetID) else {
+            joinError = "Not joined to this event"
             return
         }
+
+        // Already checked in to this event — no-op.
+        if isCheckedIn && currentEventID == targetID { return }
+
+        // Already checked in to a DIFFERENT event — surface conflict.
+        if isCheckedIn, let currentName = currentEventName, currentEventID != targetID {
+            let targetName = joinedEventNames[targetID]
+            pendingCheckInSwitch = PendingCheckInSwitch(
+                currentCheckedInEventName: currentName,
+                targetEventId: targetID,
+                targetEventName: targetName
+            )
+            #if DEBUG
+            print("[EventCheckIn] check-in conflict: checked in to \(currentName), target=\(targetName ?? targetID)")
+            #endif
+            return
+        }
+
+        await performCheckIn(targetEventID: targetID)
+    }
+
+    /// Internal: performs the actual check-in after all guards have passed.
+    private func performCheckIn(targetEventID: String) async {
+        guard let eventId = UUID(uuidString: targetEventID) else { return }
+        let eventName = joinedEventNames[targetEventID] ?? currentEventName ?? "event"
 
         do {
             let profileId: UUID
@@ -440,12 +505,17 @@ final class EventJoinService: ObservableObject {
             )
             guard didActivate else { return }
 
+            // Promote this event to the primary slot.
+            currentEventID = targetEventID
+            currentEventName = eventName
+
             BLEAdvertiserService.shared.startAdvertisingForEvent(communityId: profileId)
             BLEScannerService.shared.startScanning()
             EncounterService.shared.startPeriodicFlush()
             LocalEncounterStore.shared.startCapture()
 
             isCheckedIn = true
+            isEventJoined = true
             if activeSessionStartedAt == nil {
                 activeSessionStartedAt = Date()
             }
@@ -453,7 +523,6 @@ final class EventJoinService: ObservableObject {
             joinError = nil
             persistActiveJoinedState()
 
-            // Pre-event brief hydration no longer needed — live mode takes over.
             BriefHydrationController.shared.stopHydration()
 
             #if DEBUG
@@ -464,6 +533,8 @@ final class EventJoinService: ObservableObject {
             print("[EventJoin] ❌ Check-in failed: \(error)")
         }
     }
+
+    // MARK: - Leave Event (explicit user action)
 
     @discardableResult
     func leaveEvent(source: String = "system") async -> Bool {
@@ -541,16 +612,35 @@ final class EventJoinService: ObservableObject {
         // Clear session trackers only after summary generation has consumed snapshot state.
         EncounterService.shared.clearActiveEncounters()
 
-        // Clear all event state atomically.
-        currentEventID = nil
-        currentEventName = nil
-        joinedProfileId = nil
-        isEventJoined = false
-        isCheckedIn = false
-        activeSessionStartedAt = nil
-        backgroundEnteredAt = nil
-        membershipState = .left(eventName: eventName)
-        pendingEventSwitch = nil
+        // Remove the departing event from multi-join tracking.
+        if let leavingID = currentEventID {
+            joinedEventIDs.remove(leavingID)
+            joinedEventNames.removeValue(forKey: leavingID)
+        }
+
+        // If the user is still joined to other events, promote the next one.
+        // Otherwise clear everything.
+        if let nextID = joinedEventIDs.first,
+           let nextName = joinedEventNames[nextID] {
+            currentEventID = nextID
+            currentEventName = nextName
+            isEventJoined = true
+            isCheckedIn = false
+            activeSessionStartedAt = nil
+            backgroundEnteredAt = nil
+            membershipState = .left(eventName: eventName)
+            pendingCheckInSwitch = nil
+        } else {
+            currentEventID = nil
+            currentEventName = nil
+            joinedProfileId = nil
+            isEventJoined = false
+            isCheckedIn = false
+            activeSessionStartedAt = nil
+            backgroundEnteredAt = nil
+            membershipState = .left(eventName: eventName)
+            pendingCheckInSwitch = nil
+        }
 
         EventContextService.shared.clearCache()
         UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
@@ -982,7 +1072,9 @@ final class EventJoinService: ObservableObject {
         joinError = nil
         backgroundEnteredAt = nil
         membershipState = .notInEvent
-        pendingEventSwitch = nil
+        joinedEventIDs = []
+        joinedEventNames = [:]
+        pendingCheckInSwitch = nil
         UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
 
         EventContextService.shared.clearCache()
@@ -1056,4 +1148,19 @@ private struct NearifyAttendee: Decodable {
 private struct NearifyEvent: Decodable {
     let id: UUID
     let name: String
+}
+
+private struct NearifyAttendeeWithEvent: Decodable {
+    let id: UUID
+    let event_id: UUID
+    let profile_id: UUID
+    let status: String
+    private let events: EventStub?
+
+    struct EventStub: Decodable {
+        let id: UUID
+        let name: String
+    }
+
+    var eventName: String? { events?.name }
 }
