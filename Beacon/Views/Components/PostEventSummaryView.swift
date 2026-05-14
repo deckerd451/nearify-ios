@@ -35,21 +35,21 @@ struct PostEventSummaryView: View {
         VStack(alignment: .leading, spacing: 20) {
             // Header
             VStack(alignment: .leading, spacing: 4) {
-                Text("YOUR EVENT SUMMARY")
+                Text("SESSION RECAP")
                     .font(.caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.cyan)
                     .tracking(0.8)
 
                 if summary.totalPeopleMet > 0 {
-                    Text("\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") captured at \(summary.eventName)")
+                    Text("\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") at \(summary.eventName)")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
             }
 
             summarySection(
-                title: "Event Snapshot",
+                title: "Time at event",
                 icon: "clock.badge.checkmark",
                 color: .cyan
             ) {
@@ -59,7 +59,7 @@ struct PostEventSummaryView: View {
                             .font(.caption)
                             .foregroundColor(.white.opacity(0.85))
                     }
-                    Text("\(summary.snapshot.meaningfulPeopleCount) active \(summary.snapshot.meaningfulPeopleCount == 1 ? "connection" : "connections")")
+                    Text("\(summary.snapshot.meaningfulPeopleCount) \(summary.snapshot.meaningfulPeopleCount == 1 ? "person" : "people") you spent time with")
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.85))
                     Text(summary.snapshot.activityLine)
@@ -68,10 +68,10 @@ struct PostEventSummaryView: View {
                 }
             }
 
-            // ── Strongest Connection ──
+            // ── Top Connection ──
             if let strongest = summary.strongestInteraction {
                 summarySection(
-                    title: "Strongest Connection",
+                    title: "Top Connection",
                     icon: "bolt.fill",
                     color: .orange
                 ) {
@@ -82,7 +82,7 @@ struct PostEventSummaryView: View {
             // ── Recent Connections ──
             if !summary.recentConnections.isEmpty {
                 summarySection(
-                    title: "New Connections",
+                    title: "Also connected",
                     icon: "link",
                     color: .green
                 ) {
@@ -95,7 +95,7 @@ struct PostEventSummaryView: View {
             // ── Key People ──
             if !summary.keyPeople.isEmpty {
                 summarySection(
-                    title: "Key People",
+                    title: "Others you spent time with",
                     icon: "person.3.fill",
                     color: .mint
                 ) {
@@ -105,10 +105,10 @@ struct PostEventSummaryView: View {
                 }
             }
 
-            // ── Missed Connections ──
+            // ── Also there ──
             if !summary.missedConnections.isEmpty {
                 summarySection(
-                    title: "Missed Opportunities",
+                    title: "Also there",
                     icon: "eye.slash",
                     color: .purple
                 ) {

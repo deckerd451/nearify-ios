@@ -64,11 +64,11 @@ enum EventParticipationState: Equatable {
     var primaryCTA: String {
         switch self {
         case .none:                     return "Join an Event"
-        case .joinedUpcoming:           return "Prepare for Event"
-        case .joinedTodayNotCheckedIn:  return "Check In When You Arrive"
+        case .joinedUpcoming:           return "Open Briefing"
+        case .joinedTodayNotCheckedIn:  return "Open Briefing"
         case .nearVenueNotCheckedIn:    return "You're Here — Check In Now"
-        case .checkedIn:                return "You're Live"
-        case .left:                     return "Find Another Event"
+        case .checkedIn:                return "Who's Here"
+        case .left:                     return "Review Session"
         case .restoring:                return ""
         }
     }

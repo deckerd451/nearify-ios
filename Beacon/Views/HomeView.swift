@@ -193,7 +193,15 @@ struct HomeView: View {
                 preCheckInCard
             case .restoring:
                 restoringCard
-            case .left, .none:
+            case .left:
+                // Post-event: surface the session recap if one exists, otherwise let
+                // the user join a new event.
+                if eventJoin.postEventSummary != nil {
+                    postEventCard
+                } else {
+                    scanCard
+                }
+            case .none:
                 // Only show the legacy presence card when there is an active EventPresence
                 // session AND no explicit join state — this covers the rare edge case of a
                 // stale heartbeat surviving a force-quit. If there's no presence context either,
@@ -248,6 +256,51 @@ struct HomeView: View {
             .elevatedCard(accent: VisualStyle.primaryAction, glow: 0.2)
         }
         .buttonStyle(PressableScaleButtonStyle())
+    }
+
+    // MARK: - Post-Event Card (State: left)
+
+    private var postEventCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Text("Session ended")
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1.1)
+                    .foregroundColor(VisualStyle.intelligence.opacity(0.9))
+                Spacer()
+            }
+
+            if let summary = eventJoin.postEventSummary {
+                Text(summary.eventName)
+                    .font(.headline.weight(.semibold))
+
+                Button {
+                    showLastSummaryRecap = true
+                } label: {
+                    Text("Review Session")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(VisualStyle.intelligence))
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+
+                Button {
+                    showScanner = true
+                } label: {
+                    Text("Join another event")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(VisualStyle.tertiaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .elevatedCard(accent: VisualStyle.intelligence, glow: 0.15)
     }
 
     // MARK: - Joined Card (State B)
@@ -330,13 +383,15 @@ struct HomeView: View {
     private var briefCTALabel: String {
         guard let brief = briefController.currentBrief,
               let topPerson = brief.priorityPeople.first else {
-            return "See suggestions"
+            return "Who's Here"
         }
         let name = IdentityDisplayName.primaryName(name: topPerson.name)
-        return "Meet \(name)"
+        return "Find \(name)"
     }
 
     private var preCheckInCard: some View {
+        let state = EventParticipationStateResolver.resolve()
+        let isNearVenue = state == .nearVenueNotCheckedIn
         let attendeeCount = activeEventExploreModel?.activeAttendeeCount ?? 0
         let relativeTime = activeEventTimeLine
         let currentEventId = eventJoin.currentEventID
@@ -349,7 +404,7 @@ struct HomeView: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                Text("You're going")
+                Text(isNearVenue ? "You're nearby" : "You're going")
                     .font(.caption2.weight(.semibold))
                     .tracking(1.1)
                     .foregroundColor(VisualStyle.primaryAction.opacity(0.9))
@@ -396,24 +451,58 @@ struct HomeView: View {
                 }
             }
 
-            Button {
-                EventPresenceService.shared.setActivationIntent(.userCheckIn)
-                Task { await eventJoin.checkIn() }
-            } label: {
-                Text("Check In")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(VisualStyle.primaryAction))
+            if isNearVenue {
+                // At the venue: check-in is the decisive action
+                Button {
+                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
+                    Task { await eventJoin.checkIn() }
+                } label: {
+                    Text("Check In Now")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(VisualStyle.primaryAction))
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+
+                Button {
+                    showEventBrief = true
+                } label: {
+                    Text("Open Briefing")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(VisualStyle.intelligence)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+            } else {
+                // Not yet at venue: prepare — briefing is the dominant action
+                Button {
+                    showEventBrief = true
+                } label: {
+                    Text("Open Briefing")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(VisualStyle.intelligence))
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+
+                Button {
+                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
+                    Task { await eventJoin.checkIn() }
+                } label: {
+                    Text("Check In When You Arrive")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(VisualStyle.secondaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Color.white.opacity(0.07)))
+                }
+                .buttonStyle(PressableScaleButtonStyle())
             }
-            .buttonStyle(PressableScaleButtonStyle())
-
-            Text("People nearby only become visible after you check in.")
-                .font(.caption2)
-                .foregroundColor(VisualStyle.tertiaryText)
-
-            preEventIntelligenceInlineRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -445,7 +534,7 @@ struct HomeView: View {
     private var attendeeList: some View {
         LazyVStack(spacing: 8) {
             HStack {
-                Text("People nearby")
+                Text("Who's here")
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(VisualStyle.secondaryText)
@@ -546,38 +635,28 @@ struct HomeView: View {
     }
 
     private var notJoinedState: some View {
-        VStack(spacing: 12) {
-            Text("Find your next event")
-                .font(.headline)
-                .foregroundColor(VisualStyle.secondaryText)
-            Text("Join an event and Nearify will quietly help you meet the right people.")
-                .font(.subheadline)
-                .foregroundColor(VisualStyle.tertiaryText)
-                .multilineTextAlignment(.center)
-            Button {
-                switchTab(to: .event)
-            } label: {
-                Text("Browse Events")
+        let isPostEvent = EventParticipationStateResolver.resolve() == .left
+        return VStack(spacing: 12) {
+            if isPostEvent, let summary = eventJoin.postEventSummary {
+                // AFTER EVENT: recap is the dominant prompt
+                Text("Session ended")
+                    .font(.headline)
+                    .foregroundColor(VisualStyle.secondaryText)
+                Text("See who you spent time with and keep the conversation going.")
                     .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(VisualStyle.primaryAction))
-            }
-            .buttonStyle(PressableScaleButtonStyle())
+                    .foregroundColor(VisualStyle.tertiaryText)
+                    .multilineTextAlignment(.center)
 
-            if let summary = eventJoin.postEventSummary {
                 Button {
                     showLastSummaryRecap = true
                 } label: {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
-                            Text("Last Summary")
+                            Text("Session Recap")
                                 .font(.caption)
                                 .foregroundColor(VisualStyle.intelligence)
                             Spacer()
-                            Text("View recap")
+                            Text("Review")
                                 .font(.caption2)
                                 .foregroundColor(.white.opacity(0.75))
                             Image(systemName: "chevron.right")
@@ -591,8 +670,8 @@ struct HomeView: View {
                             .lineLimit(1)
 
                         Text(summary.totalPeopleMet > 0
-                             ? "\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") captured"
-                             : "No confirmed interactions captured")
+                             ? "\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") noted"
+                             : "No interactions recorded")
                             .font(.caption2)
                             .foregroundColor(.gray)
 
@@ -614,6 +693,87 @@ struct HomeView: View {
                 .elevatedCard(accent: VisualStyle.intelligence, glow: 0.12)
                 .buttonStyle(.plain)
                 .padding(.horizontal)
+
+                Button {
+                    switchTab(to: .event)
+                } label: {
+                    Text("Browse Events")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(VisualStyle.tertiaryText)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+            } else {
+                // NO ACTIVE EVENT: joining is the dominant prompt
+                Text("Find your next event")
+                    .font(.headline)
+                    .foregroundColor(VisualStyle.secondaryText)
+                Text("Join an event and Nearify will quietly help you meet the right people.")
+                    .font(.subheadline)
+                    .foregroundColor(VisualStyle.tertiaryText)
+                    .multilineTextAlignment(.center)
+                Button {
+                    switchTab(to: .event)
+                } label: {
+                    Text("Browse Events")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(VisualStyle.primaryAction))
+                }
+                .buttonStyle(PressableScaleButtonStyle())
+
+                if let summary = eventJoin.postEventSummary {
+                    Button {
+                        showLastSummaryRecap = true
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Text("Last Session")
+                                    .font(.caption)
+                                    .foregroundColor(VisualStyle.intelligence)
+                                Spacer()
+                                Text("View recap")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.75))
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundColor(.white.opacity(0.75))
+                            }
+
+                            Text(summary.eventName)
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+
+                            Text(summary.totalPeopleMet > 0
+                                 ? "\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") noted"
+                                 : "No interactions recorded")
+                                .font(.caption2)
+                                .foregroundColor(.gray)
+
+                            if !summary.narrativeWrapUp.isEmpty {
+                                Text(summary.narrativeWrapUp)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray.opacity(0.9))
+                                    .lineLimit(2)
+                            } else {
+                                Text(summary.snapshot.activityLine)
+                                    .font(.caption2)
+                                    .foregroundColor(.gray.opacity(0.9))
+                                    .lineLimit(2)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(12)
+                    .elevatedCard(accent: VisualStyle.intelligence, glow: 0.12)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
+                }
             }
         }
         .padding(.top, 56)
@@ -851,7 +1011,7 @@ private struct LastSummaryRecapView: View {
                     .padding()
                 }
             }
-            .navigationTitle("Event Recap")
+            .navigationTitle("Session Recap")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

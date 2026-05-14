@@ -162,7 +162,7 @@ struct WrapUpFlowView: View {
                 .font(.system(size: 36))
                 .foregroundColor(.orange)
 
-            Text("Take your best connections with you")
+            Text("Before you go")
                 .font(.title3)
                 .fontWeight(.bold)
                 .foregroundColor(.white)
@@ -631,21 +631,21 @@ struct WrapUpFlowView: View {
             return "Both into \(first)"
         }
 
-        // Strong encounters — emphasize the quality of the interaction
+        // Strong encounters — grounded in time spent together
         if intent.priorityLevel == .strong {
             if isConnected && minutes >= 2 {
-                return "Your strongest connection · \(minutes) min together"
+                return "Connected · \(minutes) min together"
             }
             if isConnected {
-                return "Connected · strongest signal at the event"
+                return "Connected · spent the most time together"
             }
             if minutes >= 5 {
-                return "\(minutes) min together · your strongest encounter"
+                return "\(minutes) min together"
             }
             if minutes >= 2 {
-                return "\(minutes) min together · strong signal"
+                return "\(minutes) min together"
             }
-            return "Strongest encounter at the event"
+            return "Most time together at the event"
         }
 
         // Connected but not strong — emphasize follow-up value
@@ -662,9 +662,9 @@ struct WrapUpFlowView: View {
         // Medium encounters — emphasize the time spent
         if intent.priorityLevel == .medium {
             if minutes >= 2 {
-                return "\(minutes) min together · worth connecting"
+                return "\(minutes) min together"
             }
-            return "Meaningful encounter · say hi before you go"
+            return "Spent time nearby · say hi before you go"
         }
 
         // Repeat encounters from relationship history
@@ -828,7 +828,7 @@ struct WrapUpFlowView: View {
                     .font(.headline)
                     .foregroundColor(.white)
 
-                Text("Finalizing your connections and summary")
+                Text("Saving your session")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.75))
             }
