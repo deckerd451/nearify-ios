@@ -834,7 +834,7 @@ private struct PastEventRecapView: View {
                     .padding()
                 }
             }
-            .navigationTitle("Event Recap")
+            .navigationTitle("Session Recap")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
