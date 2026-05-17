@@ -2,9 +2,15 @@ import SwiftUI
 import Foundation
 
 struct PreEventBriefView: View {
+    enum PresentationMode {
+        case preEventPreparation
+        case earlyArrival
+        case liveNavigation
+    }
     let brief: PreEventBriefBuilder.Brief
     let ctaTitle: String
     let hydrationState: BriefHydrationController.BriefHydrationState
+    let presentationMode: PresentationMode
     let onContinue: (PreEventBriefBuilder.PriorityPerson?) -> Void
     @State private var lastLoggedRecommendationState: String?
     @State private var selectedRecommendation: PreEventBriefBuilder.PriorityPerson?
@@ -13,17 +19,19 @@ struct PreEventBriefView: View {
         brief: PreEventBriefBuilder.Brief,
         ctaTitle: String = "Go to event",
         hydrationState: BriefHydrationController.BriefHydrationState = .hydrated,
+        presentationMode: PresentationMode = .preEventPreparation,
         onContinue: @escaping (PreEventBriefBuilder.PriorityPerson?) -> Void
     ) {
         self.brief = brief
         self.ctaTitle = ctaTitle
         self.hydrationState = hydrationState
+        self.presentationMode = presentationMode
         self.onContinue = onContinue
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Who's attending")
+            Text(sheetTitle)
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
@@ -51,7 +59,7 @@ struct PreEventBriefView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Who's coming")
+                sectionTitle(attendeesSectionTitle)
                 ForEach(Array(brief.joinedSummary.enumerated()), id: \.offset) { _, line in
                     Text("• \(line)")
                         .font(.subheadline)
@@ -61,7 +69,7 @@ struct PreEventBriefView: View {
             }
             
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("You might enjoy meeting")
+                sectionTitle(recommendationSectionTitle)
                 if brief.priorityPeople.isEmpty {
                     if hydrationState.isLoading {
                         HStack(spacing: 8) {
@@ -79,7 +87,7 @@ struct PreEventBriefView: View {
                     ForEach(brief.priorityPeople.prefix(3)) { person in
                         recommendationCard(person)
                             .onTapGesture {
-                                selectedRecommendation = person
+                                if canStartLooking(person) { selectedRecommendation = person }
                             }
                     }
                 }
@@ -116,6 +124,9 @@ struct PreEventBriefView: View {
         .padding(.vertical, 8)
         .onAppear {
             logRecommendationIfNeeded()
+            #if DEBUG
+            print("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(presentationMode == .liveNavigation ? "live" : "joined") count=\(brief.joinedSummary.count)")
+            #endif
         }
         .onChange(of: recommendationLogState) { _ in
             logRecommendationIfNeeded()
@@ -165,7 +176,7 @@ struct PreEventBriefView: View {
                 }
 
                 if let status = person.statusLabel {
-                    Text(status == "nearby" ? "Nearby" : "Active at this event")
+                    Text(statusCopy(for: person))
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
@@ -213,7 +224,7 @@ struct PreEventBriefView: View {
                         Text(person.name)
                             .font(.title3)
                             .fontWeight(.semibold)
-                        Text(person.statusLabel == "nearby" ? "Nearby now" : "Active at this event")
+                        Text(statusCopy(for: person))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -243,7 +254,7 @@ struct PreEventBriefView: View {
                     selectedRecommendation = nil
                     onContinue(person)
                 } label: {
-                    Text("Start Looking")
+                    Text(detailCTA)
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -319,5 +330,49 @@ struct PreEventBriefView: View {
         #if DEBUG
         print(message)
         #endif
+    }
+}
+
+
+private extension PreEventBriefView {
+    var sheetTitle: String {
+        switch presentationMode {
+        case .preEventPreparation: return "Prepare for this event"
+        case .earlyArrival: return "You're early"
+        case .liveNavigation: return "Who's here"
+        }
+    }
+    var attendeesSectionTitle: String {
+        switch presentationMode {
+        case .liveNavigation: return "Who's here now"
+        case .earlyArrival: return "Likely arriving soon"
+        case .preEventPreparation: return "Who's expected"
+        }
+    }
+    var recommendationSectionTitle: String {
+        switch presentationMode {
+        case .liveNavigation: return "Active now"
+        case .earlyArrival: return "People to keep in mind"
+        case .preEventPreparation: return "People you may enjoy meeting"
+        }
+    }
+    func statusCopy(for person: PreEventBriefBuilder.PriorityPerson) -> String {
+        let isLive = (person.statusLabel == "nearby") || (person.isNearby == true)
+        if isLive { return "Here now" }
+        switch presentationMode {
+        case .liveNavigation: return "Likely nearby soon"
+        case .earlyArrival: return "Likely arriving soon"
+        case .preEventPreparation: return "Expected at this event"
+        }
+    }
+    func canStartLooking(_ person: PreEventBriefBuilder.PriorityPerson) -> Bool {
+        presentationMode == .liveNavigation && ((person.statusLabel == "nearby") || (person.isNearby == true))
+    }
+    var detailCTA: String {
+        switch presentationMode {
+        case .liveNavigation: return "Start Looking"
+        case .earlyArrival: return "Keep this in mind"
+        case .preEventPreparation: return "Keep in mind"
+        }
     }
 }

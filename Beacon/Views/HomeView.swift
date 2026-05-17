@@ -83,13 +83,18 @@ struct HomeView: View {
             .onChange(of: eventJoin.isCheckedIn) { oldValue, newValue in
                 guard !oldValue, newValue else { return }
                 presentCheckInConfirmation()
+                logHomeStateUI()
                 #if DEBUG
                 EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.checkedIn")
                 #endif
             }
+            .onChange(of: attendeesService.liveOtherCount) { _, _ in
+                logHomeStateUI()
+            }
             .onAppear {
                 guard !hasMounted else { return }
                 hasMounted = true
+                logHomeStateUI()
                 #if DEBUG
                 EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.onAppear")
                 #endif
@@ -380,13 +385,15 @@ struct HomeView: View {
 
     private var nearbyCountLine: String {
         let count = attendeesService.liveOtherCount
-        return count == 1 ? "1 person nearby" : "\(count) people nearby"
+        return count == 0 ? "No one else nearby yet" : (count == 1 ? "1 person nearby" : "\(count) people nearby")
     }
 
     private var briefCTALabel: String {
+        guard eventJoin.isCheckedIn else { return "Check in when you arrive" }
+        guard attendeesService.liveOtherCount > 0 else { return "Preview who’s likely coming" }
         guard let brief = briefController.currentBrief,
-              let topPerson = brief.priorityPeople.first else {
-            return "Who's Here"
+              let topPerson = brief.priorityPeople.first(where: { ($0.statusLabel == "nearby") || ($0.isNearby == true) }) else {
+            return "Who’s here"
         }
         let name = IdentityDisplayName.primaryName(name: topPerson.name)
         return "Find \(name)"
@@ -795,7 +802,8 @@ struct HomeView: View {
                 ScrollView {
                     PreEventBriefView(
                         brief: brief,
-                        hydrationState: briefController.hydrationState
+                        hydrationState: briefController.hydrationState,
+                        presentationMode: briefPresentationMode
                     ) { recommendation in
                         showEventBrief = false
                         pendingBriefConnectionDestination = destinationForBriefRecommendation(recommendation)
@@ -890,6 +898,9 @@ struct HomeView: View {
         _ recommendation: PreEventBriefBuilder.PriorityPerson?
     ) -> BriefConnectionDestination? {
         guard let recommendation else { return nil }
+        guard eventJoin.isCheckedIn else { return nil }
+        let isFindable = (recommendation.statusLabel == "nearby") || (recommendation.isNearby == true)
+        guard isFindable else { return nil }
 
         let resolvedAttendee = attendeesService.attendees.first(where: { $0.id == recommendation.id })
             ?? EventAttendee(
@@ -906,6 +917,11 @@ struct HomeView: View {
         print("[Brief] launching find flow for \(recommendation.name)")
         #endif
         return BriefConnectionDestination(attendee: resolvedAttendee)
+    }
+
+    private var briefPresentationMode: PreEventBriefView.PresentationMode {
+        if !eventJoin.isCheckedIn { return .preEventPreparation }
+        return attendeesService.liveOtherCount > 0 ? .liveNavigation : .earlyArrival
     }
 
     private var checkInConfirmationCard: some View {
@@ -954,6 +970,24 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private func logHomeStateUI() {
+        #if DEBUG
+        let mode: String
+        let cta: String
+        if !eventJoin.isCheckedIn {
+            mode = "preEventPreparation"
+            cta = "checkIn"
+        } else if attendeesService.liveOtherCount == 0 {
+            mode = "earlyArrival"
+            cta = "previewLikely"
+        } else {
+            mode = "liveNavigation"
+            cta = "findTarget"
+        }
+        print("[HomeStateUI] mode=\(mode) joined=\(eventJoin.isEventJoined) checkedIn=\(eventJoin.isCheckedIn) liveOthers=\(attendeesService.liveOtherCount) cta=\(cta)")
+        #endif
     }
 }
 
