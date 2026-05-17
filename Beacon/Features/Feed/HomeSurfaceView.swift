@@ -305,6 +305,12 @@ struct HomeSurfaceView: View {
                     selectedPreCheckInIntentEventId = newEventId
                 }
             }
+            .onChange(of: EventCrowdStateResolver.current) { _, crowdState in
+                guard showSoloState, crowdState != .empty else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showSoloState = false
+                }
+            }
             .alert("Can't message yet", isPresented: $showNotConnectedAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
