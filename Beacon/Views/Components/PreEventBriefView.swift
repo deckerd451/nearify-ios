@@ -46,16 +46,28 @@ struct PreEventBriefView: View {
                 .padding(.vertical, 4)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                sectionTitle("What you want from tonight")
-                Text(brief.goalLine)
-                    .font(.body)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                Text(brief.goalContextLine)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            if showsGoalSection {
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionTitle("Your goal tonight")
+                    Text(brief.goalLine)
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    Text(brief.goalContextLine)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if presentationMode == .earlyArrival {
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionTitle("No one else is nearby yet")
+                    Text("You're early — this is a great time to get comfortable and prepare.")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                    Text("Nearify will surface live people as soon as someone is nearby.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -74,27 +86,25 @@ struct PreEventBriefView: View {
                     if hydrationState.isLoading {
                         HStack(spacing: 8) {
                             ProgressView().scaleEffect(0.8)
-                            Text("Finding good matches…")
+                            Text(loadingCopy)
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
                         }
                     } else {
-                        Text("More attendees are joining. Check in when you arrive for live suggestions.")
+                        Text(emptyRecommendationsCopy)
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                 } else {
                     ForEach(brief.priorityPeople.prefix(3)) { person in
                         recommendationCard(person)
-                            .onTapGesture {
-                                if canStartLooking(person) { selectedRecommendation = person }
-                            }
+                            .onTapGesture { selectedRecommendation = person }
                     }
                 }
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                sectionTitle("Break the ice with")
+                sectionTitle(conversationSectionTitle)
                 Text(brief.conversationStarters.first ?? "What kind of project are you hoping to build?")
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -102,7 +112,7 @@ struct PreEventBriefView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             
-            Text(brief.liveStatusLine)
+            Text(footerStatusLine)
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +121,7 @@ struct PreEventBriefView: View {
                 debugLog("[Brief] dismissing pre-event brief")
                 onContinue(nil)
             } label: {
-                Text("Got it")
+                Text(primaryFooterButtonTitle)
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
@@ -126,6 +136,7 @@ struct PreEventBriefView: View {
             logRecommendationIfNeeded()
             #if DEBUG
             print("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(presentationMode == .liveNavigation ? "live" : "joined") count=\(brief.joinedSummary.count)")
+            print(briefContentModeLogLine)
             #endif
         }
         .onChange(of: recommendationLogState) { _ in
@@ -175,7 +186,7 @@ struct PreEventBriefView: View {
                     Spacer()
                 }
 
-                if let status = person.statusLabel {
+                if person.statusLabel != nil || person.isNearby != nil {
                     Text(statusCopy(for: person))
                         .font(.footnote)
                         .foregroundColor(.secondary)
@@ -240,7 +251,7 @@ struct PreEventBriefView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionTitle("Conversation starter")
+                    sectionTitle(detailConversationSectionTitle)
                     Text(conversationStarter(for: person))
                         .font(.body)
                         .fontWeight(.semibold)
@@ -260,6 +271,26 @@ struct PreEventBriefView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue))
+                }
+
+                if let secondaryCTA = detailSecondaryCTA {
+                    Button {
+                        selectedRecommendation = nil
+                        onContinue(nil)
+                    } label: {
+                        Text(secondaryCTA)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.blue)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                }
+
+                if let detailFooter = detailFooterCopy {
+                    Text(detailFooter)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .responsiveContentContainer(maxWidth: 640)
@@ -344,7 +375,7 @@ private extension PreEventBriefView {
     }
     var attendeesSectionTitle: String {
         switch presentationMode {
-        case .liveNavigation: return "Who's here now"
+        case .liveNavigation: return "Who's here"
         case .earlyArrival: return "Likely arriving soon"
         case .preEventPreparation: return "Who's expected"
         }
@@ -360,19 +391,75 @@ private extension PreEventBriefView {
         let isLive = (person.statusLabel == "nearby") || (person.isNearby == true)
         if isLive { return "Here now" }
         switch presentationMode {
-        case .liveNavigation: return "Likely nearby soon"
+        case .liveNavigation: return "Nearby"
         case .earlyArrival: return "Likely arriving soon"
-        case .preEventPreparation: return "Expected at this event"
+        case .preEventPreparation: return "May be there"
         }
-    }
-    func canStartLooking(_ person: PreEventBriefBuilder.PriorityPerson) -> Bool {
-        presentationMode == .liveNavigation && ((person.statusLabel == "nearby") || (person.isNearby == true))
     }
     var detailCTA: String {
         switch presentationMode {
         case .liveNavigation: return "Start Looking"
-        case .earlyArrival: return "Keep this in mind"
+        case .earlyArrival: return "Keep in mind"
         case .preEventPreparation: return "Keep in mind"
+        }
+    }
+    var detailSecondaryCTA: String? {
+        presentationMode == .preEventPreparation ? "Check in when you arrive" : nil
+    }
+    var detailFooterCopy: String? {
+        switch presentationMode {
+        case .preEventPreparation: return "Live proximity guidance starts after you check in."
+        case .earlyArrival: return "Nearify will switch to live guidance when they’re nearby."
+        case .liveNavigation: return nil
+        }
+    }
+    var loadingCopy: String {
+        switch presentationMode {
+        case .preEventPreparation: return "Building your event preview…"
+        case .earlyArrival: return "Checking who may be arriving soon…"
+        case .liveNavigation: return "Looking for people nearby…"
+        }
+    }
+    var emptyRecommendationsCopy: String {
+        switch presentationMode {
+        case .preEventPreparation: return "People are still joining. Keep this event in mind and check in when you arrive."
+        case .earlyArrival: return "No strong matches yet. Nearify will suggest people as likely arrivals become clearer."
+        case .liveNavigation: return "No one is active nearby right now. Keep moving and Nearify will update live."
+        }
+    }
+    var conversationSectionTitle: String {
+        switch presentationMode {
+        case .preEventPreparation: return "Conversation ideas"
+        case .earlyArrival: return "Easy opener"
+        case .liveNavigation: return "Break the ice"
+        }
+    }
+    var detailConversationSectionTitle: String {
+        switch presentationMode {
+        case .preEventPreparation: return "Possible conversation"
+        case .earlyArrival: return "Easy opener"
+        case .liveNavigation: return "Conversation starter"
+        }
+    }
+    var showsGoalSection: Bool { presentationMode == .preEventPreparation || presentationMode == .liveNavigation }
+    var footerStatusLine: String {
+        switch presentationMode {
+        case .preEventPreparation: return "Live proximity guidance starts after you check in."
+        case .earlyArrival: return "Nearify will switch to live guidance when someone nearby is detected."
+        case .liveNavigation: return brief.liveStatusLine
+        }
+    }
+    var primaryFooterButtonTitle: String {
+        presentationMode == .liveNavigation ? "Close" : "Got it"
+    }
+    var briefContentModeLogLine: String {
+        switch presentationMode {
+        case .preEventPreparation:
+            return "[BriefContentMode] mode=preEventPreparation sections=goal,expected,conversationIdeas cta=keepInMind"
+        case .earlyArrival:
+            return "[BriefContentMode] mode=earlyArrival sections=quietRoom,likelyArrivals,easyOpener cta=keepInMind"
+        case .liveNavigation:
+            return "[BriefContentMode] mode=liveNavigation sections=nearby,startHere,breakIce cta=startLooking"
         }
     }
 }
