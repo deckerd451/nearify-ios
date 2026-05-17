@@ -37,6 +37,20 @@ struct HomeSurfaceView: View {
     @State private var staleAttendeeName: String = ""
     @State private var showWrapUp = false
     @State private var isWrappingUpEvent = false
+    @State private var postFindPrompt: PostFindPromptState?
+
+    private struct PostFindPromptState: Identifiable {
+        enum Action {
+            case connected
+            case notYet
+            case stillLooking
+            case remindLater
+        }
+
+        let id = UUID()
+        let attendee: EventAttendee
+        let reason: String
+    }
 
     // Arrival Brief — shown once per event session on join.
     // arrivalBriefPending: true from join until dismissed/acted on.
@@ -229,6 +243,14 @@ struct HomeSurfaceView: View {
                             .foregroundColor(.white.opacity(0.7))
                     }
                 }
+
+                if let prompt = postFindPrompt {
+                    postFindPromptCard(prompt)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 18)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(10)
+                }
             }
             .navigationTitle("Nearify")
             .navigationBarTitleDisplayMode(.large)
@@ -326,7 +348,10 @@ struct HomeSurfaceView: View {
             }) { destination in
                 FindAttendeeView(
                     attendee: destination.attendee,
-                    connectionMode: destination.connectionMode
+                    connectionMode: destination.connectionMode,
+                    onSessionFinished: { summary in
+                        handlePostFindSummary(summary, fallbackAttendee: destination.attendee)
+                    }
                 )
             }
             .sheet(isPresented: $showSoloState) {
@@ -393,6 +418,94 @@ struct HomeSurfaceView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func postFindPromptCard(_ prompt: PostFindPromptState) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Did you end up meeting \(prompt.attendee.name)?")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.white)
+            HStack(spacing: 8) {
+                Button("Yes, we connected") { handlePostFindAction(.connected, prompt: prompt) }
+                Button("Not yet") { handlePostFindAction(.notYet, prompt: prompt) }
+            }
+            .buttonStyle(.borderedProminent)
+            HStack(spacing: 8) {
+                Button("Still looking") { handlePostFindAction(.stillLooking, prompt: prompt) }
+                Button("Remind me later") { handlePostFindAction(.remindLater, prompt: prompt) }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.08)))
+    }
+
+    private func handlePostFindSummary(_ summary: FindAttendeeView.PostFindSummary, fallbackAttendee: EventAttendee) {
+        guard eventJoin.isEventJoined else { return }
+        guard postFindPrompt == nil else { return }
+        guard shouldShowPostFindPrompt(for: summary) else { return }
+
+        let attendee = attendeesService.attendees.first(where: { $0.id == summary.attendeeId }) ?? fallbackAttendee
+        let reason = summary.overlapSeconds >= 60 ? "sustainedProximity" : "meaningfulFindSession"
+        #if DEBUG
+        print("[PostFind] triggered target=\(summary.attendeeName) reason=\(reason)")
+        print("[PostFind] promptShown target=\(summary.attendeeName) mode=lightweightCard")
+        #endif
+        withAnimation(.easeInOut(duration: 0.22)) {
+            postFindPrompt = PostFindPromptState(attendee: attendee, reason: reason)
+        }
+    }
+
+    private func shouldShowPostFindPrompt(for summary: FindAttendeeView.PostFindSummary) -> Bool {
+        let eventId = eventJoin.currentEventID ?? "no-event"
+        let pairKey = "postfind.lastPrompt.\(eventId).\(summary.attendeeId.uuidString)"
+        let perEventCountKey = "postfind.count.\(eventId)"
+        let defaults = UserDefaults.standard
+        let now = Date()
+
+        let cooldown: TimeInterval = 18 * 60
+        if let lastPrompt = defaults.object(forKey: pairKey) as? Date, now.timeIntervalSince(lastPrompt) < cooldown {
+            return false
+        }
+
+        let count = defaults.integer(forKey: perEventCountKey)
+        guard count < 2 else { return false }
+
+        let strongSignal = summary.overlapSeconds >= 45 || summary.arrived
+        let meaningfulSession = summary.sessionDuration >= 35 && summary.hadDirectSignal
+        guard strongSignal || meaningfulSession else { return false }
+
+        defaults.set(now, forKey: pairKey)
+        defaults.set(count + 1, forKey: perEventCountKey)
+        return true
+    }
+
+    private func handlePostFindAction(_ action: PostFindPromptState.Action, prompt: PostFindPromptState) {
+        #if DEBUG
+        let actionLabel: String = {
+            switch action {
+            case .connected: return "confirmedConnection"
+            case .notYet: return "notYet"
+            case .stillLooking: return "stillLooking"
+            case .remindLater: return "remindLater"
+            }
+        }()
+        print("[PostFind] dismissed target=\(prompt.attendee.name) action=\(actionLabel)")
+        #endif
+
+        if action == .connected {
+            if targetIntent.targetProfileId == prompt.attendee.id {
+                targetIntent.clear(reason: "post-find connection confirmed")
+            }
+            relationshipMemory.requestRefresh(reason: "post-find-connected")
+            FeedService.shared.requestRefresh(reason: "post-find-connected")
+            #if DEBUG
+            print("[PostFind] confirmedConnection target=\(prompt.attendee.name)")
+            #endif
+        }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            postFindPrompt = nil
         }
     }
 
