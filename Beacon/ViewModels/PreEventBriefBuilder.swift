@@ -189,7 +189,7 @@ enum PreEventBriefBuilder {
             return lhs.score > rhs.score
         }
 
-        return scored.prefix(3).map { attendee, rel, proximity, liveScore in
+        return scored.prefix(ProfileSignalService.shared.recommendedPersonCount).map { attendee, rel, proximity, liveScore in
             let nearby = proximity == .veryClose || proximity == .nearby
             let confidence = max(0.0, min(1.0, liveScore / 140.0))
             return PriorityPerson(
@@ -290,6 +290,10 @@ enum PreEventBriefBuilder {
         isNearby: Bool,
         isHereNow: Bool
     ) -> String {
+        // Try cross-event enrichment from ProfileSignalService first.
+        if let enriched = ProfileSignalService.shared.alignmentContext(for: relationship) {
+            return enriched
+        }
         if let relationship {
             let traits = TraitReasoning.topTraits(for: relationship, isHereNow: isHereNow)
             if !traits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: traits) {
@@ -339,10 +343,23 @@ enum PreEventBriefBuilder {
         goal: String,
         relationships: [RelationshipMemory]
     ) -> [String] {
+        let signals = ProfileSignalService.shared
         if isCheckedIn {
             var starters: [String] = []
             if let first = chosenPeople.first {
-                starters.append("Start with \(first.name) while they're \(first.statusLabel ?? "here now").")
+                let rel = relationships.first { $0.profileId == first.id }
+                if let personStarter = signals.conversationStarter(for: rel) {
+                    starters.append(personStarter)
+                } else {
+                    switch signals.energyTone {
+                    case .soft:
+                        starters.append("When you're ready, \(first.name) is a natural first conversation.")
+                    case .proactive:
+                        starters.append("Start with \(first.name) — \(first.statusLabel ?? "here now") and strongly aligned.")
+                    case .neutral:
+                        starters.append("Start with \(first.name) while they're \(first.statusLabel ?? "here now").")
+                    }
+                }
             }
 
             if let goalTopic = strongestGoalTopic(goal: goal, relationships: relationships) {
@@ -352,6 +369,11 @@ enum PreEventBriefBuilder {
             }
 
             return starters
+        }
+
+        // Pre-check-in: try goal-aware starter from ProfileSignalService.
+        if let goalStarter = signals.conversationStarter(for: nil) {
+            return [goalStarter, "Ask what they're working on right now"]
         }
 
         return [

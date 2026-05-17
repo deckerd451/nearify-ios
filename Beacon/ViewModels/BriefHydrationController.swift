@@ -105,8 +105,9 @@ final class BriefHydrationController: ObservableObject {
     // MARK: - Pipeline
 
     private func runHydrationPipeline(eventId: UUID, eventName: String) async {
-        // Phase 1: kick relationship memory refresh and begin concurrent fetches.
+        // Phase 1: kick relationship memory refresh and profile signal refresh.
         RelationshipMemoryService.shared.requestRefresh(reason: "brief-hydration-join")
+        ProfileSignalService.shared.refreshIfNeeded()
 
         // Fetch attendees and wait for event context concurrently.
         async let attendeesFetch: [PreEventAttendee] = fetchPreEventAttendees(eventId: eventId)
@@ -233,7 +234,7 @@ final class BriefHydrationController: ObservableObject {
             return a.name < b.name
         }
 
-        let topAttendees = Array(sorted.prefix(3))
+        let topAttendees = Array(sorted.prefix(ProfileSignalService.shared.recommendedPersonCount))
         let people = topAttendees.map { attendee -> PreEventBriefBuilder.PriorityPerson in
             let rel = relationships.first { $0.profileId == attendee.id }
             let reason = buildPreEventReason(relationship: rel, goalTokens: goalTokens)
@@ -260,6 +261,10 @@ final class BriefHydrationController: ObservableObject {
     }
 
     private func buildPreEventReason(relationship: RelationshipMemory?, goalTokens: Set<String>) -> String {
+        // Try cross-event enrichment from ProfileSignalService first.
+        if let enriched = ProfileSignalService.shared.alignmentContext(for: relationship) {
+            return enriched
+        }
         guard let rel = relationship else {
             return "Also attending this event"
         }
