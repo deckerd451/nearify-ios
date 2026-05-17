@@ -281,7 +281,7 @@ enum PreEventBriefBuilder {
         if let firstDeep = person.deepInsights.first(where: { $0.category == "Interaction" || $0.category == "Relationship" })?.text {
             return firstDeep.lowercased()
         }
-        return "Likely a strong conversation fit"
+        return "Likely in the same conversation spaces today"
     }
 
     private static func buildLiveReason(
@@ -295,6 +295,10 @@ enum PreEventBriefBuilder {
             return enriched
         }
         if let relationship {
+            // Mutual value framing: what they bring given the user's focus.
+            if let mutual = ProfileSignalService.shared.mutualValueReason(for: relationship) {
+                return mutual
+            }
             let traits = TraitReasoning.topTraits(for: relationship, isHereNow: isHereNow)
             if !traits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: traits) {
                 return "\(traits.joined(separator: " · ")) — \(why)"
@@ -303,11 +307,11 @@ enum PreEventBriefBuilder {
 
         guard let relationship else {
             if isNearby {
-                return "Strong live signal: they're nearby and active at this event."
+                return "They're nearby right now — a natural moment to walk over."
             }
             return isHereNow
-                ? "Live signal is active now — this is your strongest available match."
-                : "Recent live signal detected for this attendee at the event."
+                ? "Active at this event right now — a good moment to introduce yourself."
+                : "Was active here recently and may still be around."
         }
 
         let minutes = max(relationship.totalOverlapSeconds / 60, 0)
