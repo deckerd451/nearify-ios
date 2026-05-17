@@ -50,8 +50,18 @@ enum FindAttendeeConnectionMode {
 
 /// Find Attendee screen with identity, status block, chips, radar, and signal details
 struct FindAttendeeView: View {
+    struct PostFindSummary {
+        let attendeeId: UUID
+        let attendeeName: String
+        let sessionDuration: TimeInterval
+        let overlapSeconds: Int
+        let hadDirectSignal: Bool
+        let arrived: Bool
+    }
+
     let attendee: EventAttendee
     let connectionMode: FindAttendeeConnectionMode
+    var onSessionFinished: ((PostFindSummary) -> Void)?
 
     @ObservedObject private var stateResolver = AttendeeStateResolver.shared
     @ObservedObject private var scanner = BLEScannerService.shared
@@ -74,15 +84,18 @@ struct FindAttendeeView: View {
     @State private var ambientMessageTask: Task<Void, Never>?
     @State private var connectionPollTask: Task<Void, Never>?
     @State private var showContactSaveSheet = false
+    @State private var hasEmittedSessionSummary = false
 
     @Environment(\.dismiss) private var dismiss
 
     init(
         attendee: EventAttendee,
-        connectionMode: FindAttendeeConnectionMode = .explore()
+        connectionMode: FindAttendeeConnectionMode = .explore(),
+        onSessionFinished: ((PostFindSummary) -> Void)? = nil
     ) {
         self.attendee = attendee
         self.connectionMode = connectionMode
+        self.onSessionFinished = onSessionFinished
     }
 
     private var presentation: AttendeePresentation {
@@ -217,6 +230,7 @@ struct FindAttendeeView: View {
             stopSignalTimer()
             stopAmbientMessageRotation()
             stopConnectionPolling()
+            emitPostFindSummaryIfNeeded()
         }
         .task(id: attendee.avatarUrl) {
             await prefetchContactAvatarIfNeeded()
@@ -1389,6 +1403,27 @@ struct FindAttendeeView: View {
     private func stopConnectionPolling() {
         connectionPollTask?.cancel()
         connectionPollTask = nil
+    }
+
+    private func emitPostFindSummaryIfNeeded() {
+        guard !hasEmittedSessionSummary else { return }
+        guard let startedAt = viewAppearedAt else { return }
+
+        hasEmittedSessionSummary = true
+        let duration = Date().timeIntervalSince(startedAt)
+        let overlapSeconds = encounterService.activeEncounters[attendee.id]?.totalSeconds ?? 0
+        let summary = PostFindSummary(
+            attendeeId: attendee.id,
+            attendeeName: attendee.name,
+            sessionDuration: duration,
+            overlapSeconds: overlapSeconds,
+            hadDirectSignal: hadDirectSignal,
+            arrived: findState == .arrived
+        )
+        #if DEBUG
+        debugLog("[PostFind] summary target=\(attendee.name) duration=\(Int(duration))s overlap=\(overlapSeconds)s arrived=\(summary.arrived)")
+        #endif
+        onSessionFinished?(summary)
     }
 }
 
