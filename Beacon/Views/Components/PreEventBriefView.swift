@@ -7,6 +7,7 @@ struct PreEventBriefView: View {
     let hydrationState: BriefHydrationController.BriefHydrationState
     let onContinue: (PreEventBriefBuilder.PriorityPerson?) -> Void
     @State private var lastLoggedRecommendationState: String?
+    @State private var selectedRecommendation: PreEventBriefBuilder.PriorityPerson?
 
     init(
         brief: PreEventBriefBuilder.Brief,
@@ -77,6 +78,9 @@ struct PreEventBriefView: View {
                 } else {
                     ForEach(brief.priorityPeople.prefix(3)) { person in
                         recommendationCard(person)
+                            .onTapGesture {
+                                selectedRecommendation = person
+                            }
                     }
                 }
             }
@@ -114,6 +118,9 @@ struct PreEventBriefView: View {
         }
         .onChange(of: recommendationLogState) { _ in
             logRecommendationIfNeeded()
+        }
+        .sheet(item: $selectedRecommendation) { person in
+            recommendationDetailSheet(person)
         }
     }
 
@@ -170,6 +177,13 @@ struct PreEventBriefView: View {
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                    Text("Tap for why + what to say")
+                }
+                .font(.footnote)
+                .foregroundColor(.secondary)
             }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -181,6 +195,95 @@ struct PreEventBriefView: View {
             RoundedRectangle(cornerRadius: 14)
                 .stroke(Color.blue.opacity(0.35), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func recommendationDetailSheet(_ person: PreEventBriefBuilder.PriorityPerson) -> some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    AvatarView(
+                        imageUrl: person.avatarUrl,
+                        name: person.name,
+                        size: 48,
+                        placeholderColor: .blue
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(person.name)
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                        Text(person.statusLabel == "nearby" ? "Nearby now" : "Active at this event")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionTitle("Why this person")
+                    Text(person.reason)
+                        .font(.body)
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionTitle("Conversation starter")
+                    Text(conversationStarter(for: person))
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    selectedRecommendation = nil
+                    onContinue(person)
+                } label: {
+                    Text("Start Looking")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue))
+                }
+            }
+            .padding()
+            .navigationTitle("Meet with confidence")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") {
+                        selectedRecommendation = nil
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func conversationStarter(for person: PreEventBriefBuilder.PriorityPerson) -> String {
+        if let eventSpecific = brief.conversationStarters.first(where: isEventSpecificStarter) {
+            return eventSpecific
+        }
+        if isSharedContextReason(person.reason) {
+            return "Ask what they’re most excited to build or learn at this event."
+        }
+        return "Ask what brought them here tonight."
+    }
+
+    private func isEventSpecificStarter(_ starter: String) -> Bool {
+        let text = starter.lowercased()
+        let eventSignals = ["event", "tonight", "here", "demo", "talk", "project", "session", "building"]
+        return eventSignals.contains(where: { text.contains($0) })
+    }
+
+    private func isSharedContextReason(_ reason: String) -> Bool {
+        let text = reason.lowercased()
+        return text.contains("you both") || text.contains("you've") || text.contains("overlapping") || text.contains("shared")
     }
 
     private func hasScoreEvidence(_ person: PreEventBriefBuilder.PriorityPerson) -> Bool {
