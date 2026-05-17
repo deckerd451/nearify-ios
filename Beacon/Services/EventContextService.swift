@@ -108,6 +108,8 @@ final class EventContextService {
         let normalizedIntent = intent.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedIntent.isEmpty else { return }
 
+        ProfileSignalService.shared.recordGoal(normalizedIntent)
+
         do {
             _ = try await supabase
                 .rpc("update_attendee_intent", params: [
