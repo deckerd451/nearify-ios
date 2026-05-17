@@ -213,7 +213,8 @@ struct MainTabView: View {
                 .buttonStyle(.bordered)
             }
         }
-        .padding(24)
+        .responsiveContentContainer(maxWidth: 520, compactPadding: 16, regularPadding: 24)
+        .padding(.vertical, 24)
         .presentationDetents([.height(250)])
     }
 

@@ -159,6 +159,7 @@ struct FindAttendeeView: View {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     VStack(spacing: 16) {
+                        
                         searchAnchor
                         identitySection
                         statusBlock
@@ -172,6 +173,7 @@ struct FindAttendeeView: View {
                         }
                         Spacer(minLength: 24)
                     }
+                     .responsiveContentContainer(maxWidth: 700)
                     .padding(.top, 16)
                     .padding(.bottom, 24)
                 }

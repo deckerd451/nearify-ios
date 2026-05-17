@@ -119,6 +119,7 @@ struct ProfileView: View {
                         
                         Spacer()
                     }
+                    .responsiveContentContainer(maxWidth: 680)
                 }
                 
                 // Success banner

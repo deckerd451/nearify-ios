@@ -115,8 +115,7 @@ struct PeopleView: View {
                     NavigationLink(value: PeopleRoute.nearifyContacts) {
                         nearifyContactsEntry
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal)
+                     .buttonStyle(.plain)
 
                     if !sections.hereNow.isEmpty {
                         sectionBlock(
@@ -142,6 +141,7 @@ struct PeopleView: View {
                         )
                     }
                 }
+                 .responsiveContentContainer(maxWidth: 740)
                 .padding(.top, DesignTokens.titleToContent)
                 .padding(.bottom, DesignTokens.sectionSpacing)
             }
@@ -236,7 +236,6 @@ struct PeopleView: View {
 
             ForEach(people) { person in
                 personCard(person, sectionColor: color)
-                    .padding(.horizontal)
             }
         }
     }
