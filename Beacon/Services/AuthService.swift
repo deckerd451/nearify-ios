@@ -142,6 +142,15 @@ final class AuthService: ObservableObject {
                 self.isAuthenticated = true
                 self.isOfflineMode = true
             }
+            // Notify EventJoinService so same-user restoration works on offline cold launch.
+            if let cachedAuthId = await MainActor.run(body: { CachedIdentityStore.shared.authUserId }) {
+                #if DEBUG
+                print("[AuthJoinRestore] offline mode — notifying EventJoinService with cached user=\(cachedAuthId.prefix(8))")
+                #endif
+                await MainActor.run {
+                    EventJoinService.shared.notifyAuthenticatedUser(authUserId: cachedAuthId)
+                }
+            }
             await MainActor.run {
                 self.observeNetworkRecovery()
             }
@@ -254,6 +263,9 @@ final class AuthService: ObservableObject {
         // Token refresh and signed-in events with a valid session — load profile
         if let session = session, !session.isExpired {
             print("[Auth] 🔑 Valid session for event '\(event)', user: \(session.user.id), expires: \(session.expiresAt)")
+            #if DEBUG
+            print("[AuthJoinRestore] auth \(event) received — user=\(session.user.id.uuidString.prefix(8))")
+            #endif
             await loadCurrentUser()
             return
         }
@@ -261,6 +273,9 @@ final class AuthService: ObservableObject {
         // Explicit sign-out — clear immediately, no grace period
         if event == .signedOut {
             print("[Auth] 👋 Explicit sign-out event received — clearing auth state")
+            #if DEBUG
+            print("[AuthJoinRestore] auth signedOut received — clearing auth state")
+            #endif
             await clearAuthState(reason: "signedOut event")
             return
         }
@@ -312,6 +327,9 @@ final class AuthService: ObservableObject {
 
     func signOut() async throws {
         print("[Auth] 👋 signOut() called")
+        #if DEBUG
+        print("[AuthJoinRestore] signOut called — stamping and preserving join context")
+        #endif
         // Stop services BEFORE signing out to prevent RLS failures
         await MainActor.run {
             EventPresenceService.shared.stopDueToAuthLoss()
@@ -392,6 +410,12 @@ final class AuthService: ObservableObject {
             await MainActor.run {
                 EventJoinService.shared.notifyAuthenticatedUser(authUserId: result.authUser.id.uuidString)
             }
+
+            #if DEBUG
+            print("[AuthJoinRestore] profile loaded authUserId=\(result.authUser.id.uuidString.prefix(8)) profileId=\(result.profile.id.uuidString.prefix(8))")
+            let hasPersistedContext = UserDefaults.standard.data(forKey: "nearify.activeJoinedEventContext") != nil
+            print("[AuthJoinRestore] persisted context exists=\(hasPersistedContext)")
+            #endif
 
             print("[Auth] ✅ Profile loaded from public.profiles")
             print("[Auth]    Profile ID: \(result.profile.id)")

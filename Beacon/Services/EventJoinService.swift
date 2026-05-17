@@ -66,6 +66,9 @@ final class EventJoinService: ObservableObject {
     private var beaconCancellable: AnyCancellable?
     private var joinedProfileId: UUID?
     private var isLeaveInProgress = false
+    /// Tracks the background reconciliation task so it can be cancelled on auth loss,
+    /// preventing a stale-session query from wiping the persisted context mid-restoration.
+    private var activeReconciliationTask: Task<Void, Never>?
     /// The Supabase auth user ID of the currently authenticated user.
     /// Seeded from CachedIdentityStore on cold launch; set authoritatively by notifyAuthenticatedUser().
     /// Used to scope persisted join contexts to the correct user.
@@ -224,6 +227,19 @@ final class EventJoinService: ObservableObject {
                 .value
 
             if rows.isEmpty {
+                // Only clear the persisted context when the user is authenticated and Supabase
+                // has definitively confirmed no active memberships for that profile.
+                // If we're not authenticated (e.g. this Task survived a sign-out), clearing
+                // would destroy the context before notifyAuthenticatedUser() can restore it.
+                guard AuthService.shared.isAuthenticated else {
+                    #if DEBUG
+                    print("[OfflineRecovery] ⚠️ Empty rows but not authenticated — preserving persisted state for same-user restoration")
+                    #endif
+                    return
+                }
+                #if DEBUG
+                print("[EventRestore] ⚠️ Backend confirmed 0 active memberships for authenticated user — clearing persisted state")
+                #endif
                 clearPersistedJoinedState()
                 return
             }
@@ -306,8 +322,9 @@ final class EventJoinService: ObservableObject {
         }
         restorePersistedJoinedState()
         startBeaconRecoveryObservation()
-        Task {
+        activeReconciliationTask = Task {
             await reconcilePersistedJoinedStateWithBackend()
+            activeReconciliationTask = nil
             isRestoringFromPersist = false
             #if DEBUG
             EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.init.restored")
@@ -1224,8 +1241,10 @@ final class EventJoinService: ObservableObject {
             // Reconcile with backend to validate the event is still active and expand
             // the multi-join set with any server-side changes since the last session.
             isRestoringFromPersist = true
-            Task {
+            activeReconciliationTask?.cancel()
+            activeReconciliationTask = Task {
                 await reconcilePersistedJoinedStateWithBackend()
+                activeReconciliationTask = nil
                 isRestoringFromPersist = false
                 #if DEBUG
                 print("[AuthJoinRestore] ✅ Backend reconciliation complete after sign-in restoration")
@@ -1248,6 +1267,13 @@ final class EventJoinService: ObservableObject {
     /// A different user signing in will have the stale context cleared by notifyAuthenticatedUser().
     func stopDueToAuthLoss() {
         print("[EventJoin] 🛑 Stopping due to auth loss")
+
+        // Cancel any in-flight reconciliation Task first so it cannot call
+        // clearPersistedJoinedState() after we return and wipe the context we
+        // just preserved for same-user restoration.
+        activeReconciliationTask?.cancel()
+        activeReconciliationTask = nil
+        isRestoringFromPersist = false
 
         // Stamp the current user ID onto the persisted context BEFORE clearing in-memory state.
         // CachedIdentityStore still has the user data at this point (cleared after us in signOut()).
