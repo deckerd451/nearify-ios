@@ -127,6 +127,12 @@ final class CachedIdentityStore {
         defaults.string(forKey: Key.lastEventName)
     }
 
+    /// The Supabase auth user ID from the last successful sign-in.
+    /// Used by EventJoinService to scope persisted join state to the authenticated user.
+    var authUserId: String? {
+        defaults.string(forKey: Key.authUserId)
+    }
+
     /// How old the cached identity is, in seconds. Nil if no cache exists.
     var cachedAge: TimeInterval? {
         let ts = defaults.double(forKey: Key.cachedAt)
