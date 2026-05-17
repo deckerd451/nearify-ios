@@ -112,6 +112,7 @@ struct PreEventBriefView: View {
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.15)))
             }
         }
+         .responsiveContentContainer(maxWidth: 680)
         .padding(.vertical, 8)
         .onAppear {
             logRecommendationIfNeeded()
@@ -250,7 +251,8 @@ struct PreEventBriefView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue))
                 }
             }
-            .padding()
+            .responsiveContentContainer(maxWidth: 640)
+            .padding(.vertical, 16)
             .navigationTitle("Meet with confidence")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

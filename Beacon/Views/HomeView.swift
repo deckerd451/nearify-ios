@@ -32,7 +32,7 @@ struct HomeView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         eventHeader
-                            .padding(.horizontal)
+                             .responsiveContentContainer(maxWidth: 720)
                             .padding(.top, 16)
                             .padding(.bottom, 24)
 
@@ -46,13 +46,16 @@ struct HomeView: View {
                             // Checked in but nobody visible yet — surface the best
                             // contextual action (brief person, follow-up, messages).
                             nextBestActionCard(minPriority: 0.35)
+                            .responsiveContentContainer(maxWidth: 720)
                             emptyState.padding(.top, 60)
                         } else {
                             // Attendee list is the primary surface; only surface
                             // unread messages (priority ≥ 0.95) so the card
                             // doesn't compete with the list itself.
                             nextBestActionCard(minPriority: 0.95)
+                            .responsiveContentContainer(maxWidth: 720)
                             attendeeList
+                                .responsiveContentContainer(maxWidth: 720)
                         }
                     }
                 }

@@ -106,6 +106,7 @@ struct ExploreView: View {
                 eventListsSection
                 emptyStateSection
             }
+             .responsiveContentContainer(maxWidth: 740)
             .padding(.top, DesignTokens.titleToContent)
             .padding(.bottom, DesignTokens.scrollBottomPadding)
         }
@@ -161,7 +162,7 @@ struct ExploreView: View {
                     }
                 }
             )
-            .padding(.horizontal)
+            
         }
     }
 
@@ -224,7 +225,7 @@ struct ExploreView: View {
                     .foregroundColor(iconColor)
                     .tracking(1.2)
             }
-            .padding(.horizontal)
+            
 
             ForEach(events) { event in
                 let isJoined = eventJoin.joinedEventIDs.contains(event.id.uuidString)
@@ -254,7 +255,7 @@ struct ExploreView: View {
                         Task { await eventJoin.checkIn(targetEventID: event.id.uuidString) }
                     }
                 )
-                .padding(.horizontal)
+                
             }
         }
     }
@@ -369,7 +370,7 @@ struct ExploreView: View {
                         .stroke(Color.green.opacity(0.3), lineWidth: 1)
                 )
         )
-        .padding(.horizontal)
+        
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -402,7 +403,7 @@ struct ExploreView: View {
                         .stroke(Color.red.opacity(0.3), lineWidth: 1)
                 )
         )
-        .padding(.horizontal)
+        
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -447,7 +448,7 @@ struct ExploreView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.white.opacity(0.04))
         )
-        .padding(.horizontal)
+        
     }
 
     private var emptyEventsMessage: some View {
