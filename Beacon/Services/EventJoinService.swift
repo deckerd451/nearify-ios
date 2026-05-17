@@ -216,12 +216,25 @@ final class EventJoinService: ObservableObject {
             let profile = try await ensureProfile()
             joinedProfileId = profile.id
 
-            // Load ALL active memberships for this profile — not just the one stored locally.
-            // This populates joinedEventIDs with the full multi-join set on cold launch.
+            // Snapshot the active event ID before any async work so fallback logic
+            // is stable even if other code mutates currentEventID concurrently.
+            let primaryEventId = currentEventID
+
+            // Scope the query to only events already tracked locally.
+            // Querying all rows for the profile inflates the set with historical
+            // rows that were joined and never explicitly left — causing "9 events".
+            let scopedIds = Array(joinedEventIDs.union(primaryEventId.map { [$0] } ?? []))
+            guard !scopedIds.isEmpty else {
+                guard AuthService.shared.isAuthenticated else { return }
+                clearPersistedJoinedState()
+                return
+            }
+
             let rows: [NearifyAttendeeWithEvent] = try await supabase
                 .from("event_attendees")
                 .select("id,event_id,profile_id,status,events(id,name)")
                 .eq("profile_id", value: profile.id.uuidString)
+                .in("event_id", values: scopedIds)
                 .in("status", values: ["joined", "inEvent"])
                 .execute()
                 .value
@@ -238,28 +251,32 @@ final class EventJoinService: ObservableObject {
                     return
                 }
                 #if DEBUG
-                print("[EventRestore] ⚠️ Backend confirmed 0 active memberships for authenticated user — clearing persisted state")
+                print("[EventRestore] ⚠️ Backend confirmed 0 active memberships — clearing persisted state")
                 #endif
                 clearPersistedJoinedState()
                 return
             }
 
-            // Validate the primary persisted event is still active.
-            let primaryIsActive = rows.contains { $0.event_id.uuidString == currentEventID }
-            if !primaryIsActive {
-                // Primary event was left server-side — fall back to most recent active.
-                if let first = rows.first {
-                    currentEventID = first.event_id.uuidString
-                    currentEventName = first.eventName
-                    let restoredName = first.eventName?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    membershipState = .joined(eventName: restoredName?.isEmpty == false ? restoredName! : "Event")
-                } else {
-                    clearPersistedJoinedState()
-                    return
-                }
+            // Validate the primary persisted event is still active on the backend.
+            let confirmedIds = Set(rows.map { $0.event_id.uuidString })
+            let primaryIsActive = confirmedIds.contains(primaryEventId ?? "")
+            if primaryIsActive {
+                #if DEBUG
+                print("[RestoreHydration] active event preserved: \"\(currentEventName ?? primaryEventId ?? "?")\"")
+                #endif
+            } else if let first = rows.first {
+                // Primary was left server-side — fall back to next confirmed active event.
+                currentEventID = first.event_id.uuidString
+                currentEventName = first.eventName
+                let restoredName = first.eventName?.trimmingCharacters(in: .whitespacesAndNewlines)
+                membershipState = .joined(eventName: restoredName?.isEmpty == false ? restoredName! : "Event")
+            } else {
+                clearPersistedJoinedState()
+                return
             }
 
-            // Populate joinedEventIDs from the full backend list.
+            // Build confirmed joined set — backend-validated events only.
+            // Log any locally-persisted event the backend did NOT confirm as active.
             var ids: Set<String> = []
             var names: [String: String] = [:]
             for row in rows {
@@ -267,15 +284,38 @@ final class EventJoinService: ObservableObject {
                 ids.insert(idStr)
                 if let name = row.eventName { names[idStr] = name }
             }
-            joinedEventIDs = ids
-            joinedEventNames = names
-            isEventJoined = !ids.isEmpty
+            #if DEBUG
+            for staleId in joinedEventIDs.subtracting(confirmedIds) {
+                print("[RestoreHydration] skipped historical joined event: \(String(staleId.prefix(8))) (not confirmed active by backend)")
+            }
+            #endif
+
+            // Avoid redundant @Published emissions — only assign if values actually changed.
+            // Redundant assigns trigger downstream Combine sinks (e.g. EventAttendeesService)
+            // even when nothing meaningful changed.
+            if ids != joinedEventIDs { joinedEventIDs = ids }
+            if names != joinedEventNames { joinedEventNames = names }
+            if !ids.isEmpty != isEventJoined { isEventJoined = !ids.isEmpty }
 
             persistActiveJoinedState()
 
-            #if DEBUG
-            print("[EventMembership] reconciled joined events count: \(ids.count)")
-            #endif
+            // Hydrate context pipeline for the confirmed active event.
+            // Ensures Home/Brief/intelligence have event data even though
+            // the heartbeat is not running (joined state, not checked in).
+            if let eventIdStr = currentEventID, let eventUUID = UUID(uuidString: eventIdStr) {
+                let eventName = currentEventName ?? "event"
+                Task(priority: .utility) {
+                    await EventContextService.shared.fetchContext(eventId: eventUUID)
+                    #if DEBUG
+                    print("[RestoreHydration] event context hydrated for \"\(eventName)\"")
+                    #endif
+                }
+                AttendeeStateResolver.shared.refreshConnections()
+                #if DEBUG
+                print("[RestoreHydration] attendees refresh started")
+                print("[EventMembership] reconciled joined events count: \(ids.count)")
+                #endif
+            }
         } catch {
             // Preserve local continuity through transient launch/network failures.
         }
@@ -1238,8 +1278,21 @@ final class EventJoinService: ObservableObject {
             joinedEventIDs = Set(context.joinedEventIDs ?? [context.eventId])
             joinedEventNames = context.joinedEventNames ?? [context.eventId: context.eventName]
 
-            // Reconcile with backend to validate the event is still active and expand
-            // the multi-join set with any server-side changes since the last session.
+            // Trigger context hydration immediately so Home/Brief can show event content
+            // while backend reconciliation runs in parallel.
+            if let eventUUID = UUID(uuidString: context.eventId) {
+                print("[RestoreHydration] restored active event: \"\(context.eventName)\"")
+                BriefHydrationController.shared.startHydration(eventId: eventUUID, eventName: context.eventName)
+                Task(priority: .utility) {
+                    await EventContextService.shared.fetchContext(eventId: eventUUID)
+                    #if DEBUG
+                    print("[RestoreHydration] event context hydrated")
+                    #endif
+                }
+            }
+
+            // Reconcile with backend to validate the event is still active.
+            // Scoped to persisted event IDs only — does not expand the set.
             isRestoringFromPersist = true
             activeReconciliationTask?.cancel()
             activeReconciliationTask = Task {
