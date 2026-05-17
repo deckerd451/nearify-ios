@@ -66,6 +66,10 @@ final class EventJoinService: ObservableObject {
     private var beaconCancellable: AnyCancellable?
     private var joinedProfileId: UUID?
     private var isLeaveInProgress = false
+    /// The Supabase auth user ID of the currently authenticated user.
+    /// Seeded from CachedIdentityStore on cold launch; set authoritatively by notifyAuthenticatedUser().
+    /// Used to scope persisted join contexts to the correct user.
+    private var currentAuthUserId: String?
     private let minimumContactSyncInteractionScore = 1.2
 
     /// Timestamp when the app entered background. Used for timeout calculation.
@@ -105,6 +109,11 @@ final class EventJoinService: ObservableObject {
         let eventName: String
         let isCheckedIn: Bool
         let persistedAt: Date
+        // v2: user-scoped multi-join persistence (nil in contexts written before this update)
+        let authUserId: String?
+        let joinedEventIDs: [String]?
+        let joinedEventNames: [String: String]?
+        let sessionStartedAt: Date?
     }
 
     /// Returns the last event context if it exists and is within the recovery window.
@@ -134,7 +143,9 @@ final class EventJoinService: ObservableObject {
         guard let eventId = currentEventID,
               let eventName = currentEventName,
               isEventJoined else {
-            UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
+            // No active event to persist. Leave the existing context intact so that
+            // same-user restoration can work across sign-out/sign-in cycles.
+            // Explicit clearing is done only in leaveEvent() and clearPersistedJoinedState().
             return
         }
 
@@ -142,10 +153,17 @@ final class EventJoinService: ObservableObject {
             eventId: eventId,
             eventName: eventName,
             isCheckedIn: isCheckedIn,
-            persistedAt: Date()
+            persistedAt: Date(),
+            authUserId: currentAuthUserId,
+            joinedEventIDs: Array(joinedEventIDs),
+            joinedEventNames: joinedEventNames,
+            sessionStartedAt: activeSessionStartedAt
         )
         if let data = try? JSONEncoder().encode(context) {
             UserDefaults.standard.set(data, forKey: activeJoinedEventKey)
+            #if DEBUG
+            print("[EventPersistence] 💾 Saved: \"\(eventName)\", user=\(currentAuthUserId.map { String($0.prefix(8)) } ?? "unknown"), events=\(joinedEventIDs.count)")
+            #endif
         }
     }
 
@@ -155,15 +173,38 @@ final class EventJoinService: ObservableObject {
             return
         }
 
+        // Cross-user protection: if we already know the current auth user and it differs,
+        // block restore and clear the stale context immediately.
+        // Note: notifyAuthenticatedUser() performs the definitive check once auth fully loads.
+        if let persistedUser = context.authUserId,
+           let knownUser = currentAuthUserId,
+           persistedUser != knownUser {
+            #if DEBUG
+            print("[EventRestore] ⛔ Cold-launch restore blocked — user mismatch")
+            print("[EventRestore]    Persisted user: \(String(persistedUser.prefix(8)))")
+            print("[EventRestore]    Current user:   \(String(knownUser.prefix(8)))")
+            #endif
+            UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
+            return
+        }
+
         currentEventID = context.eventId
         currentEventName = context.eventName
         isEventJoined = true
         isCheckedIn = false
         membershipState = .joined(eventName: context.eventName)
-        // Seed joinedEventIDs with the persisted primary event.
-        // reconcilePersistedJoinedStateWithBackend() will expand this with the full list.
-        joinedEventIDs.insert(context.eventId)
-        joinedEventNames[context.eventId] = context.eventName
+        activeSessionStartedAt = context.sessionStartedAt
+
+        // Restore full multi-join set from snapshot; fall back to primary event for legacy contexts.
+        joinedEventIDs = Set(context.joinedEventIDs ?? [context.eventId])
+        joinedEventNames = context.joinedEventNames ?? [context.eventId: context.eventName]
+
+        #if DEBUG
+        print("[EventRestore] ✅ Cold-launch restore: \"\(context.eventName)\"")
+        print("[EventRestore]    Auth user: \(context.authUserId.map { String($0.prefix(8)) } ?? "legacy — no user stamp")")
+        print("[EventRestore]    Multi-join events: \(joinedEventIDs.count)")
+        print("[EventRestore]    Session started: \(context.sessionStartedAt?.description ?? "none")")
+        #endif
     }
 
     private func reconcilePersistedJoinedStateWithBackend() async {
@@ -225,6 +266,8 @@ final class EventJoinService: ObservableObject {
     }
 
     private func clearPersistedJoinedState() {
+        // Explicit clearing path — used when backend confirms no active memberships,
+        // or when a different user's context is detected.
         UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
         currentEventID = nil
         currentEventName = nil
@@ -233,6 +276,9 @@ final class EventJoinService: ObservableObject {
         membershipState = .notInEvent
         joinedEventIDs = []
         joinedEventNames = [:]
+        #if DEBUG
+        print("[EventPersistence] 🗑️ Persisted join state cleared (backend confirmed no active memberships)")
+        #endif
     }
 
     /// Dismisses the reconnect prompt for the current app session.
@@ -244,6 +290,16 @@ final class EventJoinService: ObservableObject {
     }
 
     private init() {
+        // Seed auth user ID from cached identity so cross-user protection works before auth loads.
+        currentAuthUserId = CachedIdentityStore.shared.authUserId
+        #if DEBUG
+        if let uid = currentAuthUserId {
+            print("[EventPersistence] 🔑 Seeded auth user ID from cache: \(String(uid.prefix(8)))")
+        } else {
+            print("[EventPersistence] ℹ️ No cached auth user ID — first launch or signed out")
+        }
+        #endif
+
         // Gate the brief and live surfaces until we confirm the persisted join is still valid.
         if UserDefaults.standard.data(forKey: activeJoinedEventKey) != nil {
             isRestoringFromPersist = true
@@ -644,10 +700,14 @@ final class EventJoinService: ObservableObject {
         }
 
         EventContextService.shared.clearCache()
+        // Explicit leave — permanently clear the persisted join context.
+        // This is the ONLY path that destroys continuity. Temporary disconnects,
+        // sign-outs, and auth refreshes do NOT reach this line.
         UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
 
         #if DEBUG
         print("[LeaveEvent] state cleared — isEventJoined=false, membership=left")
+        print("[JoinState] 🗑️ Persisted join context cleared — explicit user leave")
         EventParticipationStateResolver.logAudit(renderingSurface: "EventJoinService.leaveEvent")
         #endif
         return true
@@ -1055,11 +1115,143 @@ final class EventJoinService: ObservableObject {
         membershipState = .notInEvent
     }
 
+    // MARK: - User-Scoped Persistence
+
+    /// Stamps the current auth user ID onto the persisted join context before sign-out.
+    /// This ensures the context can be matched to the same user on re-authentication,
+    /// while blocking restoration for any different user who signs in next.
+    private func stampCurrentAuthUserOnPersistedContext() {
+        let authUserId = currentAuthUserId ?? CachedIdentityStore.shared.authUserId
+        guard let authUserId,
+              let data = UserDefaults.standard.data(forKey: activeJoinedEventKey),
+              let existing = try? JSONDecoder().decode(ActiveJoinedEventContext.self, from: data) else {
+            #if DEBUG
+            print("[EventPersistence] ℹ️ No active context to stamp or no auth user ID — skipping")
+            #endif
+            return
+        }
+
+        // Already stamped with the same user — no write needed.
+        if existing.authUserId == authUserId {
+            #if DEBUG
+            print("[EventPersistence] ✅ Auth user already stamped on persisted context")
+            #endif
+            return
+        }
+
+        let updated = ActiveJoinedEventContext(
+            eventId: existing.eventId,
+            eventName: existing.eventName,
+            isCheckedIn: existing.isCheckedIn,
+            persistedAt: existing.persistedAt,
+            authUserId: authUserId,
+            joinedEventIDs: existing.joinedEventIDs ?? Array(joinedEventIDs),
+            joinedEventNames: existing.joinedEventNames ?? joinedEventNames,
+            sessionStartedAt: existing.sessionStartedAt ?? activeSessionStartedAt
+        )
+        if let updatedData = try? JSONEncoder().encode(updated) {
+            UserDefaults.standard.set(updatedData, forKey: activeJoinedEventKey)
+            #if DEBUG
+            print("[EventPersistence] 🔏 Stamped auth user ID on persisted context for same-user restoration")
+            print("[EventPersistence]    User: \(String(authUserId.prefix(8)))")
+            print("[EventPersistence]    Event: \"\(existing.eventName)\"")
+            #endif
+        }
+    }
+
+    /// Called by AuthService after every successful authentication.
+    ///
+    /// This is the definitive user-scope validation point:
+    /// - Same user returns after sign-out → restores persisted join context automatically.
+    /// - Different user signs in → clears the stale context and in-memory state.
+    /// - Cold launch of same session → no-op (state already loaded by init).
+    func notifyAuthenticatedUser(authUserId: String) {
+        currentAuthUserId = authUserId
+
+        #if DEBUG
+        print("[AuthJoinRestore] 🔑 Authenticated user notified: \(String(authUserId.prefix(8)))")
+        #endif
+
+        guard let data = UserDefaults.standard.data(forKey: activeJoinedEventKey),
+              let context = try? JSONDecoder().decode(ActiveJoinedEventContext.self, from: data) else {
+            #if DEBUG
+            print("[AuthJoinRestore] ℹ️ No persisted join context — nothing to validate")
+            #endif
+            return
+        }
+
+        // CROSS-USER PROTECTION: if the persisted context belongs to a different user, clear it.
+        if let persistedUser = context.authUserId, persistedUser != authUserId {
+            #if DEBUG
+            print("[AuthJoinRestore] ⛔ Different user detected — clearing stale join context")
+            print("[AuthJoinRestore]    Persisted: \(String(persistedUser.prefix(8)))")
+            print("[AuthJoinRestore]    Current:   \(String(authUserId.prefix(8)))")
+            #endif
+            UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
+            if isEventJoined {
+                // Clear any in-memory state that was seeded from the foreign context.
+                currentEventID = nil
+                currentEventName = nil
+                joinedEventIDs = []
+                joinedEventNames = [:]
+                isEventJoined = false
+                isCheckedIn = false
+                membershipState = .notInEvent
+                isRestoringFromPersist = false
+            }
+            return
+        }
+
+        // SAME-USER RESTORATION: context belongs to this user (or is a legacy context without a stamp).
+        if !isEventJoined {
+            // In-memory state was cleared (after sign-out or auth loss) — restore from disk.
+            #if DEBUG
+            print("[AuthJoinRestore] ✅ Restoring join state for returning user")
+            print("[AuthJoinRestore]    Event: \"\(context.eventName)\"")
+            print("[AuthJoinRestore]    Multi-join count: \(max(1, context.joinedEventIDs?.count ?? 1))")
+            print("[AuthJoinRestore]    Session started: \(context.sessionStartedAt?.description ?? "none")")
+            #endif
+
+            currentEventID = context.eventId
+            currentEventName = context.eventName
+            isEventJoined = true
+            isCheckedIn = false
+            membershipState = .joined(eventName: context.eventName)
+            activeSessionStartedAt = context.sessionStartedAt
+            joinedEventIDs = Set(context.joinedEventIDs ?? [context.eventId])
+            joinedEventNames = context.joinedEventNames ?? [context.eventId: context.eventName]
+
+            // Reconcile with backend to validate the event is still active and expand
+            // the multi-join set with any server-side changes since the last session.
+            isRestoringFromPersist = true
+            Task {
+                await reconcilePersistedJoinedStateWithBackend()
+                isRestoringFromPersist = false
+                #if DEBUG
+                print("[AuthJoinRestore] ✅ Backend reconciliation complete after sign-in restoration")
+                #endif
+            }
+        } else {
+            #if DEBUG
+            print("[AuthJoinRestore] ℹ️ Same user, state already loaded — no restoration needed")
+            #endif
+        }
+    }
+
     // MARK: - Auth Loss
 
-    /// Called by AuthService when auth becomes invalid.
+    /// Called by AuthService when auth becomes invalid (sign-out or expired session).
+    ///
+    /// Clears all in-memory event state and stops active services.
+    /// The persisted join context is intentionally PRESERVED so that the same user
+    /// can have their event context restored automatically on re-authentication.
+    /// A different user signing in will have the stale context cleared by notifyAuthenticatedUser().
     func stopDueToAuthLoss() {
         print("[EventJoin] 🛑 Stopping due to auth loss")
+
+        // Stamp the current user ID onto the persisted context BEFORE clearing in-memory state.
+        // CachedIdentityStore still has the user data at this point (cleared after us in signOut()).
+        stampCurrentAuthUserOnPersistedContext()
 
         BLEAdvertiserService.shared.stopEventAdvertising()
         BLEScannerService.shared.stopScanning()
@@ -1068,6 +1260,7 @@ final class EventJoinService: ObservableObject {
         currentEventID = nil
         currentEventName = nil
         joinedProfileId = nil
+        currentAuthUserId = nil
         isEventJoined = false
         isCheckedIn = false
         joinError = nil
@@ -1076,11 +1269,17 @@ final class EventJoinService: ObservableObject {
         joinedEventIDs = []
         joinedEventNames = [:]
         pendingCheckInSwitch = nil
-        UserDefaults.standard.removeObject(forKey: activeJoinedEventKey)
+        // NOTE: activeJoinedEventKey is intentionally NOT removed from UserDefaults here.
+        // It is preserved for same-user restoration on next sign-in.
+        // Different-user sign-in clears it via notifyAuthenticatedUser().
+        // Explicit user leave clears it via leaveEvent().
 
         EventContextService.shared.clearCache()
 
-        print("[EventJoin] ✅ Event state cleared due to auth loss")
+        print("[EventJoin] ✅ In-memory event state cleared (persisted context retained for same-user restoration)")
+        #if DEBUG
+        print("[JoinState] 💾 activeJoinedEventKey preserved — same user can restore on re-auth")
+        #endif
     }
 
     // MARK: - Backend

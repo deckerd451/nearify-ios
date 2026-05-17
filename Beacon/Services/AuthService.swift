@@ -387,6 +387,12 @@ final class AuthService: ObservableObject {
                 )
             }
 
+            // Notify EventJoinService so it can validate the persisted join context scope
+            // and restore event state for the same returning user.
+            await MainActor.run {
+                EventJoinService.shared.notifyAuthenticatedUser(authUserId: result.authUser.id.uuidString)
+            }
+
             print("[Auth] ✅ Profile loaded from public.profiles")
             print("[Auth]    Profile ID: \(result.profile.id)")
             print("[Auth]    State: \(result.state.rawValue)")
