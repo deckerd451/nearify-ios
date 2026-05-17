@@ -266,7 +266,11 @@ final class BriefHydrationController: ObservableObject {
             return enriched
         }
         guard let rel = relationship else {
-            return "Also attending this event"
+            // No relationship history — reference event context as grounding.
+            if let eventName = activeEventName {
+                return "Attending \(eventName) — worth a brief introduction"
+            }
+            return "Both here for this event — worth a brief introduction"
         }
         let goalAligned = !goalTokens.isDisjoint(with: Set(rel.sharedInterests.map { $0.lowercased() }))
         if goalAligned, let topic = rel.sharedInterests.first {
