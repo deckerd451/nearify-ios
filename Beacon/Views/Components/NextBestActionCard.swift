@@ -77,7 +77,7 @@ struct NextBestActionCard: View {
            let topPerson = briefController.currentBrief?.priorityPeople.first {
             let matchedAttendee = attendeesService.attendees.first { $0.id == topPerson.id }
             let isLocatable = matchedAttendee != nil || topPerson.isNearby == true
-            let displayName = topPerson.displayName
+            let displayName = topPerson.name
             #if DEBUG
             print("[IdentityRenderPath] using normalized displayName source=RecommendationCard person=\(displayName)")
             #endif
@@ -107,7 +107,7 @@ struct NextBestActionCard: View {
         // Shows a warm teaser before the user arrives.
         if eventJoin.isEventJoined, !eventJoin.isCheckedIn,
            let topPerson = briefController.currentBrief?.priorityPeople.first {
-            let displayName = topPerson.displayName
+            let displayName = topPerson.name
             #if DEBUG
             print("[IdentityRenderPath] using normalized displayName source=RecommendationCard.preEvent person=\(displayName)")
             #endif
