@@ -1132,13 +1132,23 @@ struct HomeView: View {
             mode = "liveNavigation"
             cta = "findTarget"
         }
-        let counts = PreEventBriefBuilder.AttendeeCountSemantics(
-            totalJoinedIncludingSelf: attendeesService.attendeeCount + 1,
-            joinedOthers: attendeesService.attendeeCount,
-            liveOthers: attendeesService.liveOtherCount,
-            recommendationEligible: max(attendeesService.liveOtherCount, briefController.currentBrief?.priorityPeople.count ?? 0),
-            recentlyNearby: max(attendeesService.attendeeCount - attendeesService.liveOtherCount, 0)
-        )
+        let counts = (resolvedBriefForSheet ?? briefController.currentBrief)?.attendeeCounts
+            ?? PreEventBriefBuilder.AttendeeCountSemantics(
+                totalJoinedIncludingSelf: attendeesService.attendeeCount + 1,
+                joinedOthers: attendeesService.attendeeCount,
+                liveOthers: attendeesService.liveOtherCount,
+                recommendationEligible: max(attendeesService.liveOtherCount, briefController.currentBrief?.priorityPeople.count ?? 0),
+                recentlyNearby: max(attendeesService.attendeeCount - attendeesService.liveOtherCount, 0),
+                previewLikelyCount: max(
+                    attendeesService.attendeeCount,
+                    max(attendeesService.liveOtherCount, briefController.currentBrief?.priorityPeople.count ?? 0)
+                )
+            )
+        if let briefCounts = briefController.currentBrief?.attendeeCounts,
+           briefCounts.joinedOthers != counts.joinedOthers {
+            print("[CountMismatch] Home joinedOthers=\(counts.joinedOthers) brief joinedOthers=\(briefCounts.joinedOthers) source mismatch corrected")
+        }
+        print("[CountSemantics] component=HomeStateUI mode=\(mode) totalJoinedIncludingSelf=\(counts.totalJoinedIncludingSelf) joinedOthers=\(counts.joinedOthers) liveOthers=\(counts.liveOthers) recommendationEligible=\(counts.recommendationEligible) recentlyNearby=\(counts.recentlyNearby) previewLikelyCount=\(counts.previewLikelyCount)")
         print("[HomeStateUI] mode=\(mode) joined=\(eventJoin.isEventJoined) checkedIn=\(eventJoin.isCheckedIn) totalIncludingSelf=\(counts.totalJoinedIncludingSelf) joinedOthers=\(counts.joinedOthers) liveOthers=\(counts.liveOthers) recommendationEligible=\(counts.recommendationEligible) recentlyNearby=\(counts.recentlyNearby) cta=\(cta)")
         #endif
     }

@@ -139,6 +139,7 @@ struct PreEventBriefView: View {
             logRecommendationIfNeeded()
             #if DEBUG
             print("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(presentationMode == .liveNavigation ? "liveOthers" : "joinedOthers") count=\(presentationMode == .liveNavigation ? brief.attendeeCounts.liveOthers : brief.attendeeCounts.joinedOthers)")
+            print("[CountSemantics] component=PreEventBriefView mode=\(presentationMode) totalJoinedIncludingSelf=\(brief.attendeeCounts.totalJoinedIncludingSelf) joinedOthers=\(brief.attendeeCounts.joinedOthers) liveOthers=\(brief.attendeeCounts.liveOthers) recommendationEligible=\(brief.attendeeCounts.recommendationEligible) recentlyNearby=\(brief.attendeeCounts.recentlyNearby) previewLikelyCount=\(brief.attendeeCounts.previewLikelyCount)")
             print(briefContentModeLogLine)
             #endif
         }
