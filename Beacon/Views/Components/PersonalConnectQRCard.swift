@@ -6,6 +6,7 @@ struct PersonalConnectQRCard: View {
     let subtitle: String
     let connectURL: URL?
     let qrImage: UIImage?
+    var compact: Bool = false
 
     @State private var didCopy = false
 
@@ -23,7 +24,7 @@ struct PersonalConnectQRCard: View {
                 Image(uiImage: qrImage)
                     .interpolation(.none)
                     .resizable()
-                    .frame(width: 180, height: 180)
+                    .frame(width: compact ? 132 : 180, height: compact ? 132 : 180)
                     .padding(8)
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
 
@@ -60,7 +61,7 @@ struct PersonalConnectQRCard: View {
                     .foregroundColor(.gray)
             }
         }
-        .padding(16)
+        .padding(compact ? 14 : 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14)

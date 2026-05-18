@@ -14,6 +14,7 @@ struct MyQRView: View {
     let currentUser: User
 
     @State private var showingSignOutConfirmation = false
+    @State private var showingProfileSettings = false
     @State private var showingEditProfile = false
     @State private var showingPhotoOptions = false
     @State private var showingPhotoPicker = false
@@ -51,12 +52,16 @@ struct MyQRView: View {
             .background(Color.black.ignoresSafeArea())
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button("Edit Profile") {
+                    Button("Edit") {
                         showingEditProfile = true
                     }
 
-                    Button("Sign Out") {
-                        showingSignOutConfirmation = true
+                    Button {
+                        debugLog("[ProfileSettings] presented settings sheet")
+                        showingProfileSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -67,6 +72,16 @@ struct MyQRView: View {
             }
             .sheet(isPresented: $showIntelligenceDebug) {
                 IntelligenceDebugView()
+            }
+            .sheet(isPresented: $showingProfileSettings) {
+                ProfileSettingsSheet(
+                    hideEmergence: $hideEmergence,
+                    onSignOut: { showingSignOutConfirmation = true },
+                    onResetSignals: {
+                        DynamicProfileService.shared.resetSignals()
+                        debugLog("[ProfileSettings] reset dynamic signals")
+                    }
+                )
             }
             .fullScreenCover(isPresented: $showFullScreenQR) {
                 if let connectURL, let qrCodeImage {
@@ -97,6 +112,8 @@ struct MyQRView: View {
             }
             .task {
                 debugLog("[MyProfileHero] rendered")
+                debugLog("[ProfileHierarchy] centered identity and continuity surfaces")
+                debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)")
                 await loadAuthDetails()
                 latelyService.refresh()
             }
@@ -315,8 +332,6 @@ struct MyQRView: View {
 
     private func profileContent(layout: MyProfileLayoutMetrics) -> some View {
         VStack(spacing: 18) {
-            qrCodeSection
-
             if !latelyService.latelyLines.isEmpty {
                 sectionCard(title: "Lately") {
                     VStack(alignment: .leading, spacing: 6) {
@@ -369,6 +384,8 @@ struct MyQRView: View {
                 }
             }
 
+            qrCodeSection
+
             if let error = uploadError {
                 Text(error)
                     .font(.caption)
@@ -391,11 +408,15 @@ struct MyQRView: View {
 
     private var qrCodeSection: some View {
         PersonalConnectQRCard(
-            title: "Your Nearify QR",
-            subtitle: "Share your profile instantly",
+            title: "Share Profile",
+            subtitle: "Direct connect fallback for explicit profile exchange",
             connectURL: connectURL,
-            qrImage: qrCodeImage
+            qrImage: qrCodeImage,
+            compact: true
         )
+        .onAppear {
+            debugLog("[QRDemotion] moved QR below intelligence sections")
+        }
     }
 
     private func sectionCard<Content: View>(
@@ -725,23 +746,61 @@ private extension MyQRView {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        HStack {
-                            Button("Hide for now") {
-                                withAnimation(.easeInOut(duration: 0.22)) {
-                                    hideEmergence = true
-                                }
-                                debugLog("[DynamicProfileToggle] hidden=true source=user")
-                            }
-                            Spacer()
-                            Button("Reset signals") { DynamicProfileService.shared.resetSignals() }
-                        }
-                        .font(.caption.weight(.semibold))
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .animation(.easeInOut(duration: 0.22), value: hideEmergence)
+    }
+}
+
+
+
+private struct ProfileSettingsSheet: View {
+    @Binding var hideEmergence: Bool
+    let onSignOut: () -> Void
+    let onResetSignals: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Nearify Intelligence") {
+                    Toggle("Show Nearify is Learning", isOn: Binding(
+                        get: { !hideEmergence },
+                        set: { value in
+                            hideEmergence = !value
+                            debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)")
+                        }
+                    ))
+                }
+
+                Section("Advanced") {
+                    Button("Reset dynamic signals", role: .destructive) {
+                        onResetSignals()
+                    }
+                }
+
+                Section("Account") {
+                    Button("Sign Out", role: .destructive) {
+                        dismiss()
+                        onSignOut()
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(Color.black.opacity(0.02))
+            .navigationTitle("Profile Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 
@@ -756,7 +815,7 @@ private struct FullScreenQRView: View {
         NavigationStack {
             VStack(spacing: 22) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Your Nearify QR")
+                    Text("Connect Directly")
                         .font(.headline)
                         .foregroundColor(.white)
 
