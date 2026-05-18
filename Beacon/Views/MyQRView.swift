@@ -82,10 +82,14 @@ struct MyQRView: View {
                         debugLog("[ProfileSettings] reset dynamic signals")
                     }
                 )
+                .presentationBackground(.ultraThinMaterial)
             }
             .fullScreenCover(isPresented: $showFullScreenQR) {
                 if let connectURL, let qrCodeImage {
                     FullScreenQRView(connectURL: connectURL, qrImage: qrCodeImage)
+                        .onAppear {
+                            debugLog("[QRPresentation] using modal direct-connect presentation")
+                        }
                 }
             }
             .photosPicker(
@@ -113,6 +117,8 @@ struct MyQRView: View {
             .task {
                 debugLog("[MyProfileHero] rendered")
                 debugLog("[ProfileHierarchy] centered identity and continuity surfaces")
+                debugLog("[ProfileHierarchy] removed persistent QR surface")
+                debugLog("[ProfileRefinement] profile hierarchy refinement pass applied")
                 debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)")
                 await loadAuthDetails()
                 latelyService.refresh()
@@ -331,7 +337,7 @@ struct MyQRView: View {
     }
 
     private func profileContent(layout: MyProfileLayoutMetrics) -> some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 20) {
             if !latelyService.latelyLines.isEmpty {
                 sectionCard(title: "Lately") {
                     VStack(alignment: .leading, spacing: 6) {
@@ -384,8 +390,6 @@ struct MyQRView: View {
                 }
             }
 
-            qrCodeSection
-
             if let error = uploadError {
                 Text(error)
                     .font(.caption)
@@ -396,7 +400,7 @@ struct MyQRView: View {
         }
         .frame(maxWidth: layout.contentMaxWidth)
         .padding(.horizontal, layout.horizontalPadding)
-        .padding(.top, 10)
+        .padding(.top, 14)
         .padding(.bottom, DesignTokens.scrollBottomPadding)
         .frame(maxWidth: .infinity)
         .background(
@@ -404,19 +408,6 @@ struct MyQRView: View {
                 .fill(Color(.systemBackground))
                 .ignoresSafeArea(edges: .bottom)
         )
-    }
-
-    private var qrCodeSection: some View {
-        PersonalConnectQRCard(
-            title: "Share Profile",
-            subtitle: "Direct connect fallback for explicit profile exchange",
-            connectURL: connectURL,
-            qrImage: qrCodeImage,
-            compact: true
-        )
-        .onAppear {
-            debugLog("[QRDemotion] moved QR below intelligence sections")
-        }
     }
 
     private func sectionCard<Content: View>(
@@ -768,7 +759,7 @@ private struct ProfileSettingsSheet: View {
         NavigationStack {
             List {
                 Section("Nearify Intelligence") {
-                    Toggle("Show Nearify is Learning", isOn: Binding(
+                    Toggle("Show Nearify Intelligence", isOn: Binding(
                         get: { !hideEmergence },
                         set: { value in
                             hideEmergence = !value
@@ -791,7 +782,7 @@ private struct ProfileSettingsSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(Color.black.opacity(0.02))
+            .background(Color.black.opacity(0.01))
             .navigationTitle("Profile Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -801,6 +792,9 @@ private struct ProfileSettingsSheet: View {
             }
         }
         .presentationDetents([.medium])
+        .onAppear {
+            debugLog("[SettingsPresentation] reduced modal blur intensity")
+        }
     }
 }
 
@@ -819,7 +813,7 @@ private struct FullScreenQRView: View {
                         .font(.headline)
                         .foregroundColor(.white)
 
-                    Text("Share your profile instantly")
+                    Text("Share your profile instantly for explicit exchange")
                         .font(.caption)
                         .foregroundColor(.gray)
 
