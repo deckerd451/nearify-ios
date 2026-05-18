@@ -99,13 +99,9 @@ struct User: Codable, Identifiable {
     /// Profile is ready if it has minimum required fields for app use
     var isReady: Bool {
         guard !name.isEmpty else { return false }
-        
-        // At least one enrichment field should have content
-        let hasBio = bio?.isEmpty == false
-        let hasSkills = skills?.isEmpty == false
-        let hasInterests = interests?.isEmpty == false
-        
-        return hasBio || hasSkills || hasInterests
+        // Low-friction emergence: OAuth identity alone is enough to start.
+        // Profile details can emerge progressively from behavior and optional edits.
+        return true
     }
     
     /// Profile is incomplete if it exists but lacks required fields

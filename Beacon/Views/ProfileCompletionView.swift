@@ -8,6 +8,8 @@ struct ProfileCompletionView: View {
     @State private var bio: String
     @State private var skillsText: String
     @State private var interestsText: String
+    @State private var selectedGoal: String = ""
+    @State private var selectedQuickInterests: Set<String> = []
     
     @State private var isSaving = false
     @State private var showError = false
@@ -30,23 +32,34 @@ struct ProfileCompletionView: View {
                 Section(header: Text("About You")) {
                     TextField("Name", text: $name)
                         .textContentType(.name)
-                    
-                    TextField("Bio", text: $bio, axis: .vertical)
-                        .lineLimit(3...6)
                 }
-                
-                Section(header: Text("Skills")) {
-                    TextField("e.g., Swift, Design, Marketing", text: $skillsText)
-                    
-                    Text("Separate multiple skills with commas")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Section(header: Text("Interests")) {
-                    TextField("e.g., AI, Music, Hiking", text: $interestsText)
-                    
-                    Text("Separate multiple interests with commas")
+
+                Section(header: Text("Optional (30 seconds)")) {
+                    Picker("Current event goal", selection: $selectedGoal) {
+                        Text("Skip for now").tag("")
+                        ForEach(EventContextService.supportedIntents, id: \.self) { intent in
+                            Text(intent).tag(intent)
+                        }
+                    }
+
+                    Text("Or choose a few quick interests:")
+                        .font(.subheadline.weight(.medium))
+
+                    FlowLayout(spacing: 8) {
+                        ForEach(["AI", "Design", "Founders", "Engineering", "Community", "Investing"], id: \.self) { item in
+                            Button(item) {
+                                if selectedQuickInterests.contains(item) {
+                                    selectedQuickInterests.remove(item)
+                                } else {
+                                    selectedQuickInterests.insert(item)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(selectedQuickInterests.contains(item) ? .blue : .gray.opacity(0.35))
+                        }
+                    }
+
+                    Text("Everything else can evolve from your activity over time.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -58,14 +71,14 @@ struct ProfileCompletionView: View {
                                 ProgressView()
                                     .progressViewStyle(.circular)
                             }
-                            Text(isSaving ? "Saving..." : "Complete Profile")
+                            Text(isSaving ? "Saving..." : "Start Nearify")
                                 .frame(maxWidth: .infinity)
                         }
                     }
                     .disabled(isSaving || !isValid)
                 }
             }
-            .navigationTitle("Complete Your Profile")
+            .navigationTitle("You're In")
             .navigationBarTitleDisplayMode(.inline)
             .alert("Error", isPresented: $showError) {
                 Button("OK", role: .cancel) {}
@@ -90,7 +103,8 @@ struct ProfileCompletionView: View {
                 let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 let trimmedBio = bio.trimmingCharacters(in: .whitespacesAndNewlines)
                 let skills = parseCommaSeparated(skillsText)
-                let interests = parseCommaSeparated(interestsText)
+                let typedInterests = parseCommaSeparated(interestsText)
+                let interests = Array(Set(typedInterests).union(selectedQuickInterests)).sorted()
                 
                 try await ProfileService.shared.updateProfile(
                     profileId: profile.id,
@@ -99,6 +113,12 @@ struct ProfileCompletionView: View {
                     skills: skills.isEmpty ? nil : skills,
                     interests: interests.isEmpty ? nil : interests
                 )
+
+                if !selectedGoal.isEmpty {
+                    await MainActor.run {
+                        ProfileSignalService.shared.recordGoal(selectedGoal)
+                    }
+                }
                 
                 await MainActor.run {
                     isSaving = false
