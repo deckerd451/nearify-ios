@@ -195,6 +195,9 @@ struct PreEventBriefView: View {
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
+                Text("Recommendation: \(person.confidenceTier.displayLabel)")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
 
                 VStack(alignment: .leading, spacing: 4) {
                     sectionTitle("Why")
@@ -241,6 +244,9 @@ struct PreEventBriefView: View {
                             .fontWeight(.semibold)
                         Text(statusCopy(for: person))
                             .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        Text("Recommendation confidence: \(person.confidenceTier.displayLabel)")
+                            .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                     Spacer()

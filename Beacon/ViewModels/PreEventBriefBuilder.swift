@@ -31,6 +31,22 @@ enum PreEventBriefBuilder {
     }
 
     struct PriorityPerson: Identifiable {
+        enum RecommendationConfidenceTier: String {
+            case exploratory
+            case promising
+            case strongMatch
+            case highAlignment
+
+            var displayLabel: String {
+                switch self {
+                case .exploratory: return "Exploratory"
+                case .promising: return "Promising"
+                case .strongMatch: return "Strong match"
+                case .highAlignment: return "High alignment"
+                }
+            }
+        }
+
         let id: UUID
         let name: String
         let avatarUrl: String?
@@ -39,6 +55,7 @@ enum PreEventBriefBuilder {
         let matchScore: Double?
         let confidence: Double?
         let isNearby: Bool?
+        let confidenceTier: RecommendationConfidenceTier
     }
 
     /// Builds a brief for the current joined event state.
@@ -159,6 +176,9 @@ enum PreEventBriefBuilder {
         }
         #if DEBUG
         print("[MomentumFraming] mode=\(mode.rawValue) joined=\(resolvedJoinedCount) live=\(liveCount) recentlyNearby=\(recentlyNearbyCount) state=\(momentumState.rawValue)")
+        #if DEBUG
+        print("[SocialMomentum] mode=\(mode.rawValue) state=\(momentumState.rawValue) liveCount=\(liveCount) recentlyNearby=\(recentlyNearbyCount)")
+        #endif
         print("[ArrivalTone] path=joinedSummary.primary mode=\(mode.rawValue) state=\(momentumState.rawValue) line=\"\(summary.first ?? "")\"")
         #endif
         return Array(summary.prefix(3))
@@ -320,7 +340,8 @@ enum PreEventBriefBuilder {
                     reason: reason,
                     matchScore: nil,
                     confidence: nil,
-                    isNearby: nil
+                    isNearby: nil,
+                    confidenceTier: .exploratory
                 )
             )
             chosenIds.insert(person.id)
@@ -337,22 +358,42 @@ enum PreEventBriefBuilder {
             .filter { $0.id != myId }
         let resolver = AttendeeStateResolver.shared
 
-        let scored = attendees.map { attendee in
+        let rankedSeed = attendees.map { attendee in
             let rel = relationships.first(where: { $0.profileId == attendee.id })
             let proximity = resolver.resolveProximity(for: attendee)
             let score = liveMatchScore(relationship: rel, proximity: proximity, isHereNow: attendee.isHereNow, goal: goal)
-            return (attendee, rel, proximity, score)
+            let diversityPenalty = diversityPenalty(for: rel)
+            let noveltyBoost = noveltyBoost(for: rel)
+            let diversifiedScore = score - diversityPenalty + noveltyBoost
+            #if DEBUG
+            if diversityPenalty > 0 {
+                print("[RecommendationDiversity] target=\(attendee.id.uuidString.prefix(8)) deprioritized repeated cluster exposure penalty=\(String(format: "%.1f", diversityPenalty))")
+            }
+            #endif
+            return (attendee, rel, proximity, score, diversifiedScore)
         }
-        .sorted { (lhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double), rhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double)) in
-            if lhs.score == rhs.score {
+        .sorted { (lhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double, diversifiedScore: Double), rhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double, diversifiedScore: Double)) in
+            if lhs.diversifiedScore == rhs.diversifiedScore {
                 return lhs.attendee.name < rhs.attendee.name
             }
-            return lhs.score > rhs.score
+            return lhs.diversifiedScore > rhs.diversifiedScore
         }
 
-        return scored.prefix(ProfileSignalService.shared.recommendedPersonCount).map { attendee, rel, proximity, liveScore in
+        return rankedSeed.prefix(ProfileSignalService.shared.recommendedPersonCount).map { attendee, rel, proximity, liveScore, diversifiedScore in
             let nearby = proximity == .veryClose || proximity == .nearby
             let confidence = max(0.0, min(1.0, liveScore / 140.0))
+            let tier = recommendationConfidenceTier(
+                score: diversifiedScore,
+                relationship: rel,
+                isNearby: nearby,
+                isHereNow: attendee.isHereNow
+            )
+            #if DEBUG
+            if let rel {
+                print("[RelationshipContinuity] target=\(attendee.id.uuidString.prefix(8)) recurring event overlap count=\(rel.eventContexts.count)")
+            }
+            print("[RecommendationConfidence] target=\(attendee.id.uuidString.prefix(8)) tier=\(tier.rawValue)")
+            #endif
             return PriorityPerson(
                 id: attendee.id,
                 name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PreEventBriefBuilder.swift"),
@@ -366,8 +407,49 @@ enum PreEventBriefBuilder {
                 ),
                 matchScore: liveScore,
                 confidence: confidence,
-                isNearby: nearby
+                isNearby: nearby,
+                confidenceTier: tier
             )
+        }
+    }
+
+    private static func diversityPenalty(for relationship: RelationshipMemory?) -> Double {
+        guard let relationship else { return 0.0 }
+        var penalty = 0.0
+        if relationship.encounterCount >= 6 { penalty += 10.0 }
+        if relationship.sharedInterests.count <= 1 { penalty += 6.0 }
+        return penalty
+    }
+
+    private static func noveltyBoost(for relationship: RelationshipMemory?) -> Double {
+        guard let relationship else { return 5.0 }
+        var boost = 0.0
+        if relationship.encounterCount <= 2 { boost += 6.0 }
+        if relationship.sharedInterests.count >= 2 { boost += 4.0 }
+        if relationship.eventContexts.count >= 2 { boost += 4.0 }
+        return boost
+    }
+
+    private static func recommendationConfidenceTier(
+        score: Double,
+        relationship: RelationshipMemory?,
+        isNearby: Bool,
+        isHereNow: Bool
+    ) -> PriorityPerson.RecommendationConfidenceTier {
+        var quality = score
+        if let relationship {
+            quality += min(Double(relationship.encounterCount) * 2.0, 10.0)
+            quality += min(Double(relationship.eventContexts.count) * 3.0, 12.0)
+            quality += relationship.hasConversation ? 10.0 : 0.0
+        }
+        if isNearby { quality += 12.0 }
+        if isHereNow { quality += 8.0 }
+
+        switch quality {
+        case 145...: return .highAlignment
+        case 125...: return .strongMatch
+        case 100...: return .promising
+        default: return .exploratory
         }
     }
 
@@ -458,10 +540,16 @@ enum PreEventBriefBuilder {
         if let relationship {
             // Mutual value framing: what they bring given the user's focus.
             if let mutual = ProfileSignalService.shared.mutualValueReason(for: relationship) {
+                #if DEBUG
+                print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"mutual value framing\"")
+                #endif
                 return mutual
             }
             let traits = TraitReasoning.topTraits(for: relationship, isHereNow: isHereNow)
             if !traits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: traits) {
+                #if DEBUG
+                print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"trait + momentum synthesis\"")
+                #endif
                 return "\(traits.joined(separator: " · ")) — \(why)"
             }
         }
@@ -477,6 +565,9 @@ enum PreEventBriefBuilder {
 
         let minutes = max(relationship.totalOverlapSeconds / 60, 0)
         if minutes >= 15 {
+            #if DEBUG
+            print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"relationship memory overlap\"")
+            #endif
             return "You’ve already spent \(minutes) minutes near each other — strong interaction signal."
         }
 
@@ -485,10 +576,16 @@ enum PreEventBriefBuilder {
             let shared = Set(relationship.sharedInterests.map { $0.lowercased() })
             if !goalTokens.isDisjoint(with: shared) {
                 if isNearby {
+                    #if DEBUG
+                    print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"goal intent alignment + live proximity\"")
+                    #endif
                     return "High overlap with your goal in \(topic), and they're nearby now."
                 }
                 return "High overlap with your goal in \(topic), with live event activity now."
             }
+            #if DEBUG
+            print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"shared interest + live confidence\"")
+            #endif
             return "Clear shared interest in \(topic), with a live event signal."
         }
 
