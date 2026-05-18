@@ -3,6 +3,7 @@ import Foundation
 enum IdentityDisplayName {
     static let fallback = "Nearify Member"
     private static var loggedReplacements = Set<String>()
+    private static var primaryCache: [String: String] = [:]
 
     static func primaryName(
         displayName: String? = nil,
@@ -35,6 +36,57 @@ enum IdentityDisplayName {
         }
 
         return fallback
+    }
+
+    static func primaryNameCached(
+        profileId: UUID?,
+        displayName: String? = nil,
+        fullName: String? = nil,
+        name: String? = nil,
+        contactDisplayName: String? = nil,
+        email: String? = nil,
+        debugSource: String? = nil
+    ) -> String {
+        let source = debugSource ?? "unknown"
+        let key = [
+            profileId?.uuidString.lowercased() ?? "nil",
+            source,
+            normalize(displayName),
+            normalize(fullName),
+            normalize(name),
+            normalize(contactDisplayName),
+            normalize(email)
+        ].joined(separator: "|")
+
+        if let cached = primaryCache[key] {
+            #if DEBUG
+            print("[DisplayNameCache] hit profile=\(short(profileId)) source=\(source)")
+            #endif
+            return cached
+        }
+
+        let resolved = primaryName(
+            displayName: displayName,
+            fullName: fullName,
+            name: name,
+            contactDisplayName: contactDisplayName,
+            email: email,
+            debugSource: debugSource
+        )
+        primaryCache[key] = resolved
+        #if DEBUG
+        print("[DisplayNameCache] miss profile=\(short(profileId)) source=\(source)")
+        #endif
+        return resolved
+    }
+
+    private static func normalize(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    }
+
+    private static func short(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(8))
     }
 
     static func nonEmailName(_ raw: String?) -> String? {

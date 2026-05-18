@@ -20,6 +20,7 @@ struct EventAttendee: Identifiable, Equatable {
     let shareEmail: Bool?
     let sharePhone: Bool?
     let preferredContactMethod: String?
+    let displayName: String
 
     init(
         id: UUID,
@@ -53,6 +54,15 @@ struct EventAttendee: Identifiable, Equatable {
         self.shareEmail = shareEmail
         self.sharePhone = sharePhone
         self.preferredContactMethod = preferredContactMethod
+        self.displayName = IdentityDisplayName.primaryNameCached(
+            profileId: id,
+            name: name,
+            email: publicEmail,
+            debugSource: "EventAttendee.init"
+        )
+#if DEBUG
+        print("[RenderIdentityGuard] normalized displayName in model profile=\(String(id.uuidString.prefix(8)))")
+#endif
     }
 
     // MARK: - Event Presence State
@@ -184,7 +194,7 @@ struct EventAttendee: Identifiable, Equatable {
     }
 
     var initials: String {
-        let sanitized = IdentityDisplayName.primaryName(name: name)
+        let sanitized = displayName
         let components = sanitized.components(separatedBy: " ")
         if components.count >= 2 {
             let first = components[0].prefix(1)
