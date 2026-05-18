@@ -138,7 +138,7 @@ struct PreEventBriefView: View {
         .onAppear {
             logRecommendationIfNeeded()
             #if DEBUG
-            print("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(presentationMode == .liveNavigation ? "live" : "joined") count=\(brief.joinedSummary.count)")
+            print("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(presentationMode == .liveNavigation ? "liveOthers" : "joinedOthers") count=\(presentationMode == .liveNavigation ? brief.attendeeCounts.liveOthers : brief.attendeeCounts.joinedOthers)")
             print(briefContentModeLogLine)
             #endif
         }
