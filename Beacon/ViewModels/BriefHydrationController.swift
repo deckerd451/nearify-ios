@@ -250,7 +250,8 @@ final class BriefHydrationController: ObservableObject {
                 reason: reason,
                 matchScore: 0,
                 confidence: 0,
-                isNearby: nil
+                isNearby: nil,
+                confidenceTier: rel == nil ? .exploratory : .promising
             )
         }
 
