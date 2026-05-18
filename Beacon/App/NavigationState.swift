@@ -43,69 +43,48 @@ final class NavigationState: ObservableObject {
 
     func setPeopleFocusTarget(_ target: PeopleFocusTarget?, source: String) {
         guard peopleFocusTarget != target else {
-            #if DEBUG
-            print("[NavigationNoOp] source=\(source) property=peopleFocusTarget action=skipDuplicate")
-            #endif
+            DebugLog.verbose("[NavigationNoOp] source=\(source) property=peopleFocusTarget action=skipDuplicate")
             return
         }
-        #if DEBUG
-        print("[NavigationObserverAudit] source=\(source) property=peopleFocusTarget action=write")
-        #endif
+        DebugLog.verbose("[NavigationObserverAudit] source=\(source) property=peopleFocusTarget action=write")
         peopleFocusTarget = target
     }
 
     func setEventContext(_ context: PeopleEventContext?, source: String) {
         guard eventContext != context else {
-            #if DEBUG
-            print("[NavigationNoOp] source=\(source) property=eventContext action=skipDuplicate")
-            #endif
+            DebugLog.verbose("[NavigationNoOp] source=\(source) property=eventContext action=skipDuplicate")
             return
         }
-        #if DEBUG
-        print("[NavigationObserverAudit] source=\(source) property=eventContext action=write")
-        #endif
+        DebugLog.verbose("[NavigationObserverAudit] source=\(source) property=eventContext action=write")
         eventContext = context
     }
 
     func requestGlobalTabRoute(to target: AppTab, source: String) {
         guard pendingTabRoute != target else {
-            #if DEBUG
-            print("[NavigationObserverSource] source=\(source) currentPending=\(pendingTabRoute?.description ?? "nil") requested=\(target) route=global")
-            print("[NavigationFrameDrop] kind=globalRoute reason=duplicatePending source=\(source) requested=\(target)")
-            #endif
+            DebugLog.verbose("[NavigationFrameDrop] kind=globalRoute reason=duplicatePending source=\(source) requested=\(target)")
             return
         }
         let now = CACurrentMediaTime()
         let signature = "\(target.rawValue)-\(source)"
         if signature == lastGlobalRouteWriteSignature, (now - lastGlobalRouteWriteAt) < sameFrameWriteThreshold {
-            #if DEBUG
-            print("[NavigationObserverSource] source=\(source) currentPending=\(pendingTabRoute?.description ?? "nil") requested=\(target) route=global")
-            print("[NavigationObserverCoalesce] kind=globalRoute source=\(source) requested=\(target) sameFrame=true")
-            #endif
+            DebugLog.verbose("[NavigationObserverCoalesce] kind=globalRoute source=\(source) requested=\(target) sameFrame=true")
             return
         }
         lastGlobalRouteWriteSignature = signature
         lastGlobalRouteWriteAt = now
-        #if DEBUG
         let oldValue = pendingTabRoute?.description ?? "nil"
-        print("[NavigationObserverSource] source=\(source) currentTab=unknown requestedTab=\(target) route=global")
-        print("[NavigationFrameWrite] kind=globalRoute allowed=true sameFrame=false source=\(source) oldPending=\(oldValue) newPending=\(target)")
-        #endif
+        DebugLog.verbose("[NavigationFrameWrite] kind=globalRoute allowed=true source=\(source) oldPending=\(oldValue) newPending=\(target)")
         pendingTabRoute = target
     }
 
     func consumePendingTabRouteIfMatching(_ tab: AppTab, source: String) {
         guard pendingTabRoute == tab else { return }
-        #if DEBUG
-        print("[NavigationFrameWrite] kind=globalRouteConsume allowed=true source=\(source) clearing=\(tab)")
-        #endif
+        DebugLog.verbose("[NavigationFrameWrite] kind=globalRouteConsume allowed=true source=\(source) clearing=\(tab)")
         pendingTabRoute = nil
     }
 
     func requestPeopleSubroutePopToRoot() {
-        #if DEBUG
-        print("[PeopleNav] reset signal increment source=requestPeopleSubroutePopToRoot file=NavigationState")
-        #endif
+        DebugLog.verbose("[PathMutation] source=requestPeopleSubroutePopToRoot action=incrementResetSignal")
         peopleSubrouteResetSignal &+= 1
     }
 
@@ -120,25 +99,18 @@ final class NavigationState: ObservableObject {
         binding: inout AppTab
     ) -> Bool {
         guard current != target else {
-            #if DEBUG
-            print("[NavigationObserverSource] source=\(sourceName) currentTab=\(current) requestedTab=\(target) route=tab")
-            print("[NavigationFrameDrop] kind=tabWrite reason=idempotent source=\(sourceName) currentTab=\(current) requestedTab=\(target)")
-            #endif
+            DebugLog.verbose("[NavigationFrameDrop] kind=tabWrite reason=idempotent source=\(sourceName) currentTab=\(current) requestedTab=\(target)")
             return false
         }
 
         guard source == .user else {
-            #if DEBUG
-            print("[TAB-WRITE BLOCKED] system attempted change: \(current) → \(target)")
-            #endif
+            DebugLog.diagnostic("[NavigationFailure] blocked system tab change \(current) → \(target) source=\(sourceName)")
             return false
         }
         
         if activeNavigationTransaction == .openInNearify,
            sourceName != "MainTabView.userTap" {
-            #if DEBUG
-            print("[TAB-WRITE BLOCKED] transaction=openInNearify blocked \(current) -> \(target) source=\(sourceName)")
-            #endif
+            DebugLog.diagnostic("[NavigationFailure] blocked tab change during openInNearify \(current) -> \(target) source=\(sourceName)")
             return false
         }
 
@@ -146,10 +118,7 @@ final class NavigationState: ObservableObject {
         let now = CACurrentMediaTime()
         let signature = "\(current.rawValue)-\(target.rawValue)-\(sourceName)"
         if signature == lastTabWriteSignature, (now - lastTabWriteAt) < sameFrameWriteThreshold {
-            #if DEBUG
-            print("[NavigationObserverSource] source=\(sourceName) currentTab=\(current) requestedTab=\(target) route=tab")
-            print("[NavigationObserverCoalesce] kind=tabWrite source=\(sourceName) currentTab=\(current) requestedTab=\(target) sameFrame=true")
-            #endif
+            DebugLog.verbose("[NavigationObserverCoalesce] kind=tabWrite source=\(sourceName) currentTab=\(current) requestedTab=\(target) sameFrame=true")
             return false
         }
         lastTabWriteSignature = signature
@@ -157,17 +126,12 @@ final class NavigationState: ObservableObject {
 
         if target == .event {
             guard EventJoinService.shared.consumeNavigationIntent() else {
-                #if DEBUG
-                print("[TAB-WRITE BLOCKED] missing navigateToEvent intent: \(current) → \(target)")
-                #endif
+                DebugLog.diagnostic("[NavigationFailure] blocked event tab change without intent \(current) → \(target) source=\(sourceName)")
                 return false
             }
         }
 
-        #if DEBUG
-        print("[NavigationObserverSource] source=\(sourceName) currentTab=\(current) requestedTab=\(target) route=tab")
-        print("[NavigationFrameWrite] kind=tabWrite allowed=true sameFrame=false source=\(sourceName) currentTab=\(current) requestedTab=\(target)")
-        #endif
+        DebugLog.verbose("[NavigationFrameWrite] kind=tabWrite allowed=true source=\(sourceName) currentTab=\(current) requestedTab=\(target)")
         binding = target
         return true
     }
@@ -183,10 +147,7 @@ final class NavigationState: ObservableObject {
         let signature = "\(currentTab.rawValue)-\(requestedTab.rawValue)-\(source)"
         let sameFrame = signature == lastObserverApplySignature && (now - lastObserverApplyAt) < sameFrameWriteThreshold
         if sameFrame {
-            #if DEBUG
-            print("[NavigationObserverSource] source=\(source) currentTab=\(currentTab) requestedTab=\(requestedTab) route=observerApply")
-            print("[NavigationFrameDrop] kind=observerApply reason=sameFrameDuplicate source=\(source) currentTab=\(currentTab) requestedTab=\(requestedTab)")
-            #endif
+            DebugLog.verbose("[NavigationFrameDrop] kind=observerApply reason=sameFrameDuplicate source=\(source) currentTab=\(currentTab) requestedTab=\(requestedTab)")
             return false
         }
         lastObserverApplySignature = signature

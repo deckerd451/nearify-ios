@@ -143,17 +143,13 @@ final class PeopleIntelligenceController: ObservableObject {
         // Check 1: Stability window — prevent rapid rebuilds
         let elapsed = Date().timeIntervalSince(lastBuildTime)
         if elapsed < stabilityWindow && lastSignature != nil {
-            #if DEBUG
-            print("[People] rebuild: SKIPPED (stability window, \(String(format: "%.1f", elapsed))s < \(stabilityWindow)s)")
-            #endif
+            DebugLog.verbose("[People] rebuild skipped reason=stabilityWindow elapsed=\(String(format: "%.1f", elapsed))s window=\(stabilityWindow)s")
             return
         }
 
         // Check 2: Signature comparison — skip if nothing meaningful changed
         if let last = lastSignature, last == newSignature {
-            #if DEBUG
-            print("[People] rebuild: SKIPPED (no meaningful change)")
-            #endif
+            DebugLog.verbose("[People] rebuild skipped reason=noMeaningfulChange")
             return
         }
 
@@ -165,22 +161,18 @@ final class PeopleIntelligenceController: ObservableObject {
         let result = PeopleIntelligenceBuilder.build(eventContext: eventContext)
         let newFingerprint = Self.sectionsFingerprint(result)
         if lastPublishedSectionsFingerprint == newFingerprint {
-            #if DEBUG
-            print("[PeoplePublishGuard] skipped identical people output reason=\(reason)")
-            #endif
+            DebugLog.verbose("[PeoplePublishGuard] skipped identical people output reason=\(reason)")
             return
         }
 
         lastPublishedSectionsFingerprint = newFingerprint
         sections = result
 
-        #if DEBUG
         let stableIds = result.hereNow.map(\.id) + result.followUp.map(\.id) + result.notHere.map(\.id)
         for id in stableIds.prefix(6) {
-            print("[CardModelStability] preserved attendee row identity profile=\(String(id.uuidString.prefix(8)))")
+            DebugLog.verbose("[CardModelStability] preserved attendee row identity profile=\(String(id.uuidString.prefix(8)))")
         }
-        print("[People] rebuild: EXECUTED (reason: \(reason)) → hereNow=\(result.hereNow.count) followUp=\(result.followUp.count) notHere=\(result.notHere.count)")
-        #endif
+        DebugLog.verbose("[People] rebuild executed reason=\(reason) hereNow=\(result.hereNow.count) followUp=\(result.followUp.count) notHere=\(result.notHere.count)")
     }
 
     
@@ -311,17 +303,15 @@ struct PeopleIntelligenceBuilder {
                 source = .none
             }
 
-            #if DEBUG
             if isHere {
                 if source == .ble && isInAttendeeList == false {
-                    print("[Presence] \(rel.name): source=BLE (backend says expired → BLE wins)")
+                    DebugLog.verbose("[EventParticipation] \(rel.name): source=BLE (backend expired)")
                 } else if source == .bleAndBackend {
-                    print("[Presence] \(rel.name): source=BLE+backend")
+                    DebugLog.verbose("[EventParticipation] \(rel.name): source=BLE+backend")
                 } else if source == .backend {
-                    print("[Presence] \(rel.name): source=backend")
+                    DebugLog.verbose("[EventParticipation] \(rel.name): source=backend")
                 }
             }
-            #endif
 
             let isTarget = targetIntent.targetProfileId == rel.profileId
             let encounter = encounters[rel.profileId]
@@ -400,9 +390,7 @@ struct PeopleIntelligenceBuilder {
                     )
                     hereNow.append(model)
 
-                    #if DEBUG
-                    print("[NearbyMode] injecting BLE attendee into People: \(cached.name) (prefix: \(prefix))")
-                    #endif
+                    DebugLog.verbose("[EventParticipation] injecting BLE attendee into People: \(cached.name) prefix=\(prefix)")
                 }
                 // If no cached profile exists for this prefix, we still can't show them
                 // (no name/avatar available). They remain visible on the Find screen.
@@ -841,15 +829,11 @@ struct PeopleIntelligenceBuilder {
         }
         guard let first = orderedEvents.first else { return nil }
         if orderedEvents.count >= 3 {
-            #if DEBUG
-            print("[PeopleRelationshipUI] Summarized event memory")
-            #endif
+            DebugLog.verbose("[PeopleRelationshipUI] summarized event memory")
             return "Met at \(first) · \(orderedEvents.count - 1) other events"
         }
         if orderedEvents.count == 2 {
-            #if DEBUG
-            print("[PeopleRelationshipUI] Summarized event memory")
-            #endif
+            DebugLog.verbose("[PeopleRelationshipUI] summarized event memory")
             return "Met at \(first) and 1 other event"
         }
         return "Met at \(first)"

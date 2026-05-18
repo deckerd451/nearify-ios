@@ -7,11 +7,14 @@ final class AppEnvironment {
 
     let supabaseClient: SupabaseClient
 
-    /// Admin-only debug mode. Enable to access the Intelligence Debug panel.
+    /// Admin-only debug mode. Opt in explicitly so internal TestFlight builds do not surface developer tooling by default.
     #if DEBUG
-    static var isDebugMode: Bool = true
+    static var isDebugMode: Bool {
+        ProcessInfo.processInfo.arguments.contains("-NearifyDebugMode") ||
+        UserDefaults.standard.bool(forKey: "nearify.debugMode.enabled")
+    }
     #else
-    static var isDebugMode: Bool = false
+    static var isDebugMode: Bool { false }
     #endif
 
     // MARK: - Share Configuration

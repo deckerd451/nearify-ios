@@ -4,10 +4,16 @@ import PhotosUI
 import UIKit
 
 
-private func debugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-    print(message())
-#endif
+private func debugLog(_ message: @autoclosure () -> String, verbose: Bool = false) {
+    if verbose {
+        #if DEBUG_VERBOSE
+        print(message())
+        #endif
+    } else {
+        #if DEBUG
+        print(message())
+        #endif
+    }
 }
 
 struct MyQRView: View {
@@ -57,7 +63,7 @@ struct MyQRView: View {
                     }
 
                     Button {
-                        debugLog("[ProfileSettings] presented settings sheet")
+                        debugLog("[ProfileSettings] presented settings sheet", verbose: true)
                         showingProfileSettings = true
                     } label: {
                         Image(systemName: "gearshape")
@@ -79,7 +85,7 @@ struct MyQRView: View {
                     onSignOut: { showingSignOutConfirmation = true },
                     onResetSignals: {
                         DynamicProfileService.shared.resetSignals()
-                        debugLog("[ProfileSettings] reset dynamic signals")
+                        debugLog("[DynamicProfile] reset dynamic signals from profile settings")
                     }
                 )
                 .presentationBackground(.ultraThinMaterial)
@@ -88,7 +94,7 @@ struct MyQRView: View {
                 if let connectURL, let qrCodeImage {
                     FullScreenQRView(connectURL: connectURL, qrImage: qrCodeImage)
                         .onAppear {
-                            debugLog("[QRPresentation] using modal direct-connect presentation")
+                            debugLog("[QRPresentation] using modal direct-connect presentation", verbose: true)
                         }
                 }
             }
@@ -115,11 +121,11 @@ struct MyQRView: View {
                 Text("Are you sure you want to sign out?")
             }
             .task {
-                debugLog("[MyProfileHero] rendered")
-                debugLog("[ProfileHierarchy] centered identity and continuity surfaces")
-                debugLog("[ProfileHierarchy] removed persistent QR surface")
-                debugLog("[ProfileRefinement] profile hierarchy refinement pass applied")
-                debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)")
+                debugLog("[MyProfileHero] rendered", verbose: true)
+                debugLog("[ProfileHierarchy] centered identity and continuity surfaces", verbose: true)
+                debugLog("[ProfileHierarchy] removed persistent QR surface", verbose: true)
+                debugLog("[ProfileRefinement] profile hierarchy refinement pass applied", verbose: true)
+                debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)", verbose: true)
                 await loadAuthDetails()
                 latelyService.refresh()
             }
@@ -564,7 +570,7 @@ struct MyQRView: View {
     }
 
     private var fallbackShareText: String {
-        "Connect with me on Nearify: \(displayUser.name)"
+        "Connect with me on Nearify: \(displayUser.name)\nInstall Nearify: \(AppEnvironment.nearifyShareInstallURL.absoluteString)"
     }
 
     private func uploadPhoto(_ item: PhotosPickerItem) async {
@@ -694,24 +700,13 @@ private extension MyQRView {
         Group {
             if hideEmergence {
                 sectionCard(title: "Nearify Intelligence hidden") {
-                    HStack(alignment: .center) {
-                        Text("Hidden for now. Your intelligence still updates in the background.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 8)
-                        Button("Show again") {
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                hideEmergence = false
-                            }
-                            debugLog("[DynamicProfileToggle] hidden=false source=user")
-                            debugLog("[DynamicProfileVisibility] restored intelligence card")
-                        }
-                        .font(.caption.weight(.semibold))
-                    }
+                    Text("Hidden for now. Your intelligence still updates in the background. You can turn it back on in Profile Settings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             } else {
-                sectionCard(title: "Nearify is Learning") {
+                sectionCard(title: "Nearify Intelligence") {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Recurring themes")
                             .font(.caption)
@@ -754,6 +749,7 @@ private struct ProfileSettingsSheet: View {
     let onResetSignals: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var showingResetSignalsConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -763,15 +759,18 @@ private struct ProfileSettingsSheet: View {
                         get: { !hideEmergence },
                         set: { value in
                             hideEmergence = !value
-                            debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)")
+                            debugLog("[DynamicProfileVisibility] hidden=\(hideEmergence)", verbose: true)
                         }
                     ))
                 }
 
                 Section("Advanced") {
                     Button("Reset dynamic signals", role: .destructive) {
-                        onResetSignals()
+                        showingResetSignalsConfirmation = true
                     }
+                    Text("Clears learned dynamic patterns and continuity signals only. Your account, profile identity, and manual profile fields stay intact.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Account") {
@@ -792,8 +791,20 @@ private struct ProfileSettingsSheet: View {
             }
         }
         .presentationDetents([.medium])
+        .confirmationDialog(
+            "Reset dynamic signals?",
+            isPresented: $showingResetSignalsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset dynamic signals", role: .destructive) {
+                onResetSignals()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears learned dynamic patterns and continuity signals but keeps your account and profile information.")
+        }
         .onAppear {
-            debugLog("[SettingsPresentation] reduced modal blur intensity")
+            debugLog("[SettingsPresentation] reduced modal blur intensity", verbose: true)
         }
     }
 }

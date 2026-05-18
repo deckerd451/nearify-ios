@@ -2,10 +2,16 @@ import SwiftUI
 import AVFoundation
 
 
-private func debugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-    print(message())
-#endif
+private func debugLog(_ message: @autoclosure () -> String, verbose: Bool = false) {
+    if verbose {
+        #if DEBUG_VERBOSE
+        print(message())
+        #endif
+    } else {
+        #if DEBUG
+        print(message())
+        #endif
+    }
 }
 
 // MARK: - Scan State Machine
@@ -139,7 +145,7 @@ struct ScanView: View {
 
                     Button {
                         #if DEBUG
-                        debugLog("[ScanUI] 🔄 Retry tapped")
+                        debugLog("[ScanUI] 🔄 Retry tapped", verbose: true)
                         #endif
                         resetScanner()
                     } label: {
@@ -277,7 +283,7 @@ struct ScanView: View {
         scannerKey = UUID()
 
         #if DEBUG
-        debugLog("[ScanUI] 🔄 Scanner reset — ready for new scan")
+        debugLog("[ScanUI] 🔄 Scanner reset — ready for new scan", verbose: true)
         #endif
     }
 
@@ -298,7 +304,7 @@ struct ScanView: View {
         guard !isLocked else { return }
 
         #if DEBUG
-        debugLog("[ScanUI] 📷 QR scanned: \(code)")
+        debugLog("[ScanUI] 📷 QR scanned: \(code)", verbose: true)
         #endif
 
         guard let payload = QRService.parse(from: code) else {
@@ -319,7 +325,7 @@ struct ScanView: View {
                EventJoinService.shared.currentEventID == eventId {
                 let joinedName = EventJoinService.shared.currentEventName ?? eventId
                 #if DEBUG
-                debugLog("[ScanUI] ✅ Already joined \(joinedName)")
+                debugLog("[ScanUI] ✅ Already joined \(joinedName)", verbose: true)
                 #endif
                 phase = .success(eventName: joinedName)
                 beginSuccessTransition()
@@ -343,7 +349,7 @@ struct ScanView: View {
         phase = .detected(label: "joining \(preJoinLabel)…")
 
         #if DEBUG
-        debugLog("[ScanUI] 🎫 Event QR: \(eventId) (\(preJoinLabel))")
+        debugLog("[ScanUI] 🎫 Event QR: \(eventId) (\(preJoinLabel))", verbose: true)
         #endif
 
         Task {
@@ -361,14 +367,14 @@ struct ScanView: View {
                 if EventJoinService.shared.isEventJoined {
                     let finalName = EventJoinService.shared.currentEventName ?? preJoinLabel
                     #if DEBUG
-                    debugLog("[ScanUI] ✅ Join succeeded: \(eventId)")
+                    debugLog("[EventParticipation] QR join succeeded event=\(eventId)")
                     #endif
                     phase = .success(eventName: finalName)
                     beginSuccessTransition()
                 } else if lastHandledEventId == eventId {
                     let msg = EventJoinService.shared.joinError ?? "Failed to join event"
                     #if DEBUG
-                    debugLog("[ScanUI] ❌ Join failed: \(msg)")
+                    debugLog("[EventParticipation] QR join failed message=\(msg)")
                     #endif
                     phase = .failure(message: msg)
                     lastHandledEventId = nil
@@ -381,7 +387,7 @@ struct ScanView: View {
         phase = .loadingProfile
 
         #if DEBUG
-        debugLog("[ScanUI] 🔍 Profile QR: \(communityId)")
+        debugLog("[ScanUI] 🔍 Profile QR: \(communityId)", verbose: true)
         #endif
 
         Task {
@@ -417,7 +423,7 @@ struct ScanView: View {
         phase = .detected(label: "connecting…")
 
         #if DEBUG
-        debugLog("[ScanUI] 🤝 Personal connect QR: event=\(eventId), profile=\(profileId)")
+        debugLog("[ScanUI] 🤝 Personal connect QR: event=\(eventId), profile=\(profileId)", verbose: true)
         #endif
 
         Task {
@@ -464,7 +470,7 @@ struct ScanView: View {
     private func beginSuccessTransition() {
         guard !isTransitioningAfterSuccess else {
             #if DEBUG
-            debugLog("[ScanUI] ⛔ Transition already in progress — blocked")
+            debugLog("[ScanUI] ⛔ Transition already in progress — blocked", verbose: true)
             #endif
             return
         }
@@ -472,7 +478,7 @@ struct ScanView: View {
         isTransitioningAfterSuccess = true
 
         #if DEBUG
-        debugLog("[ScanUI] 🔒 Success transition started — all further callbacks blocked")
+        debugLog("[ScanUI] 🔒 Success transition started — all further callbacks blocked", verbose: true)
         #endif
 
         shutdownCameraForDismiss()
@@ -484,13 +490,13 @@ struct ScanView: View {
                 if let eventIdStr = EventJoinService.shared.currentEventID,
                    let eventUUID = UUID(uuidString: eventIdStr) {
                     #if DEBUG
-                    debugLog("[ScanUI] ✅ Emitting onSuccess(\(eventUUID))")
+                    debugLog("[ScanUI] ✅ Emitting onSuccess(\(eventUUID))", verbose: true)
                     #endif
                     onSuccess?(eventUUID)
                 } else {
                     // Fallback: dismiss via callback or environment
                     #if DEBUG
-                    debugLog("[ScanUI] 🧭 No event UUID — falling back to dismiss()")
+                    debugLog("[NavigationFailure] QR success missing event UUID; using dismiss fallback")
                     #endif
                     if let onSuccess = onSuccess {
                         // Use a nil-safe fallback UUID
@@ -503,7 +509,7 @@ struct ScanView: View {
             }
 
             #if DEBUG
-            debugLog("[ScanUI] ✅ Success transition complete")
+            debugLog("[ScanUI] ✅ Success transition complete", verbose: true)
             #endif
         }
     }
@@ -511,20 +517,20 @@ struct ScanView: View {
     private func shutdownCameraForDismiss() {
         guard let camera = activeCameraView else {
             #if DEBUG
-            debugLog("[ScanUI] 📷 No camera reference — nothing to shut down")
+            debugLog("[ScanUI] 📷 No camera reference — nothing to shut down", verbose: true)
             #endif
             return
         }
 
         #if DEBUG
-        debugLog("[ScanUI] 📷 Camera shutdown started")
+        debugLog("[ScanUI] 📷 Camera shutdown started", verbose: true)
         #endif
 
         camera.shutdownForDismiss()
         activeCameraView = nil
 
         #if DEBUG
-        debugLog("[ScanUI] 📷 Camera shutdown complete")
+        debugLog("[ScanUI] 📷 Camera shutdown complete", verbose: true)
         #endif
     }
 
