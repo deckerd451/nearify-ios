@@ -121,23 +121,23 @@ struct PeopleView: View {
                     if !sections.hereNow.isEmpty {
                         sectionBlock(
                             title: "Here Now", icon: "circle.fill",
-                            color: .green, subtitle: "At the event right now",
+                            color: .green, subtitle: "Live attendees nearby",
                             people: sections.hereNow
                         )
                     }
 
                     if !sections.followUp.isEmpty {
                         sectionBlock(
-                            title: "Worth Following Up", icon: "exclamationmark.bubble",
-                            color: .yellow, subtitle: "You spent real time together",
+                            title: "Recently Seen", icon: "clock.arrow.circlepath",
+                            color: .yellow, subtitle: "Recently nearby at this event",
                             people: sections.followUp
                         )
                     }
 
                     if !sections.notHere.isEmpty {
                         sectionBlock(
-                            title: "People You've Met", icon: "sparkles",
-                            color: .white.opacity(0.6), subtitle: "From past events",
+                            title: "Met Before", icon: "sparkles",
+                            color: .white.opacity(0.6), subtitle: "People from past events",
                             people: sections.notHere
                         )
                     }

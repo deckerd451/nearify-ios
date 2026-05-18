@@ -63,11 +63,11 @@ struct PreEventBriefView: View {
                 }
             } else if presentationMode == .earlyArrival {
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionTitle("No one else is nearby yet")
+                    sectionTitle("Others are expected soon")
                     Text("You're early — this is a great time to get comfortable and prepare.")
                         .font(.subheadline)
                         .foregroundColor(.primary)
-                    Text("Nearify will surface live people as soon as someone is nearby.")
+                    Text("Nearify will switch to live guidance as attendees check in.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
@@ -395,18 +395,36 @@ private extension PreEventBriefView {
     }
     func statusCopy(for person: PreEventBriefBuilder.PriorityPerson) -> String {
         let isLive = (person.statusLabel == "nearby") || (person.isNearby == true)
-        if isLive { return "Here now" }
-        switch presentationMode {
-        case .liveNavigation: return "Nearby"
-        case .earlyArrival: return "Likely arriving soon"
-        case .preEventPreparation: return "May be there"
+        let label: String
+        if presentationMode == .liveNavigation, isLive {
+            label = "Here now"
+        } else {
+            switch presentationMode {
+            case .liveNavigation: label = "Expected at this event"
+            case .earlyArrival: label = "Expected soon"
+            case .preEventPreparation: label = "Plans to attend"
+            }
         }
+        debugLog("[PresenceLabel] mode=\(presentationMode) attendee=\(person.id.uuidString.prefix(8)) liveConfirmed=\(isLive && presentationMode == .liveNavigation) label=\"\(label)\"")
+        debugLog("[PresenceCopy] mode=\(presentationMode) label=\"\(label)\"")
+        return label
     }
     func detailCTA(for person: PreEventBriefBuilder.PriorityPerson, canFindNow: Bool) -> String {
+        let cta: String
         switch presentationMode {
-        case .liveNavigation: return canFindNow ? "Start Looking" : "Keep in mind"
-        case .earlyArrival: return "Keep in mind"
-        case .preEventPreparation: return "Keep in mind"
+        case .liveNavigation: cta = canFindNow ? "Start Looking" : "Keep in mind"
+        case .earlyArrival: cta = "Prepare to meet"
+        case .preEventPreparation: cta = "Keep in mind"
+        }
+        debugLog("[RecommendationPresenceMode] attendee=\(person.id.uuidString.prefix(8)) liveConfirmed=\(canFindNow && presentationMode == .liveNavigation) cta=\(ctaModeToken(cta))")
+        return cta
+    }
+    private func ctaModeToken(_ cta: String) -> String {
+        switch cta {
+        case "Start Looking": return "startLooking"
+        case "Prepare to meet": return "prepareToMeet"
+        case "Possible conversation": return "possibleConversation"
+        default: return "keepInMind"
         }
     }
     func detailSecondaryCTA(for person: PreEventBriefBuilder.PriorityPerson, canFindNow: Bool) -> String? {

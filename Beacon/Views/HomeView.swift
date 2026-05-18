@@ -454,10 +454,10 @@ struct HomeView: View {
 
     private var briefCTALabel: String {
         guard eventJoin.isCheckedIn else { return "Check in when you arrive" }
-        guard attendeesService.liveOtherCount > 0 else { return "Preview likely arrivals" }
+        guard attendeesService.liveOtherCount > 0 else { return "Prepare to meet" }
         guard let brief = briefController.currentBrief,
               let topPerson = brief.priorityPeople.first(where: { ($0.statusLabel == "nearby") || ($0.isNearby == true) }) else {
-            return "Who’s here"
+            return "Keep in mind"
         }
         let name = IdentityDisplayName.primaryName(name: topPerson.name)
         return "Find \(name)"
