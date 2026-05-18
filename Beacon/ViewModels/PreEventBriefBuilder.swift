@@ -168,21 +168,45 @@ enum PreEventBriefBuilder {
         joinedCount: Int?,
         chosenPeople: [PriorityPerson]
     ) -> AttendeeCountSemantics {
-        let attendees = EventAttendeesService.shared.attendees
-        let now = Date()
-        let joinedOthers = max(joinedCount ?? attendees.count, chosenPeople.count)
-        let liveOthers = attendees.filter { $0.isHereNow }.count
-        let recentlyNearby = attendees.filter { !$0.isHereNow && now.timeIntervalSince($0.lastSeen) < 300 }.count
-        let recommendationEligible = max(chosenPeople.count, liveOthers)
-        let previewLikelyCount = max(joinedOthers, recommendationEligible, recentlyNearby)
         let mode = SocialStateResolver.shared.state.mode
+        let attendees = EventAttendeesService.shared.attendees
+        let liveOthers = EventAttendeesService.shared.liveOtherCount
+        let liveRecommendationEligible = EventAttendeesService.shared.recommendationEligibleCount
+        let now = Date()
+        let recentlyNearby = attendees.filter { !$0.isHereNow && now.timeIntervalSince($0.lastSeen) < 300 }.count
+        let joinedOthersPreEvent = max(joinedCount ?? attendees.count, chosenPeople.count)
+
+        let joinedOthers: Int
+        let recommendationEligible: Int
+        let previewLikelyCount: Int
+
+        if mode == .liveNavigation {
+            // Live navigation semantics must be sourced from active/live attendee signals.
+            joinedOthers = liveOthers
+            recommendationEligible = max(liveRecommendationEligible, liveOthers)
+            previewLikelyCount = 0
+            #if DEBUG
+            print("[LiveSemanticSource] mode=liveNavigation source=activeAttendees liveOthers=\(liveOthers) joinedOthers=\(joinedOthers)")
+            print("[LiveRecommendationEligibility] liveRecommendations=\(liveRecommendationEligible) eligible=\(recommendationEligible)")
+            if joinedOthersPreEvent != joinedOthers {
+                print("[LiveSemanticCorrection] replaced hydrated fallback with live counts hydratedJoined=\(joinedOthersPreEvent) liveJoined=\(joinedOthers)")
+            }
+            #endif
+        } else {
+            joinedOthers = joinedOthersPreEvent
+            recommendationEligible = max(chosenPeople.count, liveOthers)
+            previewLikelyCount = max(joinedOthers, recommendationEligible, recentlyNearby)
+        }
+
         #if DEBUG
-        let joinedSource = joinedCount != nil ? "briefHydration" : (chosenPeople.isEmpty ? "attendeesService" : "priorityPeople")
+        let joinedSource = mode == .liveNavigation
+            ? "activeLiveAttendees"
+            : (joinedCount != nil ? "briefHydration" : (chosenPeople.isEmpty ? "attendeesService" : "priorityPeople"))
         print("[CountSource] mode=\(mode.rawValue) joinedOthers=\(joinedOthers) source=\(joinedSource)")
         print("[CountSource] mode=\(mode.rawValue) liveOthers=\(liveOthers) source=activeLiveAttendees")
-        print("[CountSource] mode=\(mode.rawValue) recommendationEligible=\(recommendationEligible) source=\(isCheckedInMode(mode) ? "liveFindableRecommendations" : "priorityPeople")")
+        print("[CountSource] mode=\(mode.rawValue) recommendationEligible=\(recommendationEligible) source=\(mode == .liveNavigation ? "liveRecommendationEligibility" : "priorityPeople")")
         print("[CountSource] mode=\(mode.rawValue) recentlyNearby=\(recentlyNearby) source=resolverRecentNearby")
-        print("[CountSource] mode=\(mode.rawValue) previewLikelyCount=\(previewLikelyCount) source=\(isCheckedInMode(mode) ? "liveAttendees" : "priorityPeople")")
+        print("[CountSource] mode=\(mode.rawValue) previewLikelyCount=\(previewLikelyCount) source=\(mode == .liveNavigation ? "disabledInLiveNavigation" : "priorityPeople")")
         print("[CountSemantics] mode=\(mode.rawValue) totalJoinedIncludingSelf=\(joinedOthers + 1) joinedOthers=\(joinedOthers) liveOthers=\(liveOthers) recommendationEligible=\(recommendationEligible) recentlyNearby=\(recentlyNearby) previewLikelyCount=\(previewLikelyCount)")
         #endif
         return AttendeeCountSemantics(
