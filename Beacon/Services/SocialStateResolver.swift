@@ -42,14 +42,43 @@ final class SocialStateResolver: ObservableObject {
     deinit { timer?.invalidate() }
 
     func canLaunchFind(for recommendation: PreEventBriefBuilder.PriorityPerson?) -> Bool {
-        guard state.canLaunchFind, let recommendation else {
-            logFindEligibility(person: recommendation, allowed: false, reason: "global gate or person missing")
+        guard let recommendation else {
+            logFindEligibility(person: nil, allowed: false, reason: "person missing", matchedAttendee: nil, fresh: false, blePrefix: nil, bleVisible: false)
             return false
         }
-        let fresh = isFreshRecommendation(recommendation)
-        let resolvable = recommendation.isNearby == true || recommendation.statusLabel == "nearby"
-        let allowed = fresh && resolvable
-        logFindEligibility(person: recommendation, allowed: allowed, reason: "fresh=\(fresh) resolvable=\(resolvable)")
+
+        let attendees = EventAttendeesService.shared.attendees
+        let matchedAttendee = attendees.first(where: { $0.id == recommendation.id })
+        let fresh = matchedAttendee?.isActiveNow ?? false
+        let mode = state.mode
+        let blePrefix = BLEAdvertiserService.communityPrefix(from: recommendation.id)
+        let bleVisible = BLEScannerService.shared.getFilteredDevices().contains { device in
+            guard let prefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else { return false }
+            return prefix == blePrefix
+        }
+
+        let allowed = state.canLaunchFind && fresh && matchedAttendee != nil
+
+        let reason: String
+        if !state.canLaunchFind {
+            reason = "mode \(mode.rawValue) does not allow find"
+        } else if matchedAttendee == nil {
+            reason = "profileId mismatch between brief recommendation and live attendee"
+        } else if !fresh {
+            reason = "matched attendee is not fresh/live"
+        } else {
+            reason = "matched live attendee is resolvable"
+        }
+
+        logFindEligibility(
+            person: recommendation,
+            allowed: allowed,
+            reason: reason,
+            matchedAttendee: matchedAttendee,
+            fresh: fresh,
+            blePrefix: blePrefix,
+            bleVisible: bleVisible
+        )
         return allowed
     }
 
@@ -108,17 +137,21 @@ final class SocialStateResolver: ObservableObject {
         }
     }
 
-    private func isFreshRecommendation(_ person: PreEventBriefBuilder.PriorityPerson) -> Bool {
-        if let attendee = EventAttendeesService.shared.attendees.first(where: { $0.id == person.id }) {
-            return attendee.isActiveNow
-        }
-        return false
-    }
-
-    private func logFindEligibility(person: PreEventBriefBuilder.PriorityPerson?, allowed: Bool, reason: String) {
+    private func logFindEligibility(
+        person: PreEventBriefBuilder.PriorityPerson?,
+        allowed: Bool,
+        reason: String,
+        matchedAttendee: EventAttendee?,
+        fresh: Bool,
+        blePrefix: String?,
+        bleVisible: Bool
+    ) {
         #if DEBUG
-        let name = person?.name ?? "none"
-        print("[FindEligibility] person=\(name) allowed=\(allowed) reason=\(reason)")
+        let activeIds = EventAttendeesService.shared.attendees.map { $0.id.uuidString.uppercased() }.joined(separator: ",")
+        let targetName = person?.name ?? "none"
+        let targetId = person?.id.uuidString.uppercased() ?? "none"
+        let matchedId = matchedAttendee?.id.uuidString.uppercased() ?? "none"
+        print("[FindEligibility] target=\(targetName) targetProfileId=\(targetId) mode=\(state.mode.rawValue) fresh=\(fresh) matchedLiveAttendee=\(matchedAttendee != nil) matchedAttendeeId=\(matchedId) activeIds=[\(activeIds)] blePrefix=\(blePrefix ?? "none") bleVisible=\(bleVisible) backendFresh=\(fresh) allowed=\(allowed) reason=\(reason)")
         #endif
     }
 }
