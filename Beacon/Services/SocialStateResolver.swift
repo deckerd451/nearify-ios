@@ -51,7 +51,7 @@ final class SocialStateResolver: ObservableObject {
         let matchedAttendee = attendees.first(where: { $0.id == recommendation.id })
         let fresh = matchedAttendee?.isActiveNow ?? false
         let mode = state.mode
-        let blePrefix = BLEAdvertiserService.communityPrefix(from: recommendation.id)
+        let blePrefix = localCommunityPrefix(from: recommendation.id)
         let bleVisible = BLEScannerService.shared.getFilteredDevices().contains { device in
             guard let prefix = BLEAdvertiserService.parseCommunityPrefix(from: device.name) else { return false }
             return prefix == blePrefix
@@ -91,8 +91,19 @@ final class SocialStateResolver: ObservableObject {
             .store(in: &cancellables)
 
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.recalculate(reason: "timer") }
+            Task { @MainActor [weak self] in
+                self?.recalculate(reason: "timer")
+            }
         }
+    }
+
+
+    private func localCommunityPrefix(from id: UUID) -> String {
+        String(id.uuidString.prefix(8)).lowercased()
+    }
+
+    private func localCommunityPrefix(from id: String) -> String {
+        String(id.prefix(8)).lowercased()
     }
 
     private func recalculate(reason: String) {
