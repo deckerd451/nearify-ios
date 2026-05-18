@@ -34,6 +34,8 @@ final class NavigationState: ObservableObject {
     private var lastTabWriteAt: CFTimeInterval = 0
     private var lastGlobalRouteWriteSignature: String?
     private var lastGlobalRouteWriteAt: CFTimeInterval = 0
+    private var lastObserverApplySignature: String?
+    private var lastObserverApplyAt: CFTimeInterval = 0
     private let sameFrameWriteThreshold: CFTimeInterval = 1.0 / 120.0
 
     private init() {}
@@ -41,7 +43,8 @@ final class NavigationState: ObservableObject {
     func requestGlobalTabRoute(to target: AppTab, source: String) {
         guard pendingTabRoute != target else {
             #if DEBUG
-            print("[NavigationDebounce] ignored duplicate global route target=\(target) source=\(source)")
+            print("[NavigationObserverSource] source=\(source) currentPending=\(pendingTabRoute?.description ?? "nil") requested=\(target) route=global")
+            print("[NavigationFrameDrop] kind=globalRoute reason=duplicatePending source=\(source) requested=\(target)")
             #endif
             return
         }
@@ -49,7 +52,8 @@ final class NavigationState: ObservableObject {
         let signature = "\(target.rawValue)-\(source)"
         if signature == lastGlobalRouteWriteSignature, (now - lastGlobalRouteWriteAt) < sameFrameWriteThreshold {
             #if DEBUG
-            print("[NavigationFrameGuard] coalesced same-frame global route target=\(target) source=\(source)")
+            print("[NavigationObserverSource] source=\(source) currentPending=\(pendingTabRoute?.description ?? "nil") requested=\(target) route=global")
+            print("[NavigationObserverCoalesce] kind=globalRoute source=\(source) requested=\(target) sameFrame=true")
             #endif
             return
         }
@@ -57,9 +61,18 @@ final class NavigationState: ObservableObject {
         lastGlobalRouteWriteAt = now
         #if DEBUG
         let oldValue = pendingTabRoute?.description ?? "nil"
-        print("[TabRouting] [TAB-WRITE] \(oldValue) -> \(target) source=\(source) file=NavigationState.requestGlobalTabRoute")
+        print("[NavigationObserverSource] source=\(source) currentTab=unknown requestedTab=\(target) route=global")
+        print("[NavigationFrameWrite] kind=globalRoute allowed=true sameFrame=false source=\(source) oldPending=\(oldValue) newPending=\(target)")
         #endif
         pendingTabRoute = target
+    }
+
+    func consumePendingTabRouteIfMatching(_ tab: AppTab, source: String) {
+        guard pendingTabRoute == tab else { return }
+        #if DEBUG
+        print("[NavigationFrameWrite] kind=globalRouteConsume allowed=true source=\(source) clearing=\(tab)")
+        #endif
+        pendingTabRoute = nil
     }
 
     func requestPeopleSubroutePopToRoot() {
@@ -81,7 +94,8 @@ final class NavigationState: ObservableObject {
     ) -> Bool {
         guard current != target else {
             #if DEBUG
-            print("[NavigationDebounce] ignored duplicate tab write \(current)→\(target) source=\(sourceName)")
+            print("[NavigationObserverSource] source=\(sourceName) currentTab=\(current) requestedTab=\(target) route=tab")
+            print("[NavigationFrameDrop] kind=tabWrite reason=idempotent source=\(sourceName) currentTab=\(current) requestedTab=\(target)")
             #endif
             return false
         }
@@ -106,7 +120,8 @@ final class NavigationState: ObservableObject {
         let signature = "\(current.rawValue)-\(target.rawValue)-\(sourceName)"
         if signature == lastTabWriteSignature, (now - lastTabWriteAt) < sameFrameWriteThreshold {
             #if DEBUG
-            print("[NavigationDebounce] ignored same-frame tab write \(current)→\(target) source=\(sourceName)")
+            print("[NavigationObserverSource] source=\(sourceName) currentTab=\(current) requestedTab=\(target) route=tab")
+            print("[NavigationObserverCoalesce] kind=tabWrite source=\(sourceName) currentTab=\(current) requestedTab=\(target) sameFrame=true")
             #endif
             return false
         }
@@ -123,10 +138,39 @@ final class NavigationState: ObservableObject {
         }
 
         #if DEBUG
-        print("[TabRouting] [TAB-WRITE] \(current) -> \(target) source=\(sourceName) file=NavigationState.requestTabChange")
+        print("[NavigationObserverSource] source=\(sourceName) currentTab=\(current) requestedTab=\(target) route=tab")
+        print("[NavigationFrameWrite] kind=tabWrite allowed=true sameFrame=false source=\(sourceName) currentTab=\(current) requestedTab=\(target)")
         #endif
         binding = target
         return true
+    }
+
+    @discardableResult
+    func applyObserverTabRequest(
+        current currentTab: AppTab,
+        requested requestedTab: AppTab,
+        source: String,
+        binding: inout AppTab
+    ) -> Bool {
+        let now = CACurrentMediaTime()
+        let signature = "\(currentTab.rawValue)-\(requestedTab.rawValue)-\(source)"
+        let sameFrame = signature == lastObserverApplySignature && (now - lastObserverApplyAt) < sameFrameWriteThreshold
+        if sameFrame {
+            #if DEBUG
+            print("[NavigationObserverSource] source=\(source) currentTab=\(currentTab) requestedTab=\(requestedTab) route=observerApply")
+            print("[NavigationFrameDrop] kind=observerApply reason=sameFrameDuplicate source=\(source) currentTab=\(currentTab) requestedTab=\(requestedTab)")
+            #endif
+            return false
+        }
+        lastObserverApplySignature = signature
+        lastObserverApplyAt = now
+        return requestTabChange(
+            from: currentTab,
+            to: requestedTab,
+            source: .user,
+            sourceName: source,
+            binding: &binding
+        )
     }
 }
 

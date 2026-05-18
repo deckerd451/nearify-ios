@@ -29,6 +29,7 @@ struct MainTabView: View {
     @State private var incomingRequesterName = "Someone nearby"
     @State private var peopleNavigationPath = NavigationPath()
     @State private var lastHandledPeopleResetSignal = 0
+    @State private var lastPendingRouteSignature: String?
     @ObservedObject private var messaging = MessagingService.shared
     @ObservedObject private var navigationState = NavigationState.shared
 
@@ -141,28 +142,35 @@ struct MainTabView: View {
 
         .onReceive(navigationState.$pendingTabRoute.removeDuplicates()) { pendingTab in
             guard let pendingTab else { return }
-            guard selectedTab != pendingTab else {
+            let signature = "\(selectedTab.rawValue)->\(pendingTab.rawValue)"
+            if lastPendingRouteSignature == signature {
                 #if DEBUG
-                print("[NavigationDebounce] ignored pending global route; already on tab=\(pendingTab)")
+                print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
+                print("[NavigationFrameDrop] kind=observerRoute reason=duplicateSignature source=MainTabView.pendingGlobalRoute signature=\(signature)")
                 #endif
-                NavigationState.shared.pendingTabRoute = nil
+                navigationState.consumePendingTabRouteIfMatching(pendingTab, source: "MainTabView.pendingGlobalRoute.duplicateDrop")
                 return
             }
-            DispatchQueue.main.async {
-                _ = NavigationState.shared.requestTabChange(
-                from: selectedTab,
-                to: pendingTab,
-                source: .user,
-                sourceName: "MainTabView.pendingGlobalRoute",
+            lastPendingRouteSignature = signature
+
+            guard selectedTab != pendingTab else {
+                #if DEBUG
+                print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
+                print("[NavigationFrameDrop] kind=observerRoute reason=alreadyOnRequestedTab source=MainTabView.pendingGlobalRoute requestedTab=\(pendingTab)")
+                #endif
+                navigationState.consumePendingTabRouteIfMatching(pendingTab, source: "MainTabView.pendingGlobalRoute.alreadyOnRequestedTab")
+                return
+            }
+            #if DEBUG
+            print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
+            #endif
+            _ = navigationState.applyObserverTabRequest(
+                current: selectedTab,
+                requested: pendingTab,
+                source: "MainTabView.pendingGlobalRoute",
                 binding: &selectedTab
             )
-            if NavigationState.shared.pendingTabRoute == pendingTab {
-                #if DEBUG
-                print("[TAB-WRITE] \(pendingTab) -> nil source=MainTabView.consumePendingTabRoute file=MainTabView")
-                #endif
-                NavigationState.shared.pendingTabRoute = nil
-            }
-            }
+            navigationState.consumePendingTabRouteIfMatching(pendingTab, source: "MainTabView.pendingGlobalRoute.consume")
         }
         .onChange(of: navigationState.peopleSubrouteResetSignal) { _, newValue in
             guard newValue != lastHandledPeopleResetSignal else { return }
