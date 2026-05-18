@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import QuartzCore
 
 enum TabChangeSource {
     case user
@@ -29,12 +30,22 @@ final class NavigationState: ObservableObject {
     @Published private(set) var peopleSubrouteResetSignal: Int = 0
     @Published var activeNavigationTransaction: NavigationTransaction?
 
+    private var lastTabWriteSignature: String?
+    private var lastTabWriteAt: CFTimeInterval = 0
+    private let sameFrameWriteThreshold: CFTimeInterval = 1.0 / 120.0
+
     private init() {}
 
     func requestGlobalTabRoute(to target: AppTab, source: String) {
+        guard pendingTabRoute != target else {
+            #if DEBUG
+            print("[NavigationDebounce] ignored duplicate global route target=\(target) source=\(source)")
+            #endif
+            return
+        }
         #if DEBUG
         let oldValue = pendingTabRoute?.description ?? "nil"
-        print("[TAB-WRITE] \(oldValue) -> \(target) source=\(source) file=NavigationState.requestGlobalTabRoute")
+        print("[TabRouting] [TAB-WRITE] \(oldValue) -> \(target) source=\(source) file=NavigationState.requestGlobalTabRoute")
         #endif
         pendingTabRoute = target
     }
@@ -57,6 +68,9 @@ final class NavigationState: ObservableObject {
         binding: inout AppTab
     ) -> Bool {
         guard current != target else {
+            #if DEBUG
+            print("[NavigationDebounce] ignored duplicate tab write \(current)→\(target) source=\(sourceName)")
+            #endif
             return false
         }
 
@@ -75,6 +89,18 @@ final class NavigationState: ObservableObject {
             return false
         }
 
+
+        let now = CACurrentMediaTime()
+        let signature = "\(current.rawValue)-\(target.rawValue)-\(sourceName)"
+        if signature == lastTabWriteSignature, (now - lastTabWriteAt) < sameFrameWriteThreshold {
+            #if DEBUG
+            print("[NavigationDebounce] ignored same-frame tab write \(current)→\(target) source=\(sourceName)")
+            #endif
+            return false
+        }
+        lastTabWriteSignature = signature
+        lastTabWriteAt = now
+
         if target == .event {
             guard EventJoinService.shared.consumeNavigationIntent() else {
                 #if DEBUG
@@ -85,7 +111,7 @@ final class NavigationState: ObservableObject {
         }
 
         #if DEBUG
-        print("[TAB-WRITE] \(current) -> \(target) source=\(sourceName) file=NavigationState.requestTabChange")
+        print("[TabRouting] [TAB-WRITE] \(current) -> \(target) source=\(sourceName) file=NavigationState.requestTabChange")
         #endif
         binding = target
         return true
