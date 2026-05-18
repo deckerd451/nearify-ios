@@ -158,7 +158,7 @@ enum PreEventBriefBuilder {
     }
 
     private static func arrivalToneHeadline(
-        mode: SocialStateResolver.Mode,
+        mode: SocialStateResolver.SocialMode,
         momentumState: MomentumState,
         joinedCount: Int,
         liveCount: Int
@@ -201,7 +201,7 @@ enum PreEventBriefBuilder {
     }
 
     private static func continuityLine(
-        mode: SocialStateResolver.Mode,
+        mode: SocialStateResolver.SocialMode,
         momentumState: MomentumState,
         recentlyNearbyCount: Int
     ) -> String? {
