@@ -37,20 +37,18 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         Task { @MainActor in
             switch peripheral.state {
             case .poweredOn:
-                #if DEBUG
-                print("[BLE-ADV] Bluetooth powered on")
-                #endif
+                DebugLog.verbose("[BLE-ADV] Bluetooth powered on")
                 if communityId != nil {
                     startAdvertising()
                 }
             case .poweredOff:
-                print("[BLE-ADV] ⚠️ Bluetooth powered off")
+                DebugLog.diagnostic("[BLESession] Bluetooth powered off")
                 stopAdvertising()
             case .unauthorized:
-                print("[BLE-ADV] ⚠️ Bluetooth unauthorized")
+                DebugLog.diagnostic("[BLESession] Bluetooth unauthorized")
                 stopAdvertising()
             default:
-                print("[BLE-ADV] ⚠️ Bluetooth unavailable")
+                DebugLog.diagnostic("[BLESession] Bluetooth unavailable")
                 stopAdvertising()
             }
         }
@@ -59,13 +57,13 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
     nonisolated func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
         Task { @MainActor in
             if let error = error {
-                print("[BLE-ADV] ❌ Failed to start advertising: \(error)")
-                print("[BLE-ADV]   Error domain: \((error as NSError).domain), code: \((error as NSError).code)")
+                DebugLog.diagnostic("[BLESession] failed to start advertising: \(error)")
+                DebugLog.verbose("[BLESession] advertising error domain=\((error as NSError).domain) code=\((error as NSError).code)")
                 isAdvertising = false
                 
                 // Retry once after a short delay if we still have a community ID to advertise
                 if self.communityId != nil {
-                    print("[BLE-ADV]   🔄 Will retry in 2s...")
+                    DebugLog.verbose("[BLESession] advertising retry scheduled in 2s")
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     if !self.isAdvertising && self.communityId != nil {
                         self.startAdvertising()
@@ -73,11 +71,9 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
                 }
             } else {
                 isAdvertising = true
-                #if DEBUG
-                print("[BLE-ADV] ✅ Advertising confirmed by CoreBluetooth")
-                print("[BLE-ADV]   Advertised prefix: \(self.advertisedCommunityPrefix ?? "none")")
-                print("[BLE-ADV]   isAdvertising (manager): \(peripheral.isAdvertising)")
-                #endif
+                DebugLog.verbose("[BLE-ADV] ✅ Advertising confirmed by CoreBluetooth")
+                DebugLog.verbose("[BLE-ADV]   Advertised prefix: \(self.advertisedCommunityPrefix ?? "none")")
+                DebugLog.verbose("[BLE-ADV]   isAdvertising (manager): \(peripheral.isAdvertising)")
             }
         }
     }
@@ -89,21 +85,17 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
     /// This allows other attendees' scanners to resolve the BLE signal to a profile.
     func startAdvertisingForEvent(communityId: UUID) {
         let targetPrefix = String(communityId.uuidString.prefix(8)).lowercased()
-        #if DEBUG
-        print("[BLE-ADV] 🎫 startAdvertisingForEvent called")
-        print("[BLE-ADV]   Community ID: \(communityId)")
-        print("[BLE-ADV]   Target prefix: BCN-\(targetPrefix)")
-        print("[BLE-ADV]   Current prefix: \(advertisedCommunityPrefix ?? "none")")
-        print("[BLE-ADV]   isAdvertising: \(isAdvertising)")
-        print("[BLE-ADV]   BT state: \(peripheralManager.state.rawValue)")
-        #endif
+        DebugLog.verbose("[BLE-ADV] 🎫 startAdvertisingForEvent called")
+        DebugLog.verbose("[BLE-ADV]   Community ID: \(communityId)")
+        DebugLog.verbose("[BLE-ADV]   Target prefix: BCN-\(targetPrefix)")
+        DebugLog.verbose("[BLE-ADV]   Current prefix: \(advertisedCommunityPrefix ?? "none")")
+        DebugLog.verbose("[BLE-ADV]   isAdvertising: \(isAdvertising)")
+        DebugLog.verbose("[BLE-ADV]   BT state: \(peripheralManager.state.rawValue)")
         
         // If already advertising with the correct prefix, skip entirely.
         // This prevents the stop/restart race that leaves the advertiser inactive.
         if isAdvertising && advertisedCommunityPrefix == targetPrefix {
-            #if DEBUG
-            print("[BLE-ADV]   ✅ Already advertising correct prefix — skipping restart")
-            #endif
+            DebugLog.verbose("[BLE-ADV]   ✅ Already advertising correct prefix — skipping restart")
             return
         }
         
@@ -114,9 +106,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         // Need to (re)start: either not advertising, or advertising wrong prefix.
         let needsRestart = peripheralManager.isAdvertising
         if needsRestart {
-            #if DEBUG
-            print("[BLE-ADV]   🔄 Advertising wrong prefix — stopping to restart with identity")
-            #endif
+            DebugLog.verbose("[BLE-ADV]   🔄 Advertising wrong prefix — stopping to restart with identity")
             peripheralManager.stopAdvertising()
             isAdvertising = false
             advertisedCommunityPrefix = nil
@@ -131,9 +121,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
                 startAdvertising()
             }
         } else {
-            #if DEBUG
-            print("[BLE-ADV]   ⏳ BT not powered on (state: \(peripheralManager.state.rawValue)) — will start when ready")
-            #endif
+            DebugLog.verbose("[BLE-ADV]   ⏳ BT not powered on (state: \(peripheralManager.state.rawValue)) — will start when ready")
         }
     }
     
@@ -159,9 +147,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
 
     func enableHostAnchorMode() {
         guard communityId != nil else {
-            #if DEBUG
-            print("[BLE-ADV] ⚠️ Cannot enable host anchor — not joined to event")
-            #endif
+            DebugLog.verbose("[BLE-ADV] ⚠️ Cannot enable host anchor — not joined to event")
             return
         }
         guard !isHostAnchorMode else { return }
@@ -169,9 +155,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         isHostAnchorMode = true
         restartAdvertising()
 
-        #if DEBUG
-        print("[BLE-ADV] 🏠 Host Anchor Mode ENABLED")
-        #endif
+        DebugLog.verbose("[BLE-ADV] 🏠 Host Anchor Mode ENABLED")
     }
 
     func disableHostAnchorMode() {
@@ -180,9 +164,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         isHostAnchorMode = false
         restartAdvertising()
 
-        #if DEBUG
-        print("[BLE-ADV] 🏠 Host Anchor Mode DISABLED — back to attendee mode")
-        #endif
+        DebugLog.verbose("[BLE-ADV] 🏠 Host Anchor Mode DISABLED — back to attendee mode")
     }
 
     /// Restarts advertising with current mode (anchor vs attendee).
@@ -199,16 +181,12 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
     
     func startAdvertising() {
         guard !peripheralManager.isAdvertising else {
-            #if DEBUG
-            print("[BLE-ADV] Already advertising (prefix: \(advertisedCommunityPrefix ?? "legacy"))")
-            #endif
+            DebugLog.verbose("[BLE-ADV] Already advertising (prefix: \(advertisedCommunityPrefix ?? "legacy"))")
             return
         }
         
         guard peripheralManager.state == .poweredOn else {
-            #if DEBUG
-            print("[BLE-ADV] ⏳ Bluetooth not ready, will start when powered on")
-            #endif
+            DebugLog.verbose("[BLE-ADV] ⏳ Bluetooth not ready, will start when powered on")
             return
         }
         
@@ -231,8 +209,8 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
             localName = "BEACON-\(UIDevice.current.name)"
             advertisedCommunityPrefix = nil
             isLegacy = true
-            print("[BLE-ADV] ⚠️⚠️⚠️ LEGACY MODE — no community ID available")
-            print("[BLE-ADV] ⚠️ This device will NOT be resolvable to an attendee profile")
+            DebugLog.diagnostic("[BLESession] legacy advertising without community ID")
+            DebugLog.diagnostic("[BLESession] advertiser is not resolvable to attendee profile")
         }
         
         let advertisementData: [String: Any] = [
@@ -243,25 +221,21 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         peripheralManager.startAdvertising(advertisementData)
         isAdvertising = true
         
-        #if DEBUG
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        print("[BLE-ADV] 📡 Started advertising")
-        print("  Mode: \(isLegacy ? "⚠️ LEGACY" : isHostAnchorMode ? "🏠 HOST ANCHOR" : "✅ IDENTITY")")
-        print("  Local Name: \(localName)")
-        print("  Full Community ID: \(communityId?.uuidString ?? "none")")
-        print("  Advertised Prefix: \(advertisedCommunityPrefix ?? "none")")
-        print("  Service UUID: \(serviceUUID.uuidString)")
-        print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        #endif
+        DebugLog.verbose("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        DebugLog.verbose("[BLE-ADV] 📡 Started advertising")
+        DebugLog.verbose("  Mode: \(isLegacy ? "⚠️ LEGACY" : isHostAnchorMode ? "🏠 HOST ANCHOR" : "✅ IDENTITY")")
+        DebugLog.verbose("  Local Name: \(localName)")
+        DebugLog.verbose("  Full Community ID: \(communityId?.uuidString ?? "none")")
+        DebugLog.verbose("  Advertised Prefix: \(advertisedCommunityPrefix ?? "none")")
+        DebugLog.verbose("  Service UUID: \(serviceUUID.uuidString)")
+        DebugLog.verbose("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     }
     
     /// Force-start advertising, bypassing the `isAdvertising` guard.
     /// Used after a stop+restart where CoreBluetooth may still report isAdvertising=true briefly.
     private func forceStartAdvertising() {
         guard peripheralManager.state == .poweredOn else {
-            #if DEBUG
-            print("[BLE-ADV] ⏳ Bluetooth not ready for force-start, will start when powered on")
-            #endif
+            DebugLog.verbose("[BLE-ADV] ⏳ Bluetooth not ready for force-start, will start when powered on")
             return
         }
         
@@ -280,7 +254,7 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
             localName = "BEACON-\(UIDevice.current.name)"
             advertisedCommunityPrefix = nil
             isLegacy = true
-            print("[BLE-ADV] ⚠️⚠️⚠️ LEGACY MODE — no community ID available")
+            DebugLog.diagnostic("[BLESession] legacy advertising without community ID")
         }
         
         let advertisementData: [String: Any] = [
@@ -291,18 +265,14 @@ final class BLEAdvertiserService: NSObject, ObservableObject, CBPeripheralManage
         peripheralManager.startAdvertising(advertisementData)
         isAdvertising = true
         
-        #if DEBUG
-        print("[BLE-ADV] 📡 Force-started advertising (mode: \(isLegacy ? "LEGACY" : isHostAnchorMode ? "HOST ANCHOR" : "IDENTITY"), name: \(localName))")
-        #endif
+        DebugLog.verbose("[BLE-ADV] 📡 Force-started advertising (mode: \(isLegacy ? "LEGACY" : isHostAnchorMode ? "HOST ANCHOR" : "IDENTITY"), name: \(localName))")
     }
     
     func stopAdvertising() {
         guard peripheralManager.isAdvertising else { return }
         peripheralManager.stopAdvertising()
         isAdvertising = false
-        #if DEBUG
-        print("[BLE-ADV] 🛑 Stopped advertising")
-        #endif
+        DebugLog.verbose("[BLE-ADV] 🛑 Stopped advertising")
     }
     
     // MARK: - Parsing Helpers

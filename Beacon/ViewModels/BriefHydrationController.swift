@@ -78,9 +78,7 @@ final class BriefHydrationController: ObservableObject {
         currentBrief = nil
         hydrationState = .waitingForContext
 
-        #if DEBUG
-        print("[BriefHydration] startHydration — eventId=\(eventId.uuidString.prefix(8)) eventName=\"\(eventName)\"")
-        #endif
+        DebugLog.verbose("[RecommendationHydration] startHydration — eventId=\(eventId.uuidString.prefix(8)) eventName=\"\(eventName)\"")
 
         hydrationTask = Task { await runHydrationPipeline(eventId: eventId, eventName: eventName) }
     }
@@ -93,9 +91,7 @@ final class BriefHydrationController: ObservableObject {
         rebuildDebounceTask = nil
         cancellables.removeAll()
         if activeEventId != nil {
-            #if DEBUG
-            print("[BriefHydration] stopHydration")
-            #endif
+            DebugLog.verbose("[RecommendationHydration] stopHydration")
         }
         hydrationState = .idle
         activeEventId = nil
@@ -117,10 +113,8 @@ final class BriefHydrationController: ObservableObject {
 
         guard !Task.isCancelled else { return }
 
-        #if DEBUG
-        print("[BriefHydration] phase1 done — contextArrived=\(contextArrived) joinedCount=\(preEventAttendees.count)")
-        print("[BriefHydration] preEventAttendeesFetched count=\(preEventAttendees.count)")
-        #endif
+        DebugLog.verbose("[RecommendationHydration] phase1 done — contextArrived=\(contextArrived) joinedCount=\(preEventAttendees.count)")
+        DebugLog.verbose("[RecommendationHydration] preEventAttendeesFetched count=\(preEventAttendees.count)")
 
         // Phase 2: build brief immediately from real attendee data.
         hydrationState = .loadingIntelligence
@@ -132,9 +126,7 @@ final class BriefHydrationController: ObservableObject {
         currentBrief = finalBrief
         hydrationState = .hydrated
 
-        #if DEBUG
-        print("[BriefHydration] hydration complete — state=\(hydrationState) priorityPeople=\(finalBrief.priorityPeople.count)")
-        #endif
+        DebugLog.verbose("[RecommendationHydration] hydration complete — state=\(hydrationState) priorityPeople=\(finalBrief.priorityPeople.count)")
 
         // Phase 3: keep brief live as relationships refresh and goal changes arrive.
         observeReactiveSources()
@@ -208,14 +200,10 @@ final class BriefHydrationController: ObservableObject {
                 )
             }
 
-            #if DEBUG
-            print("[BriefHydration] preEventAttendeesFetched count=\(attendees.count)")
-            #endif
+            DebugLog.verbose("[RecommendationHydration] preEventAttendeesFetched count=\(attendees.count)")
             return attendees
         } catch {
-            #if DEBUG
-            print("[BriefHydration] fetchPreEventAttendees failed: \(error.localizedDescription)")
-            #endif
+            DebugLog.diagnostic("[RecommendationHydration] fetchPreEventAttendees failed: \(error.localizedDescription)")
             return []
         }
     }
@@ -255,9 +243,7 @@ final class BriefHydrationController: ObservableObject {
             )
         }
 
-        #if DEBUG
-        print("[BriefHydration] preEventRecommendationsBuilt count=\(people.count)")
-        #endif
+        DebugLog.verbose("[RecommendationHydration] preEventRecommendationsBuilt count=\(people.count)")
         return Array(people)
     }
 
@@ -325,9 +311,7 @@ final class BriefHydrationController: ObservableObject {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let oldGoal = cachedGoal ?? ""
         guard newGoal != oldGoal else { return }
-        #if DEBUG
-        print("[BriefHydration] goalChanged old=\"\(oldGoal)\" new=\"\(newGoal)\"")
-        #endif
+        DebugLog.verbose("[RecommendationHydration] goalChanged old=\"\(oldGoal)\" new=\"\(newGoal)\"")
         cachedGoal = newGoal.isEmpty ? nil : newGoal
         scheduleBriefRebuild(reason: "goal-changed")
     }
@@ -342,13 +326,11 @@ final class BriefHydrationController: ObservableObject {
             currentBrief = rebuilt
             if case .loadingIntelligence = hydrationState { hydrationState = .hydrated }
             if case .partial = hydrationState { hydrationState = .hydrated }
-            #if DEBUG
             if reason == "goal-changed" {
-                print("[BriefHydration] rebuiltForGoal priorityPeople=\(rebuilt.priorityPeople.count)")
+                DebugLog.verbose("[RecommendationHydration] rebuiltForGoal priorityPeople=\(rebuilt.priorityPeople.count)")
             } else {
-                print("[BriefHydration] reactive rebuild — reason=\(reason) priorityPeople=\(rebuilt.priorityPeople.count)")
+                DebugLog.verbose("[RecommendationHydration] reactive rebuild reason=\(reason) priorityPeople=\(rebuilt.priorityPeople.count)")
             }
-            #endif
         }
     }
 

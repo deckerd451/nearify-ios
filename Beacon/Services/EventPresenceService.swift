@@ -96,15 +96,13 @@ final class EventPresenceService: ObservableObject {
     }
 
     func reset() {
-        #if DEBUG
-        print("[Presence] manual reset")
-        #endif
+        DebugLog.verbose("[EventParticipation] manual reset")
         stopHeartbeat(clearContext: true)
     }
 
     /// Called by AuthService when auth state becomes invalid.
     func stopDueToAuthLoss() {
-        print("[Presence] 🛑 Stopping due to auth loss — cancelling heartbeat")
+        DebugLog.diagnostic("[AuthLifecycle] stopping presence due to auth loss")
         stopHeartbeat(clearContext: true)
     }
 
@@ -147,15 +145,12 @@ final class EventPresenceService: ObservableObject {
     ) -> Bool {
         guard activationIntent == .userCheckIn || activationIntent == .explicitQR,
               activationIntent == allowedIntent else {
-            print("[Presence] BLOCKED — attempted activation without explicit intent")
+            DebugLog.diagnostic("[EventParticipation] blocked presence activation without explicit intent")
             activationIntent = .none
             return false
         }
 
-        #if DEBUG
-        print("[Presence] ✅ Presence allowed source=\(activationIntent.rawValue) — \(eventName)")
-        print("[Presence] 🎫 Activating from \(sourceLabel) — \(eventName)")
-        #endif
+        DebugLog.diagnostic("[EventParticipation] presence activated source=\(activationIntent.rawValue) label=\(sourceLabel) event=\(eventName)")
 
         lastActivationIntent = activationIntent
         isQRJoinActive = true
@@ -221,7 +216,7 @@ final class EventPresenceService: ObservableObject {
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
 
-            print("[Presence] ▶️ Starting heartbeat (eventId=\(eventId), profileId=\(profileId))")
+            DebugLog.verbose("[EventParticipation] starting heartbeat eventId=\(eventId) profileId=\(profileId)")
 
             // Immediate first write
             await self.touchAttendance(eventId: eventId, profileId: profileId)
@@ -232,13 +227,13 @@ final class EventPresenceService: ObservableObject {
 
                 let hasAuth = await MainActor.run { AuthService.shared.isAuthenticated }
                 guard hasAuth else {
-                    print("[Presence] 🛑 Auth lost — stopping heartbeat")
+                    DebugLog.diagnostic("[AuthLifecycle] auth lost; stopping presence heartbeat")
                     break
                 }
 
                 let shouldContinue = await MainActor.run { self.isQRJoinActive }
                 guard shouldContinue else {
-                    print("[Presence] ⏹️ QR join no longer active — stopping heartbeat")
+                    DebugLog.verbose("[EventParticipation] QR join inactive; stopping heartbeat")
                     break
                 }
 
@@ -257,7 +252,7 @@ final class EventPresenceService: ObservableObject {
                 }
             }
 
-            print("[Presence] ⏹️ Heartbeat loop exited")
+            DebugLog.verbose("[EventParticipation] heartbeat loop exited")
         }
     }
 
@@ -277,9 +272,7 @@ final class EventPresenceService: ObservableObject {
         // Throttle: at most one beacon-triggered refresh per minute.
         if let lastRefresh = lastBeaconRefreshAt,
            now.timeIntervalSince(lastRefresh) < beaconRefreshMinInterval {
-            #if DEBUG
-            print("[Presence] ⏳ Beacon refresh throttled (last: \(Int(now.timeIntervalSince(lastRefresh)))s ago)")
-            #endif
+            DebugLog.verbose("[EventParticipation] ⏳ Beacon refresh throttled (last: \(Int(now.timeIntervalSince(lastRefresh)))s ago)")
             return
         }
 
@@ -289,9 +282,7 @@ final class EventPresenceService: ObservableObject {
         lastBeaconRefreshAt = now
         isBeaconReinforced = true
 
-        #if DEBUG
-        print("[Presence] 📡 Beacon-triggered confidence refresh")
-        #endif
+        DebugLog.verbose("[EventParticipation] 📡 Beacon-triggered confidence refresh")
 
         await touchAttendance(eventId: eventId, profileId: profileId)
     }
@@ -326,11 +317,7 @@ final class EventPresenceService: ObservableObject {
         // Keep _currentEventId, _currentProfileId, currentEvent intact.
         debugStatus = "Heartbeat paused (dormant)"
 
-        #if DEBUG
-        print("[Presence] 💤 Heartbeat paused — context preserved for resume")
-        print("[Presence]    eventId: \(_currentEventId?.uuidString ?? "nil")")
-        print("[Presence]    profileId: \(_currentProfileId?.uuidString ?? "nil")")
-        #endif
+        DebugLog.verbose("[EventParticipation] heartbeat paused contextPreserved=true eventId=\(_currentEventId?.uuidString ?? "nil") profileId=\(_currentProfileId?.uuidString ?? "nil")")
     }
 
     // MARK: - Presence via event_attendees
@@ -338,12 +325,10 @@ final class EventPresenceService: ObservableObject {
     private func touchAttendance(eventId: UUID, profileId: UUID) async {
         // Skip heartbeat writes when offline — no point hitting the network
         guard await MainActor.run(body: { NetworkMonitor.shared.isOnline }) else {
-            #if DEBUG
             await MainActor.run {
-                print("[NearbyMode] skipping backend feature: presence heartbeat")
+                DebugLog.verbose("[EventParticipation] skipping presence heartbeat while offline")
                 self.debugStatus = "Nearby Mode — heartbeat paused"
             }
-            #endif
             return
         }
 
@@ -354,9 +339,7 @@ final class EventPresenceService: ObservableObject {
 
         let now = Date()
         let nowISO = ISO8601DateFormatter().string(from: now)
-        #if DEBUG
-        print("[Presence] heartbeat write profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) last_seen_at=\(nowISO)")
-        #endif
+        DebugLog.verbose("[EventParticipation] heartbeat write profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) last_seen_at=\(nowISO)")
 
         do {
             let existing: [EventAttendanceRow] = try await supabase
@@ -383,9 +366,7 @@ final class EventPresenceService: ObservableObject {
                     debugStatus = "Heartbeat updated at \(now.formatted(date: .omitted, time: .standard))"
                 }
 
-                #if DEBUG
-                print("[Presence] ✅ Updated event_attendees heartbeat profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) status=joined last_seen_at=\(nowISO)")
-                #endif
+                DebugLog.verbose("[EventParticipation] ✅ Updated event_attendees heartbeat profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) status=joined last_seen_at=\(nowISO)")
             } else {
                 try await supabase
                     .from("event_attendees")
@@ -405,9 +386,7 @@ final class EventPresenceService: ObservableObject {
                     debugStatus = "Attendance inserted at \(now.formatted(date: .omitted, time: .standard))"
                 }
 
-                #if DEBUG
-                print("[Presence] ✅ Inserted event_attendees row profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) status=joined last_seen_at=\(nowISO)")
-                #endif
+                DebugLog.verbose("[EventParticipation] ✅ Inserted event_attendees row profile_id=\(profileId.uuidString) event_id=\(eventId.uuidString) status=joined last_seen_at=\(nowISO)")
             }
         } catch {
             let isCancellation: Bool
@@ -420,14 +399,10 @@ final class EventPresenceService: ObservableObject {
             }
 
             if isCancellation {
-                #if DEBUG
-                print("[Presence] ⚠️ Attendance write cancelled")
-                #endif
+                DebugLog.diagnostic("[EventParticipation] ⚠️ Attendance write cancelled")
                 await MainActor.run { debugStatus = "Write cancelled" }
             } else {
-                #if DEBUG
-                print("[Presence] ❌ Attendance heartbeat failed: \(error.localizedDescription)")
-                #endif
+                DebugLog.diagnostic("[EventParticipation] ❌ Attendance heartbeat failed: \(error.localizedDescription)")
                 await MainActor.run { debugStatus = "FAILED write: \(error.localizedDescription)" }
             }
         }
@@ -459,15 +434,11 @@ final class EventPresenceService: ObservableObject {
                 debugStatus = "Status set to \(status)"
             }
 
-            #if DEBUG
-            print("[Presence] ✅ Attendance status updated to \(status)")
-            #endif
+            DebugLog.verbose("[EventParticipation] ✅ Attendance status updated to \(status)")
             await MainActor.run { isWritingPresence = false }
             return true
         } catch {
-            #if DEBUG
-            print("[Presence] ❌ Failed to set attendance status: \(error.localizedDescription)")
-            #endif
+            DebugLog.diagnostic("[EventParticipation] ❌ Failed to set attendance status: \(error.localizedDescription)")
             await MainActor.run { debugStatus = "FAILED status update: \(error.localizedDescription)" }
             await MainActor.run { isWritingPresence = false }
             return false
@@ -491,7 +462,7 @@ final class EventPresenceService: ObservableObject {
 
             return rows.first?.id
         } catch {
-            print("[Presence] ❌ Error resolving profiles.id from auth.uid(): \(error)")
+            DebugLog.diagnostic("[AuthLifecycle] failed to resolve profile id from auth uid: \(error)")
             return nil
         }
     }

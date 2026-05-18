@@ -92,9 +92,7 @@ struct MainTabView: View {
             )
         }
         .onAppear {
-            #if DEBUG
-            print("🚨 MainTabView appeared")
-            #endif
+            DebugLog.verbose("[Navigation] MainTabView appeared")
             ContactShareService.shared.start(for: currentUser.id)
             messaging.setMessagesTabActive(selectedTab == .messages)
             lastHandledPeopleResetSignal = navigationState.peopleSubrouteResetSignal
@@ -123,16 +121,12 @@ struct MainTabView: View {
         }
         .onReceive(deepLinkManager.$pendingEventId.removeDuplicates()) { pendingEventId in
             guard pendingEventId != nil else { return }
-            #if DEBUG
-            print("[DeepLink] 🟡 pendingEventId changed while MainTabView active: \(pendingEventId ?? "nil")")
-            #endif
+            DebugLog.diagnostic("[NavigationFailure] pending event deep link received eventId=\(pendingEventId ?? "nil")")
             replayPendingEventIfNeeded(source: "onReceive")
         }
         .onReceive(deepLinkManager.$pendingProfileId.removeDuplicates()) { pendingProfileId in
             guard let pendingProfileId else { return }
-            #if DEBUG
-            print("[DeepLink] 🟣 pendingProfileId changed while MainTabView active: \(pendingProfileId)")
-            #endif
+            DebugLog.diagnostic("[NavigationFailure] pending profile deep link received profileId=\(pendingProfileId)")
             switchTab(to: .people, source: .user)
             NavigationState.shared.setPeopleFocusTarget(PeopleFocusTarget(
                 profileId: pendingProfileId,
@@ -146,26 +140,18 @@ struct MainTabView: View {
             guard let pendingTab else { return }
             let signature = "\(selectedTab.rawValue)->\(pendingTab.rawValue)"
             if lastPendingRouteSignature == signature {
-                #if DEBUG
-                print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
-                print("[NavigationFrameDrop] kind=observerRoute reason=duplicateSignature source=MainTabView.pendingGlobalRoute signature=\(signature)")
-                #endif
+                DebugLog.verbose("[NavigationFrameDrop] kind=observerRoute reason=duplicateSignature source=MainTabView.pendingGlobalRoute signature=\(signature)")
                 navigationState.consumePendingTabRouteIfMatching(pendingTab, source: "MainTabView.pendingGlobalRoute.duplicateDrop")
                 return
             }
             lastPendingRouteSignature = signature
 
             guard selectedTab != pendingTab else {
-                #if DEBUG
-                print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
-                print("[NavigationFrameDrop] kind=observerRoute reason=alreadyOnRequestedTab source=MainTabView.pendingGlobalRoute requestedTab=\(pendingTab)")
-                #endif
+                DebugLog.verbose("[NavigationFrameDrop] kind=observerRoute reason=alreadyOnRequestedTab source=MainTabView.pendingGlobalRoute requestedTab=\(pendingTab)")
                 navigationState.consumePendingTabRouteIfMatching(pendingTab, source: "MainTabView.pendingGlobalRoute.alreadyOnRequestedTab")
                 return
             }
-            #if DEBUG
-            print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
-            #endif
+            DebugLog.verbose("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
             let didApply = navigationState.applyObserverTabRequest(
                 current: selectedTab,
                 requested: pendingTab,
@@ -185,40 +171,30 @@ struct MainTabView: View {
             guard newValue != lastHandledPeopleResetSignal else { return }
             lastHandledPeopleResetSignal = newValue
             guard !peopleNavigationPath.isEmpty else {
-                #if DEBUG
-                print("[VisibleRouteGuard] ignored attendee refresh; route unchanged")
-                #endif
+                DebugLog.verbose("[VisibleRouteGuard] ignored attendee refresh; route unchanged")
                 return
             }
             let signature = "reset-\(newValue)-tab-\(selectedTab.rawValue)-count-\(peopleNavigationPath.count)"
             if lastPeoplePathMutationSignature == signature {
-                #if DEBUG
-                print("[NavigationFrameCoalesce] source=MainTabView.peopleSubrouteReset sameFrameDuplicate=true signature=\(signature)")
-                #endif
+                DebugLog.verbose("[NavigationFrameCoalesce] source=MainTabView.peopleSubrouteReset sameFrameDuplicate=true signature=\(signature)")
                 return
             }
             lastPeoplePathMutationSignature = signature
-            #if DEBUG
-            print("[PathMutation] source=MainTabView.peopleSubrouteReset action=clearPath tab=\(selectedTab) count=\(peopleNavigationPath.count)")
-            #endif
+            DebugLog.verbose("[PathMutation] source=MainTabView.peopleSubrouteReset action=clearPath tab=\(selectedTab) count=\(peopleNavigationPath.count)")
             peopleNavigationPath = NavigationPath()
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }
             messaging.setMessagesTabActive(newValue == .messages)
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange, mode: .quiet)
-            #if DEBUG
-            print("[TabRouting] [TAB-WRITE] \(oldValue) -> \(newValue) source=MainTabView.TabViewBinding file=MainTabView")
-            print("[PeopleNav] visible-route tab changed; activeTab=\(newValue)")
-            #endif
+            DebugLog.verbose("[TabRouting] [TAB-WRITE] \(oldValue) -> \(newValue) source=MainTabView.TabViewBinding file=MainTabView")
+            DebugLog.verbose("[PeopleNav] visible-route tab changed; activeTab=\(newValue)")
         }
         .onChange(of: peopleNavigationPath) { _, _ in
-            #if DEBUG
-            print("[ViewRenderGuard] peopleNavigationPath changed; activeTab=\(selectedTab)")
-            #endif
+            DebugLog.verbose("[ViewRenderGuard] peopleNavigationPath changed; activeTab=\(selectedTab)")
         }
         .onChange(of: messaging.totalUnreadCount) { _, newCount in
-            print("[MessagesBadge] unread count=\(newCount)")
+            DebugLog.verbose("[MessagesBadge] unread count=\(newCount)")
         }
     }
 
@@ -278,24 +254,18 @@ struct MainTabView: View {
 
     private func replayPendingEventIfNeeded(source: String) {
         guard !isConsumingPendingEvent else {
-            #if DEBUG
-            print("[DeepLink] ⛔ Replay blocked (\(source)) — already consuming pending event")
-            #endif
+            DebugLog.verbose("[DeepLink] replay blocked source=\(source) reason=alreadyConsuming")
             return
         }
 
         guard let eventId = deepLinkManager.consumeEventId() else {
-            #if DEBUG
-            print("[DeepLink] 📭 No pending event to replay (\(source))")
-            #endif
+            DebugLog.verbose("[DeepLink] no pending event source=\(source)")
             return
         }
 
         isConsumingPendingEvent = true
 
-        #if DEBUG
-        print("[EventJoin] ✅ User-initiated join via deep link (source: \(source), eventId: \(eventId))")
-        #endif
+        DebugLog.diagnostic("[EventParticipation] user-initiated join via deep link source=\(source) eventId=\(eventId)")
 
         switchTab(to: .event, source: .user)
 
@@ -309,13 +279,11 @@ struct MainTabView: View {
                     switchTab(to: .event, source: .user)
                 }
 
-                #if DEBUG
                 if EventJoinService.shared.isEventJoined {
-                    print("[DeepLink] ✅ Pending event join succeeded: \(eventId)")
+                    DebugLog.diagnostic("[EventParticipation] pending event join succeeded eventId=\(eventId)")
                 } else {
-                    print("[DeepLink] ❌ Pending event join failed: \(eventId)")
+                    DebugLog.diagnostic("[EventParticipation] pending event join failed eventId=\(eventId)")
                 }
-                #endif
             }
         }
     }

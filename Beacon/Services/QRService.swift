@@ -88,9 +88,7 @@ struct QRService {
         let trimmed = qrString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        #if DEBUG
-        print("[QRService] Parsing QR: \(trimmed)")
-        #endif
+        DebugLog.verbose("[QRService] Parsing QR: \(trimmed)")
 
         if let payload = parseBeaconRoute(trimmed) {
             return payload
@@ -101,15 +99,11 @@ struct QRService {
         }
 
         if UUID(uuidString: trimmed) != nil {
-            #if DEBUG
-            print("[QRService] ✅ Parsed legacy raw UUID as profile")
-            #endif
+            DebugLog.verbose("[QRService] ✅ Parsed legacy raw UUID as profile")
             return .profile(communityId: trimmed)
         }
 
-        #if DEBUG
-        print("[QRService] ❌ Unsupported QR format")
-        #endif
+        DebugLog.diagnostic("[QRService] ❌ Unsupported QR format")
         return nil
     }
 
@@ -135,30 +129,22 @@ struct QRService {
         if host == "event" {
             let eventId = pathComponents.first ?? ""
             guard UUID(uuidString: eventId) != nil else {
-                #if DEBUG
-                print("[QRService] ❌ Invalid beacon event UUID")
-                #endif
+                DebugLog.diagnostic("[QRService] ❌ Invalid beacon event UUID")
                 return nil
             }
 
-            #if DEBUG
-            print("[QRService] ✅ Parsed beacon event route")
-            #endif
+            DebugLog.verbose("[QRService] ✅ Parsed beacon event route")
             return .event(eventId: eventId)
         }
 
         if host == "profile" {
             let communityId = pathComponents.first ?? ""
             guard UUID(uuidString: communityId) != nil else {
-                #if DEBUG
-                print("[QRService] ❌ Invalid beacon profile UUID")
-                #endif
+                DebugLog.diagnostic("[QRService] ❌ Invalid beacon profile UUID")
                 return nil
             }
 
-            #if DEBUG
-            print("[QRService] ✅ Parsed beacon profile route")
-            #endif
+            DebugLog.verbose("[QRService] ✅ Parsed beacon profile route")
             return .profile(communityId: communityId)
         }
 
@@ -192,9 +178,7 @@ struct QRService {
             .value?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               UUID(uuidString: eventId) != nil else {
-            #if DEBUG
-            print("[QRService] ❌ nearify join URL missing valid event param")
-            #endif
+            DebugLog.diagnostic("[QRService] ❌ nearify join URL missing valid event param")
             return nil
         }
 
@@ -204,15 +188,11 @@ struct QRService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let profileId, UUID(uuidString: profileId) != nil {
-            #if DEBUG
-            print("[QRService] ✅ Parsed nearify personal connect URL")
-            #endif
+            DebugLog.verbose("[QRService] ✅ Parsed nearify personal connect URL")
             return .personalConnect(eventId: eventId, profileId: profileId)
         }
 
-        #if DEBUG
-        print("[QRService] ✅ Parsed nearify event join URL")
-        #endif
+        DebugLog.verbose("[QRService] ✅ Parsed nearify event join URL")
         return .event(eventId: eventId)
     }
 }

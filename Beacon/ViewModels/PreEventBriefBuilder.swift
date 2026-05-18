@@ -174,13 +174,9 @@ enum PreEventBriefBuilder {
                 summary.append("\(collaboration) attendees are also looking for collaborators")
             }
         }
-        #if DEBUG
-        print("[MomentumFraming] mode=\(mode.rawValue) joined=\(resolvedJoinedCount) live=\(liveCount) recentlyNearby=\(recentlyNearbyCount) state=\(momentumState.rawValue)")
-        #if DEBUG
-        print("[SocialMomentum] mode=\(mode.rawValue) state=\(momentumState.rawValue) liveCount=\(liveCount) recentlyNearby=\(recentlyNearbyCount)")
-        #endif
-        print("[ArrivalTone] path=joinedSummary.primary mode=\(mode.rawValue) state=\(momentumState.rawValue) line=\"\(summary.first ?? "")\"")
-        #endif
+        DebugLog.verbose("[MomentumFraming] mode=\(mode.rawValue) joined=\(resolvedJoinedCount) live=\(liveCount) recentlyNearby=\(recentlyNearbyCount) state=\(momentumState.rawValue)")
+        DebugLog.verbose("[SocialMomentum] mode=\(mode.rawValue) state=\(momentumState.rawValue) liveCount=\(liveCount) recentlyNearby=\(recentlyNearbyCount)")
+        DebugLog.verbose("[ArrivalTone] path=joinedSummary.primary mode=\(mode.rawValue) state=\(momentumState.rawValue) line=\"\(summary.first ?? "")\"")
         return Array(summary.prefix(3))
     }
 
@@ -205,30 +201,26 @@ enum PreEventBriefBuilder {
             joinedOthers = liveOthers
             recommendationEligible = max(liveRecommendationEligible, liveOthers)
             previewLikelyCount = 0
-            #if DEBUG
-            print("[LiveSemanticSource] mode=liveNavigation source=activeAttendees liveOthers=\(liveOthers) joinedOthers=\(joinedOthers)")
-            print("[LiveRecommendationEligibility] liveRecommendations=\(liveRecommendationEligible) eligible=\(recommendationEligible)")
+            DebugLog.verbose("[LiveSemanticSource] mode=liveNavigation source=activeAttendees liveOthers=\(liveOthers) joinedOthers=\(joinedOthers)")
+            DebugLog.verbose("[LiveRecommendationEligibility] liveRecommendations=\(liveRecommendationEligible) eligible=\(recommendationEligible)")
             if joinedOthersPreEvent != joinedOthers {
-                print("[LiveSemanticCorrection] replaced hydrated fallback with live counts hydratedJoined=\(joinedOthersPreEvent) liveJoined=\(joinedOthers)")
+                DebugLog.verbose("[LiveSemanticCorrection] replaced hydrated fallback with live counts hydratedJoined=\(joinedOthersPreEvent) liveJoined=\(joinedOthers)")
             }
-            #endif
         } else {
             joinedOthers = joinedOthersPreEvent
             recommendationEligible = max(chosenPeople.count, liveOthers)
             previewLikelyCount = max(joinedOthers, recommendationEligible, recentlyNearby)
         }
 
-        #if DEBUG
         let joinedSource = mode == .liveNavigation
             ? "activeLiveAttendees"
             : (joinedCount != nil ? "briefHydration" : (chosenPeople.isEmpty ? "attendeesService" : "priorityPeople"))
-        print("[CountSource] mode=\(mode.rawValue) joinedOthers=\(joinedOthers) source=\(joinedSource)")
-        print("[CountSource] mode=\(mode.rawValue) liveOthers=\(liveOthers) source=activeLiveAttendees")
-        print("[CountSource] mode=\(mode.rawValue) recommendationEligible=\(recommendationEligible) source=\(mode == .liveNavigation ? "liveRecommendationEligibility" : "priorityPeople")")
-        print("[CountSource] mode=\(mode.rawValue) recentlyNearby=\(recentlyNearby) source=resolverRecentNearby")
-        print("[CountSource] mode=\(mode.rawValue) previewLikelyCount=\(previewLikelyCount) source=\(mode == .liveNavigation ? "disabledInLiveNavigation" : "priorityPeople")")
-        print("[CountSemantics] mode=\(mode.rawValue) totalJoinedIncludingSelf=\(joinedOthers + 1) joinedOthers=\(joinedOthers) liveOthers=\(liveOthers) recommendationEligible=\(recommendationEligible) recentlyNearby=\(recentlyNearby) previewLikelyCount=\(previewLikelyCount)")
-        #endif
+        DebugLog.verbose("[CountSource] mode=\(mode.rawValue) joinedOthers=\(joinedOthers) source=\(joinedSource)")
+        DebugLog.verbose("[CountSource] mode=\(mode.rawValue) liveOthers=\(liveOthers) source=activeLiveAttendees")
+        DebugLog.verbose("[CountSource] mode=\(mode.rawValue) recommendationEligible=\(recommendationEligible) source=\(mode == .liveNavigation ? "liveRecommendationEligibility" : "priorityPeople")")
+        DebugLog.verbose("[CountSource] mode=\(mode.rawValue) recentlyNearby=\(recentlyNearby) source=resolverRecentNearby")
+        DebugLog.verbose("[CountSource] mode=\(mode.rawValue) previewLikelyCount=\(previewLikelyCount) source=\(mode == .liveNavigation ? "disabledInLiveNavigation" : "priorityPeople")")
+        DebugLog.verbose("[CountSemantics] mode=\(mode.rawValue) totalJoinedIncludingSelf=\(joinedOthers + 1) joinedOthers=\(joinedOthers) liveOthers=\(liveOthers) recommendationEligible=\(recommendationEligible) recentlyNearby=\(recentlyNearby) previewLikelyCount=\(previewLikelyCount)")
         return AttendeeCountSemantics(
             totalJoinedIncludingSelf: joinedOthers + 1,
             joinedOthers: joinedOthers,
@@ -365,11 +357,9 @@ enum PreEventBriefBuilder {
             let diversityPenalty = diversityPenalty(for: rel)
             let noveltyBoost = noveltyBoost(for: rel)
             let diversifiedScore = score - diversityPenalty + noveltyBoost
-            #if DEBUG
             if diversityPenalty > 0 {
-                print("[RecommendationDiversity] target=\(attendee.id.uuidString.prefix(8)) deprioritized repeated cluster exposure penalty=\(String(format: "%.1f", diversityPenalty))")
+                DebugLog.verbose("[RecommendationDiversity] target=\(attendee.id.uuidString.prefix(8)) deprioritized repeated cluster exposure penalty=\(String(format: "%.1f", diversityPenalty))")
             }
-            #endif
             return (attendee, rel, proximity, score, diversifiedScore)
         }
         .sorted { (lhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double, diversifiedScore: Double), rhs: (attendee: EventAttendee, rel: RelationshipMemory?, proximity: ProximityState, score: Double, diversifiedScore: Double)) in
@@ -388,12 +378,10 @@ enum PreEventBriefBuilder {
                 isNearby: nearby,
                 isHereNow: attendee.isHereNow
             )
-            #if DEBUG
             if let rel {
-                print("[RelationshipContinuity] target=\(attendee.id.uuidString.prefix(8)) recurring event overlap count=\(rel.eventContexts.count)")
+                DebugLog.verbose("[RelationshipContinuity] target=\(attendee.id.uuidString.prefix(8)) recurring event overlap count=\(rel.eventContexts.count)")
             }
-            print("[RecommendationConfidence] target=\(attendee.id.uuidString.prefix(8)) tier=\(tier.rawValue)")
-            #endif
+            DebugLog.verbose("[RecommendationConfidence] target=\(attendee.id.uuidString.prefix(8)) tier=\(tier.rawValue)")
             return PriorityPerson(
                 id: attendee.id,
                 name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PreEventBriefBuilder.swift"),
@@ -540,16 +528,12 @@ enum PreEventBriefBuilder {
         if let relationship {
             // Mutual value framing: what they bring given the user's focus.
             if let mutual = ProfileSignalService.shared.mutualValueReason(for: relationship) {
-                #if DEBUG
-                print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"mutual value framing\"")
-                #endif
+                DebugLog.verbose("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"mutual value framing\"")
                 return mutual
             }
             let traits = TraitReasoning.topTraits(for: relationship, isHereNow: isHereNow)
             if !traits.isEmpty, let why = TraitReasoning.whyThisMattersLine(traits: traits) {
-                #if DEBUG
-                print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"trait + momentum synthesis\"")
-                #endif
+                DebugLog.verbose("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"trait + momentum synthesis\"")
                 return "\(traits.joined(separator: " · ")) — \(why)"
             }
         }
@@ -565,9 +549,7 @@ enum PreEventBriefBuilder {
 
         let minutes = max(relationship.totalOverlapSeconds / 60, 0)
         if minutes >= 15 {
-            #if DEBUG
-            print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"relationship memory overlap\"")
-            #endif
+            DebugLog.verbose("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"relationship memory overlap\"")
             return "You’ve already spent \(minutes) minutes near each other — strong interaction signal."
         }
 
@@ -576,16 +558,12 @@ enum PreEventBriefBuilder {
             let shared = Set(relationship.sharedInterests.map { $0.lowercased() })
             if !goalTokens.isDisjoint(with: shared) {
                 if isNearby {
-                    #if DEBUG
-                    print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"goal intent alignment + live proximity\"")
-                    #endif
+                    DebugLog.verbose("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"goal intent alignment + live proximity\"")
                     return "High overlap with your goal in \(topic), and they're nearby now."
                 }
                 return "High overlap with your goal in \(topic), with live event activity now."
             }
-            #if DEBUG
-            print("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"shared interest + live confidence\"")
-            #endif
+            DebugLog.verbose("[RecommendationReasoning] target=\(relationship.profileId.uuidString.prefix(8)) reason=\"shared interest + live confidence\"")
             return "Clear shared interest in \(topic), with a live event signal."
         }
 

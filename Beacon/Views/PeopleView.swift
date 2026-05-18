@@ -1,10 +1,16 @@
 import SwiftUI
 
 
-private func debugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-    print(message())
-#endif
+private func debugLog(_ message: @autoclosure () -> String, verbose: Bool = false) {
+    if verbose {
+        #if DEBUG_VERBOSE
+        print(message())
+        #endif
+    } else {
+        #if DEBUG
+        print(message())
+        #endif
+    }
 }
 
 /// Dual-layer person intelligence surface.
@@ -149,7 +155,7 @@ struct PeopleView: View {
             .onChange(of: navigationState.peopleFocusTarget) { _, target in
                 guard let target = target else { return }
                 #if DEBUG
-                debugLog("[People] focus target received")
+                debugLog("[People] focus target received", verbose: true)
                 #endif
                 focusPersonIfLoaded(target: target, proxy: proxy)
             }
@@ -167,7 +173,7 @@ struct PeopleView: View {
     private func focusPersonIfLoaded(target: PeopleFocusTarget, proxy: ScrollViewProxy) {
         if lastFocusedTargetId == target.profileId {
             #if DEBUG
-            debugLog("[NavigationDestinationGuard] ignored duplicate selectedPerson id=\(target.profileId)")
+            debugLog("[NavigationDestinationGuard] ignored duplicate selectedPerson id=\(target.profileId)", verbose: true)
             #endif
             return
         }
@@ -175,13 +181,13 @@ struct PeopleView: View {
         let allIds = sections.hereNow.map(\.id) + sections.followUp.map(\.id) + sections.notHere.map(\.id)
         guard allIds.contains(target.profileId) else {
             #if DEBUG
-            debugLog("[People] focus target pending; person not loaded yet")
+            debugLog("[People] focus target pending; person not loaded yet", verbose: true)
             #endif
             return
         }
 
         #if DEBUG
-        debugLog("[People] focus target matched/opened")
+        debugLog("[People] focus target matched/opened", verbose: true)
         #endif
 
         lastFocusedTargetId = target.profileId
@@ -198,7 +204,7 @@ struct PeopleView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             if navigationState.peopleFocusTarget == target {
                 #if DEBUG
-                debugLog("[VisibleRouteGuard] clearing consumed focus target id=\(target.profileId)")
+                debugLog("[VisibleRouteGuard] clearing consumed focus target id=\(target.profileId)", verbose: true)
                 #endif
                 navigationState.setPeopleFocusTarget(nil, source: "PeopleView.focusConsumed")
             }
@@ -252,7 +258,7 @@ struct PeopleView: View {
         }
         .onAppear {
             #if DEBUG
-            debugLog("[ForEachIdentity] people section=\(title) using profileId identity count=\(people.count)")
+            debugLog("[ForEachIdentity] people section=\(title) using profileId identity count=\(people.count)", verbose: true)
             #endif
         }
     }
@@ -270,7 +276,7 @@ struct PeopleView: View {
                     expandedPersonId = isExpanded ? nil : person.id
                     #if DEBUG
                     if !isExpanded {
-                        debugLog("[People] expanded intelligence for \(person.name)")
+                        debugLog("[People] expanded intelligence for \(person.name)", verbose: true)
                     }
                     #endif
                 }
@@ -381,7 +387,7 @@ struct PeopleView: View {
 
     private func logRelationshipState(_ state: PeopleRelationshipState) {
         #if DEBUG
-        debugLog("[PeopleRelationshipUI] Rendered state: \(state)")
+        debugLog("[PeopleRelationshipUI] Rendered state: \(state)", verbose: true)
         #endif
     }
 

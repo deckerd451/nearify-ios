@@ -134,7 +134,7 @@ struct PersonDetailView: View {
         .clipped()
         .opacity(isHeroVisible ? 1 : 0)
         .onAppear {
-            print("[ProfileHero] layout sizeClass=\(layout.sizeClassLabel) heroHeight=\(Int(layout.heroHeight.rounded()))")
+            DebugLog.verbose("[ProfileHero] layout sizeClass=\(layout.sizeClassLabel) heroHeight=\(Int(layout.heroHeight.rounded()))")
         }
     }
 
@@ -259,7 +259,7 @@ struct PersonDetailView: View {
                 title: "Say hello",
                 accessibility: "Message \(attendee.name)"
             ) {
-                print("[ProfileHero] message tapped profileId=\(attendee.id)")
+                DebugLog.verbose("[ProfileHero] message tapped profileId=\(attendee.id)")
                 handleMessageTap()
             }
 
@@ -272,7 +272,7 @@ struct PersonDetailView: View {
                     title: "See nearby",
                     accessibility: "Find \(attendee.name) nearby"
                 ) {
-                    print("[ProfileHero] find tapped profileId=\(attendee.id)")
+                    DebugLog.verbose("[ProfileHero] find tapped profileId=\(attendee.id)")
                     showingFindSheet = true
                 }
             }
@@ -287,11 +287,11 @@ struct PersonDetailView: View {
         case .accepted:
             profileActionButton(layout: layout, systemImage: "person.crop.circle.badge.plus", title: "Save Contact", accessibility: "Save \(attendee.name) to contacts") {
                 guard contactShareStatus == .accepted else {
-                    print("[ContactShare] save blocked reason=not-approved source=attendee-card")
+                    DebugLog.diagnostic("[EventParticipation] contact save blocked reason=not-approved source=attendee-card")
                     return
                 }
-                print("[ContactShare] save unlocked source=attendee-card")
-                print("[ProfileHero] save tapped profileId=\(attendee.id)")
+                DebugLog.verbose("[ContactShare] save unlocked source=attendee-card")
+                DebugLog.verbose("[ProfileHero] save tapped profileId=\(attendee.id)")
                 showContactSaveSheet = true
             }
         case .outgoingPending:
@@ -319,10 +319,10 @@ struct PersonDetailView: View {
                             addresseeProfileId: attendee.id,
                             eventId: eventId
                         )
-                        print("[ContactShare] request sent source=attendee-card receiver=\(attendee.id.uuidString)")
+                        DebugLog.diagnostic("[EventParticipation] contact request sent source=attendee-card receiver=\(attendee.id.uuidString)")
                         await refreshContactShareStatus()
                     } catch {
-                        print("[ContactShare] request failed source=attendee-card receiver=\(attendee.id.uuidString) error=\(error.localizedDescription)")
+                        DebugLog.diagnostic("[EventParticipation] contact request failed source=attendee-card receiver=\(attendee.id.uuidString) error=\(error.localizedDescription)")
                     }
                 }
             }
@@ -600,7 +600,7 @@ struct PersonDetailView: View {
         Task {
             do {
                 _ = try await ConnectionService.shared.createConnectionIfNeeded(to: attendee.id.uuidString)
-                print("[MessagingGate] auto-connected target=\(attendee.id.uuidString)")
+                DebugLog.verbose("[MessagingGate] auto-connected target=\(attendee.id.uuidString)")
                 let eventId = await MainActor.run {
                     EventJoinService.shared.currentEventID.flatMap { UUID(uuidString: $0) }
                 }
@@ -614,7 +614,7 @@ struct PersonDetailView: View {
                     eventId: eventId,
                     eventName: eventName
                 )
-                print("[MessagingGate] opening conversation target=\(attendee.id.uuidString)")
+                DebugLog.verbose("[MessagingGate] opening conversation target=\(attendee.id.uuidString)")
 
                 await MessagingService.shared.fetchMessages(conversationId: conversation.id)
 
@@ -630,14 +630,14 @@ struct PersonDetailView: View {
             } catch {
                 await MainActor.run {
                     isOpeningConversation = false
-                    print("[ProfileHero] message open failed profileId=\(attendee.id) error=\(error.localizedDescription)")
+                    DebugLog.diagnostic("[NavigationFailure] message open failed profileId=\(attendee.id) error=\(error.localizedDescription)")
                 }
             }
         }
     }
 
     private func loadPublicProfile() async {
-        print("[ProfileHero] rendered for profileId=\(attendee.id)")
+        DebugLog.verbose("[ProfileHero] rendered for profileId=\(attendee.id)")
 
         let targetUser = User(
             id: attendee.id,
@@ -692,7 +692,7 @@ struct PersonDetailView: View {
 
         await MainActor.run {
             contactShareStatus = resolvedState
-            print("[AttendeeCard] contact action state=\(resolvedState.rawValue) profile=\(attendee.id.uuidString)")
+            DebugLog.verbose("[AttendeeCard] contact action state=\(resolvedState.rawValue) profile=\(attendee.id.uuidString)")
         }
     }
 

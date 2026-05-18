@@ -137,11 +137,11 @@ struct PreEventBriefView: View {
         .padding(.vertical, 8)
         .onAppear {
             logRecommendationIfNeeded()
-            #if DEBUG
-            print("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(presentationMode == .liveNavigation ? "liveOthers" : "joinedOthers") count=\(presentationMode == .liveNavigation ? brief.attendeeCounts.liveOthers : brief.attendeeCounts.joinedOthers)")
-            print("[CountSemantics] component=PreEventBriefView mode=\(presentationMode) totalJoinedIncludingSelf=\(brief.attendeeCounts.totalJoinedIncludingSelf) joinedOthers=\(brief.attendeeCounts.joinedOthers) liveOthers=\(brief.attendeeCounts.liveOthers) recommendationEligible=\(brief.attendeeCounts.recommendationEligible) recentlyNearby=\(brief.attendeeCounts.recentlyNearby) previewLikelyCount=\(brief.attendeeCounts.previewLikelyCount)")
-            print(briefContentModeLogLine)
-            #endif
+            let countType = presentationMode == .liveNavigation ? "liveOthers" : "joinedOthers"
+            let count = presentationMode == .liveNavigation ? brief.attendeeCounts.liveOthers : brief.attendeeCounts.joinedOthers
+            DebugLog.verbose("[AttendeeCopy] title=\"\(sheetTitle)\" countType=\(countType) count=\(count)")
+            DebugLog.verbose("[CountSemantics] component=PreEventBriefView mode=\(presentationMode) totalJoinedIncludingSelf=\(brief.attendeeCounts.totalJoinedIncludingSelf) joinedOthers=\(brief.attendeeCounts.joinedOthers) liveOthers=\(brief.attendeeCounts.liveOthers) recommendationEligible=\(brief.attendeeCounts.recommendationEligible) recentlyNearby=\(brief.attendeeCounts.recentlyNearby) previewLikelyCount=\(brief.attendeeCounts.previewLikelyCount)")
+            DebugLog.verbose(briefContentModeLogLine)
         }
         .onChange(of: recommendationLogState) { _ in
             logRecommendationIfNeeded()
@@ -353,15 +353,13 @@ struct PreEventBriefView: View {
         if let person = primaryRecommendation {
             let confidence = String(format: "%.2f", person.confidence ?? 0.0)
             let score = String(format: "%.2f", person.matchScore ?? 0.0)
-            print("[Brief] recommendation rendered: \(person.name), confidence=\(confidence), score=\(score), nearby=\(person.isNearby ?? false)")
-            #if DEBUG
+            DebugLog.verbose("[Brief] recommendation rendered: \(person.name), confidence=\(confidence), score=\(score), nearby=\(person.isNearby ?? false)")
             if !hasScoreEvidence(person) {
-                print("[RecommendationSafety] downgraded zero-confidence recommendation name=\(person.name)")
+                DebugLog.diagnostic("[RecommendationHydration] downgraded zero-confidence recommendation name=\(person.name)")
             }
-            #endif
         } else {
             let reason = brief.isLive ? "no-strong-live-match" : "pre-check-in"
-            print("[Brief] no recommendation rendered: \(reason)")
+            DebugLog.verbose("[Brief] no recommendation rendered: \(reason)")
         }
     }
 
@@ -369,10 +367,8 @@ struct PreEventBriefView: View {
         name.components(separatedBy: " ").first ?? name
     }
 
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        print(message)
-        #endif
+    private func debugLog(_ message: @autoclosure () -> String) {
+        DebugLog.verbose(message())
     }
 }
 

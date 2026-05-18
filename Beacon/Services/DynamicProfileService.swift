@@ -111,16 +111,13 @@ final class DynamicProfileService: ObservableObject {
             lastGenerated = Date()
             isLoading = false
 
-            #if DEBUG
-            print("[DynamicProfile] Generated \(lines.count) lines: \(lines)")
-            print("[ProfileEmergence] themes=\(currentSignals.topThemes) event=\(currentSignals.recentEventName ?? "none") momentum=\(currentSignals.hasFollowUpMomentum)")
-            print("[ContinuityEvolution] repeated overlap count=\(currentSignals.recurringOverlapCount)")
+            DebugLog.verbose("[DynamicProfile] generated lines count=\(lines.count)")
+            DebugLog.verbose("[DynamicProfile] themes=\(currentSignals.topThemes) event=\(currentSignals.recentEventName ?? "none") momentum=\(currentSignals.hasFollowUpMomentum)")
+            DebugLog.verbose("[DynamicProfile] repeatedOverlapCount=\(currentSignals.recurringOverlapCount)")
             if let first = currentSignals.topThemes.first {
-                print("[BehavioralSignal] recurringTheme=\(first) confidence=\(String(format: "%.2f", min(0.9, 0.35 + Double(currentSignals.topThemes.count) * 0.17))) evidence=\(currentSignals.topThemes.count)")
+                DebugLog.verbose("[DynamicProfile] recurringTheme=\(first) confidence=\(String(format: "%.2f", min(0.9, 0.35 + Double(currentSignals.topThemes.count) * 0.17))) evidence=\(currentSignals.topThemes.count)")
             }
-            print("[EmergingStrengths] Paragraph: \(emergingStrengthsParagraph ?? "nil")")
-            print("[EarnedTraits] \(earnedTraits.map { $0.publicText })")
-            #endif
+            DebugLog.verbose("[DynamicProfile] emergingStrengthsAvailable=\(emergingStrengthsParagraph != nil) earnedTraits=\(earnedTraits.count)")
         }
     }
 
@@ -130,9 +127,7 @@ final class DynamicProfileService: ObservableObject {
         earnedTraits = []
         currentSignals = DynamicProfileSignals()
         lastGenerated = nil
-        #if DEBUG
-        print("[DynamicProfile] signals reset by user")
-        #endif
+        DebugLog.diagnostic("[DynamicProfile] signals reset by user")
     }
 
     // MARK: - Public Profile Generation (for other users)
@@ -337,12 +332,7 @@ final class DynamicProfileService: ObservableObject {
         let peopleCandidate = candidates.first { $0.category == .people && $0.score >= threshold }
         let activityCandidate = candidates.first { $0.category == .activity && $0.score >= threshold }
 
-        #if DEBUG
-        print("[Lately] ── Candidate selection ──")
-        print("[Lately]   topic:    \(topicCandidate.map { "\($0.line) (score=\(String(format: "%.2f", $0.score)))" } ?? "none")")
-        print("[Lately]   people:   \(peopleCandidate.map { "\($0.line) (score=\(String(format: "%.2f", $0.score)))" } ?? "none")")
-        print("[Lately]   momentum: \(activityCandidate.map { "\($0.line) (score=\(String(format: "%.2f", $0.score)))" } ?? "none")")
-        #endif
+        DebugLog.verbose("[DynamicProfile] candidateSelection topic=\(topicCandidate?.score ?? 0) people=\(peopleCandidate?.score ?? 0) momentum=\(activityCandidate?.score ?? 0)")
 
         // Assemble: user-specific first, shared-event second
         var result: [String] = []
@@ -362,15 +352,11 @@ final class DynamicProfileService: ObservableObject {
             if !hasUserSpecific {
                 // No user-specific lines survived → show one shared-event line
                 result.append(activity.line)
-                #if DEBUG
-                print("[Lately]   ⚠️ Shared event phrase is sole line (no user-specific candidates)")
-                #endif
+                DebugLog.verbose("[DynamicProfile] shared event phrase is sole line")
             } else {
                 // User-specific lines exist → shared event is supporting context
                 result.append(activity.line)
-                #if DEBUG
-                print("[Lately]   ✅ Shared event phrase added as supporting line")
-                #endif
+                DebugLog.verbose("[DynamicProfile] shared event phrase added as supporting line")
             }
         }
 
@@ -392,15 +378,11 @@ final class DynamicProfileService: ObservableObject {
                 ]
                 let t = templates[templateVariant % templates.count]
                 result.append(t(anchor))
-                #if DEBUG
-                print("[Lately]   🔄 Rescued with interest anchor: \(anchor)")
-                #endif
+                DebugLog.verbose("[DynamicProfile] rescued with interest anchor=\(anchor)")
             }
         }
 
-        #if DEBUG
-        print("[Lately]   final: \(result)")
-        #endif
+        DebugLog.verbose("[DynamicProfile] generated lately line count=\(result.count)")
 
         return result
     }
@@ -495,9 +477,7 @@ final class DynamicProfileService: ObservableObject {
                 )
             }
         } catch {
-            #if DEBUG
-            print("[Lately] Failed to fetch connections: \(error)")
-            #endif
+            DebugLog.diagnostic("[DynamicProfile] failed to fetch connections: \(error)")
             return []
         }
     }

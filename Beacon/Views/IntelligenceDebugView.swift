@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Admin-only Intelligence Debug panel.
 /// Explains how the system interprets real-world interactions.
-/// Access: long-press Profile tab (debug builds) or AppEnvironment.isDebugMode.
+/// Access: hidden behind explicit AppEnvironment.isDebugMode opt-in only.
 struct IntelligenceDebugView: View {
     @ObservedObject private var eventJoin = EventJoinService.shared
     @ObservedObject private var presence = EventPresenceService.shared
