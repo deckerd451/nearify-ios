@@ -32,6 +32,7 @@ struct HomeView: View {
     @State private var isPresentationHierarchyReady = false
     @State private var briefDismissSuppressionUntil: Date = .distantPast
     @State private var briefPresentationState: BriefPresentationState = .idle
+    @State private var lastManualDismissedContextKey: String?
 
     private enum BriefPresentationState: String {
         case idle
@@ -42,8 +43,9 @@ struct HomeView: View {
     }
 
     private enum BriefPresentationReason: String {
+        case userInitiated
         case autoPresent
-        case direct
+        case stateRecovery
     }
 
     private let manualDismissSuppressionWindow: TimeInterval = 2.5
@@ -383,7 +385,7 @@ struct HomeView: View {
             }
 
             Button {
-                setEventBriefPresentation(true, reason: "direct")
+                setEventBriefPresentation(true, reason: .userInitiated, source: "joinedCard.cta")
             } label: {
                 Text(briefCTALabel)
                     .font(.subheadline)
@@ -513,7 +515,7 @@ struct HomeView: View {
                 .buttonStyle(PressableScaleButtonStyle())
 
                 Button {
-                    setEventBriefPresentation(true, reason: "direct")
+                    setEventBriefPresentation(true, reason: .userInitiated, source: "preCheckIn.openBriefing.nearVenue")
                 } label: {
                     Text("Open Briefing")
                         .font(.caption.weight(.semibold))
@@ -525,7 +527,7 @@ struct HomeView: View {
             } else {
                 // Not yet at venue: prepare — briefing is the dominant action
                 Button {
-                    setEventBriefPresentation(true, reason: "direct")
+                    setEventBriefPresentation(true, reason: .userInitiated, source: "preCheckIn.openBriefing.prepare")
                 } label: {
                     Text("Open Briefing")
                         .font(.subheadline.weight(.semibold))
@@ -626,7 +628,7 @@ struct HomeView: View {
             case .findAttendee(let attendee):
                 launchFindDestination(BriefConnectionDestination(attendee: attendee), reason: "nextBestAction")
             case .showBrief:
-                setEventBriefPresentation(true, reason: "direct")
+                setEventBriefPresentation(true, reason: .userInitiated, source: "nextBestAction.showBrief")
             case .showGoalPicker:
                 showGoalPickerSheet = true
             case .goToPeople:
@@ -841,7 +843,7 @@ struct HomeView: View {
                         hydrationState: briefController.hydrationState,
                         presentationMode: briefPresentationMode
                     ) { recommendation in
-                        setEventBriefPresentation(false, reason: "direct")
+                        setEventBriefPresentation(false, reason: .userInitiated, source: "brief.recommendation")
                         pendingBriefConnectionDestination = destinationForBriefRecommendation(recommendation)
                     } canStartLooking: { recommendation in
                         socialResolver.canLaunchFind(for: recommendation)
@@ -852,7 +854,7 @@ struct HomeView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Dismiss") {
-                            setEventBriefPresentation(false, reason: "direct")
+                            setEventBriefPresentation(false, reason: .userInitiated, source: "brief.toolbarDismiss")
                         }
                     }
                 }
@@ -905,23 +907,33 @@ struct HomeView: View {
         }
     }
 
-    private func setEventBriefPresentation(_ shouldPresent: Bool, reason: String) {
-        let normalizedReason = BriefPresentationReason(rawValue: reason) ?? .direct
-        setEventBriefPresentation(shouldPresent, reason: normalizedReason)
-    }
-
-    private func setEventBriefPresentation(_ shouldPresent: Bool, reason: BriefPresentationReason) {
+    private func setEventBriefPresentation(
+        _ shouldPresent: Bool,
+        reason: BriefPresentationReason,
+        source: String
+    ) {
+        #if DEBUG
+        print("[PresentationSource] \(source) reason=\(reason.rawValue)")
+        #endif
         if showEventBrief == shouldPresent {
             #if DEBUG
-            print("[PresentationGuard] ignored duplicate show=\(shouldPresent) reason=\(reason.rawValue)")
+            print("[BriefDuplicateGuard] ignored duplicate visible presentation show=\(shouldPresent) reason=\(reason.rawValue)")
             #endif
             return
         }
         let now = Date()
-        if shouldPresent, reason == .autoPresent, now < briefDismissSuppressionUntil {
+        if shouldPresent, reason != .userInitiated, now < briefDismissSuppressionUntil {
             briefPresentationState = .suppressed
             #if DEBUG
-            print("[DismissSuppression] ignoring auto-present until \(briefDismissSuppressionUntil) reason=\(reason.rawValue)")
+            print("[DismissSuppression] ignoring non-user presentation until \(briefDismissSuppressionUntil) reason=\(reason.rawValue)")
+            print("[PresentationReject] suppressed direct reopen after manual dismiss")
+            #endif
+            return
+        }
+        let contextKey = "\(eventJoin.currentEventID ?? "none"):\(reason.rawValue)"
+        if shouldPresent, reason != .userInitiated, lastManualDismissedContextKey == contextKey {
+            #if DEBUG
+            print("[PresentationReject] duplicate context reopen rejected context=\(contextKey)")
             #endif
             return
         }
@@ -933,10 +945,14 @@ struct HomeView: View {
         }
         if shouldPresent {
             transitionBriefState(to: .presenting, context: reason.rawValue)
+            if reason == .userInitiated {
+                lastManualDismissedContextKey = nil
+            }
         } else {
             transitionBriefState(to: .dismissing, context: reason.rawValue)
-            if reason == .direct {
+            if reason == .userInitiated {
                 briefDismissSuppressionUntil = now.addingTimeInterval(manualDismissSuppressionWindow)
+                lastManualDismissedContextKey = "\(eventJoin.currentEventID ?? "none"):autoPresent"
                 #if DEBUG
                 print("[DismissSuppression] armed until \(briefDismissSuppressionUntil)")
                 #endif
@@ -945,7 +961,7 @@ struct HomeView: View {
         lastBriefPresentationWriteAt = now
         showEventBrief = shouldPresent
         #if DEBUG
-        print("[BriefPresentation] eventBrief=\(shouldPresent) reason=\(reason.rawValue)")
+        print("[BriefPresentation] eventBrief=\(shouldPresent) reason=\(reason.rawValue) source=\(source)")
         #endif
     }
 
@@ -997,7 +1013,11 @@ struct HomeView: View {
         }
         guard autoPresentedBriefEventId != eventId else { return }
         autoPresentedBriefEventId = eventId
-        setEventBriefPresentation(true, reason: .autoPresent)
+        setEventBriefPresentation(
+            true,
+            reason: eventJoin.isRestoringFromPersist ? .stateRecovery : .autoPresent,
+            source: "maybePresentEventBrief"
+        )
         #if DEBUG
         EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
         #endif
@@ -1112,7 +1132,14 @@ struct HomeView: View {
             mode = "liveNavigation"
             cta = "findTarget"
         }
-        print("[HomeStateUI] mode=\(mode) joined=\(eventJoin.isEventJoined) checkedIn=\(eventJoin.isCheckedIn) liveOthers=\(attendeesService.liveOtherCount) cta=\(cta)")
+        let counts = PreEventBriefBuilder.AttendeeCountSemantics(
+            totalJoinedIncludingSelf: attendeesService.attendeeCount + 1,
+            joinedOthers: attendeesService.attendeeCount,
+            liveOthers: attendeesService.liveOtherCount,
+            recommendationEligible: max(attendeesService.liveOtherCount, briefController.currentBrief?.priorityPeople.count ?? 0),
+            recentlyNearby: max(attendeesService.attendeeCount - attendeesService.liveOtherCount, 0)
+        )
+        print("[HomeStateUI] mode=\(mode) joined=\(eventJoin.isEventJoined) checkedIn=\(eventJoin.isCheckedIn) totalIncludingSelf=\(counts.totalJoinedIncludingSelf) joinedOthers=\(counts.joinedOthers) liveOthers=\(counts.liveOthers) recommendationEligible=\(counts.recommendationEligible) recentlyNearby=\(counts.recentlyNearby) cta=\(cta)")
         #endif
     }
 }

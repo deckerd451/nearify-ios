@@ -4,6 +4,13 @@ import Foundation
 /// No new backend calls and no schema changes.
 @MainActor
 enum PreEventBriefBuilder {
+    struct AttendeeCountSemantics {
+        let totalJoinedIncludingSelf: Int
+        let joinedOthers: Int
+        let liveOthers: Int
+        let recommendationEligible: Int
+        let recentlyNearby: Int
+    }
     private enum MomentumState: String {
         case empty
         case forming
@@ -13,6 +20,7 @@ enum PreEventBriefBuilder {
 
     struct Brief {
         let isLive: Bool
+        let attendeeCounts: AttendeeCountSemantics
         let goalLine: String
         let goalContextLine: String
         let joinedSummary: [String]
@@ -69,16 +77,18 @@ enum PreEventBriefBuilder {
             relationships: relationships
         )
 
+        let attendeeCounts = makeAttendeeCountSemantics(joinedCount: joinedCount, chosenPeople: chosenPeople)
         let joinedSummary = buildJoinedSummary(
             isCheckedIn: isCheckedIn,
             chosenPeople: chosenPeople,
             relationships: relationships,
             goal: resolvedGoal,
-            joinedCount: joinedCount
+            counts: attendeeCounts
         )
 
         return Brief(
             isLive: isCheckedIn,
+            attendeeCounts: attendeeCounts,
             goalLine: resolvedGoal,
             goalContextLine: buildGoalContextLine(goal: resolvedGoal, relationships: relationships),
             joinedSummary: joinedSummary,
@@ -105,15 +115,11 @@ enum PreEventBriefBuilder {
         chosenPeople: [PriorityPerson],
         relationships: [RelationshipMemory],
         goal: String,
-        joinedCount: Int? = nil
+        counts: AttendeeCountSemantics
     ) -> [String] {
-        let attendees = EventAttendeesService.shared.attendees
-        let resolvedJoinedCount = joinedCount ?? max(attendees.count, chosenPeople.count)
-        let now = Date()
-        let liveCount = attendees.filter { $0.isHereNow }.count
-        let recentlyNearbyCount = attendees.filter {
-            !$0.isHereNow && now.timeIntervalSince($0.lastSeen) < 300
-        }.count
+        let resolvedJoinedCount = counts.joinedOthers
+        let liveCount = counts.liveOthers
+        let recentlyNearbyCount = counts.recentlyNearby
         let mode = SocialStateResolver.shared.state.mode
         let momentumState: MomentumState = {
             if liveCount > 0 { return .active }
@@ -155,6 +161,25 @@ enum PreEventBriefBuilder {
         print("[ArrivalTone] path=joinedSummary.primary mode=\(mode.rawValue) state=\(momentumState.rawValue) line=\"\(summary.first ?? "")\"")
         #endif
         return Array(summary.prefix(3))
+    }
+
+    private static func makeAttendeeCountSemantics(
+        joinedCount: Int?,
+        chosenPeople: [PriorityPerson]
+    ) -> AttendeeCountSemantics {
+        let attendees = EventAttendeesService.shared.attendees
+        let now = Date()
+        let joinedOthers = max(joinedCount ?? attendees.count, chosenPeople.count)
+        let liveOthers = attendees.filter { $0.isHereNow }.count
+        let recentlyNearby = attendees.filter { !$0.isHereNow && now.timeIntervalSince($0.lastSeen) < 300 }.count
+        let recommendationEligible = max(chosenPeople.count, liveOthers)
+        return AttendeeCountSemantics(
+            totalJoinedIncludingSelf: joinedOthers + 1,
+            joinedOthers: joinedOthers,
+            liveOthers: liveOthers,
+            recommendationEligible: recommendationEligible,
+            recentlyNearby: recentlyNearby
+        )
     }
 
     private static func arrivalToneHeadline(
