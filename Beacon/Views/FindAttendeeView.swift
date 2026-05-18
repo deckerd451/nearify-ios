@@ -85,6 +85,11 @@ struct FindAttendeeView: View {
     @State private var connectionPollTask: Task<Void, Never>?
     @State private var showContactSaveSheet = false
     @State private var hasEmittedSessionSummary = false
+    @State private var retainedTargetDeviceId: UUID?
+    @State private var retainedTargetRSSI: Int?
+    @State private var targetRetentionExpiresAt: Date?
+
+    private let targetSignalRetentionWindow: TimeInterval = 3.0
 
     @Environment(\.dismiss) private var dismiss
 
@@ -109,10 +114,11 @@ struct FindAttendeeView: View {
 
     /// The single source of truth for what the radar is showing.
     private var findSignalState: FindSignalState {
+        let now = Date()
         // Try to find the best BLE device for this attendee
         if let device = bestPeerDevice {
             let rssi = scanner.smoothedRSSI(for: device.id) ?? device.rssi
-            let age = Date().timeIntervalSince(device.lastSeen)
+            let age = now.timeIntervalSince(device.lastSeen)
 
             if age > 15 {
                 // Had a device but it went stale
@@ -124,6 +130,15 @@ struct FindAttendeeView: View {
 
         // No BLE device found
         if hadDirectSignal {
+            if let retainedTargetRSSI,
+               let targetRetentionExpiresAt,
+               now <= targetRetentionExpiresAt,
+               let retainedTargetDeviceId {
+                #if DEBUG
+                debugLog("[FindTargetRetention] retaining target lock during \(String(format: "%.1f", now.timeIntervalSince(targetRetentionExpiresAt.addingTimeInterval(-targetSignalRetentionWindow))))s RSSI gap")
+                #endif
+                return .directSignalLocked(rssi: retainedTargetRSSI, deviceId: retainedTargetDeviceId)
+            }
             return .signalLost
         }
 
@@ -272,6 +287,11 @@ struct FindAttendeeView: View {
                     #if DEBUG
                     debugLog("[FindAttendee] 🔒 Direct BLE lock acquired for \(attendee.name)")
                     #endif
+                }
+                if case .directSignalLocked(let rssi, let deviceId) = findSignalState {
+                    retainedTargetRSSI = rssi
+                    retainedTargetDeviceId = deviceId
+                    targetRetentionExpiresAt = Date().addingTimeInterval(targetSignalRetentionWindow)
                 }
             } else if hadDirectSignal {
                 #if DEBUG

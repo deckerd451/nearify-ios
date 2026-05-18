@@ -12,6 +12,13 @@ final class SocialStateResolver: ObservableObject {
     }
 
     struct State: Equatable {
+        enum PresenceConfidence: String, Equatable {
+            case stableLive
+            case transientLoss
+            case recentlySeen
+            case unstable
+        }
+
         let mode: SocialMode
         let activeAttendeeCount: Int
         let hasBLEOnlyNearby: Bool
@@ -19,6 +26,8 @@ final class SocialStateResolver: ObservableObject {
         let canLaunchFind: Bool
         let canShowWhosHere: Bool
         let canPreviewLikelyArrivals: Bool
+        let hasRecentlyNearby: Bool
+        let presenceConfidence: PresenceConfidence
     }
 
     @Published private(set) var state: State = .init(
@@ -28,11 +37,24 @@ final class SocialStateResolver: ObservableObject {
         hasRenderableRecommendations: false,
         canLaunchFind: false,
         canShowWhosHere: false,
-        canPreviewLikelyArrivals: true
+        canPreviewLikelyArrivals: true,
+        hasRecentlyNearby: false,
+        presenceConfidence: .unstable
     )
 
     private var cancellables = Set<AnyCancellable>()
     private var timer: Timer?
+    private var modeEnteredAt: Date = .distantPast
+    private var lastLiveAttendeeSeenAt: Date?
+    private var lastAnyPresenceSeenAt: Date?
+    private var retainedRecommendationUntil: Date?
+    private var lastRecommendationSnapshot = false
+
+    private let liveRetentionWindow: TimeInterval = 20
+    private let liveModeExitHysteresis: TimeInterval = 12
+    private let earlyArrivalExitHysteresis: TimeInterval = 10
+    private let recommendationRetentionWindow: TimeInterval = 18
+    private let recentlyNearbyWindow: TimeInterval = 45
 
     private init() {
         subscribe()
@@ -121,31 +143,134 @@ final class SocialStateResolver: ObservableObject {
         }
 
         let mode: SocialMode
-        if !checkedIn { mode = .preEventPreparation }
-        else if activeCount == 0 { mode = .earlyArrival }
-        else { mode = .liveNavigation }
+        if !checkedIn {
+            mode = .preEventPreparation
+        } else if activeCount == 0 {
+            mode = .earlyArrival
+        } else {
+            mode = .liveNavigation
+        }
 
-        let recommendationsRenderable = joined
-        let canLaunchFind = mode == .liveNavigation
+        if activeCount > 0 {
+            lastLiveAttendeeSeenAt = now
+            lastAnyPresenceSeenAt = now
+        } else if !freshBLE.isEmpty {
+            lastAnyPresenceSeenAt = now
+        }
+
+        let confidence = resolvePresenceConfidence(activeCount: activeCount, hasFreshBLE: !freshBLE.isEmpty, joined: joined, checkedIn: checkedIn, now: now)
+        let stabilizedMode = stabilizedModeFor(
+            candidate: mode,
+            confidence: confidence,
+            checkedIn: checkedIn,
+            now: now
+        )
+
+        let recommendationsRenderable = stabilizedRecommendationsRenderable(joined: joined, now: now)
+        lastRecommendationSnapshot = recommendationsRenderable
         let next = State(
-            mode: mode,
+            mode: stabilizedMode,
             activeAttendeeCount: activeCount,
             hasBLEOnlyNearby: !unresolvedBle.isEmpty,
             hasRenderableRecommendations: recommendationsRenderable,
-            canLaunchFind: canLaunchFind,
-            canShowWhosHere: mode == .liveNavigation && activeCount > 0,
-            canPreviewLikelyArrivals: mode != .liveNavigation
+            canLaunchFind: stabilizedMode == .liveNavigation,
+            canShowWhosHere: stabilizedMode == .liveNavigation && (activeCount > 0 || confidence == .transientLoss),
+            canPreviewLikelyArrivals: stabilizedMode != .liveNavigation,
+            hasRecentlyNearby: hasRecentlyNearby(now: now),
+            presenceConfidence: confidence
         )
 
         if next != state {
+            if next.mode != state.mode {
+                modeEnteredAt = now
+            }
             state = next
             #if DEBUG
             print("[SocialResolver] mode=\(next.mode.rawValue) joined=\(joined) checkedIn=\(checkedIn) active=\(activeCount) bleOnly=\(next.hasBLEOnlyNearby) reason=\(reason)")
             print("[PresenceResolver] activeCount=\(activeCount) checkedIn=\(checkedIn) canWhoHere=\(next.canShowWhosHere)")
             print("[RecommendationResolver] renderable=\(next.hasRenderableRecommendations) previewLikely=\(next.canPreviewLikelyArrivals)")
             print("[BLEClassification] fresh=\(freshBLE.count) unresolved=\(unresolvedBle.count) resolvedLive=\(resolvedLiveIds.count)")
+            print("[PresenceStability] confidence=\(next.presenceConfidence.rawValue) recentlyNearby=\(next.hasRecentlyNearby)")
             #endif
         }
+    }
+
+    private func resolvePresenceConfidence(activeCount: Int, hasFreshBLE: Bool, joined: Bool, checkedIn: Bool, now: Date) -> State.PresenceConfidence {
+        if activeCount > 0 { return .stableLive }
+        if let lastLiveAttendeeSeenAt, now.timeIntervalSince(lastLiveAttendeeSeenAt) <= liveRetentionWindow {
+            #if DEBUG
+            print("[TransientLoss] active attendees dropped but within live retention window")
+            #endif
+            return .transientLoss
+        }
+        if checkedIn && joined && hasRecentlyNearby(now: now) {
+            return .recentlySeen
+        }
+        if hasFreshBLE {
+            #if DEBUG
+            print("[TransientLoss] BLE visibility present while backend currently empty")
+            #endif
+            return .transientLoss
+        }
+        return .unstable
+    }
+
+    private func stabilizedModeFor(candidate: SocialMode, confidence: State.PresenceConfidence, checkedIn: Bool, now: Date) -> SocialMode {
+        if !checkedIn { return .preEventPreparation }
+        if candidate == .liveNavigation { return .liveNavigation }
+
+        if state.mode == .liveNavigation && candidate != .liveNavigation {
+            if confidence == .transientLoss, let lastLiveAttendeeSeenAt {
+                let heldFor = now.timeIntervalSince(lastLiveAttendeeSeenAt)
+                if heldFor <= liveModeExitHysteresis {
+                    #if DEBUG
+                    print("[ModeHysteresis] preserving liveNavigation for \(Int(heldFor))s after transient loss")
+                    print("[LiveRetention] retaining live mode during temporary attendee gap")
+                    #endif
+                    return .liveNavigation
+                }
+            }
+        }
+
+        if state.mode == .earlyArrival && candidate == .preEventPreparation {
+            let elapsed = now.timeIntervalSince(modeEnteredAt)
+            if elapsed < earlyArrivalExitHysteresis {
+                #if DEBUG
+                print("[ModeHysteresis] preserving earlyArrival for \(Int(elapsed))s to avoid flip")
+                #endif
+                return .earlyArrival
+            }
+        }
+
+        return candidate
+    }
+
+    private func stabilizedRecommendationsRenderable(joined: Bool, now: Date) -> Bool {
+        if joined {
+            retainedRecommendationUntil = now.addingTimeInterval(recommendationRetentionWindow)
+            return true
+        }
+        if let retainedRecommendationUntil, now <= retainedRecommendationUntil, lastRecommendationSnapshot {
+            #if DEBUG
+            print("[RecommendationRetention] preserving recent recommendation during refresh gap")
+            #endif
+            return true
+        }
+        return false
+    }
+
+    private func hasRecentlyNearby(now: Date) -> Bool {
+        guard let lastAnyPresenceSeenAt else { return false }
+        let age = now.timeIntervalSince(lastAnyPresenceSeenAt)
+        if age <= recentlyNearbyWindow {
+            #if DEBUG
+            if age > 1 {
+                print("[PresenceStability] recently nearby signal retained (\(Int(age))s ago)")
+            }
+            #endif
+            return true
+        }
+        return false
     }
 
     private func logFindEligibility(
