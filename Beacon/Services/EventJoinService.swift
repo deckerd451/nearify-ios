@@ -671,6 +671,11 @@ final class EventJoinService: ObservableObject {
         print("[LeaveEvent] started for \(eventName) (source: \(source))")
         #endif
 
+        SocialStateResolver.shared.invalidateSocialContinuity(reason: "leaveEvent triggered (source: \(source))")
+        #if DEBUG
+        print("[LifecycleInvalidation] explicit leaveEvent requested")
+        #endif
+
         // Persist for reconnect recovery before clearing state
         if !eventId.isEmpty {
             saveLastEventContext(eventId: eventId, eventName: eventName)

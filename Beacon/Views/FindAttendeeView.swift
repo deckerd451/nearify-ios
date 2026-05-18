@@ -242,6 +242,7 @@ struct FindAttendeeView: View {
             #endif
         }
         .onDisappear {
+            clearRetainedTarget(reason: "view dismissed")
             stopSignalTimer()
             stopAmbientMessageRotation()
             stopConnectionPolling()
@@ -273,6 +274,10 @@ struct FindAttendeeView: View {
         }
         .onChange(of: encounterConnectionState) { _ in
             handleConnectionStateChange()
+        }
+        .onReceive(SocialStateResolver.shared.$lastInvalidation) { invalidation in
+            guard invalidation == .hardReset else { return }
+            clearRetainedTarget(reason: "hard reset")
         }
         .onChange(of: signalAge) { _ in
             if findState == .arrived {
@@ -319,6 +324,16 @@ struct FindAttendeeView: View {
             updateAdaptiveSearchState()
             updateFindState()
         }
+    }
+
+    private func clearRetainedTarget(reason: String) {
+        retainedTargetDeviceId = nil
+        retainedTargetRSSI = nil
+        targetRetentionExpiresAt = nil
+        hadDirectSignal = false
+        #if DEBUG
+        debugLog("[RetentionClear] Find target retention cleared (\(reason))")
+        #endif
     }
 
     private var navigationTitle: String {

@@ -29,6 +29,7 @@ struct HomeView: View {
     @State private var hasMounted = false
     @State private var lastBriefPresentationWriteAt: Date = .distantPast
     @State private var activeFindLaunchTargetId: UUID?
+    @State private var isPresentationHierarchyReady = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -97,6 +98,13 @@ struct HomeView: View {
             .onAppear {
                 guard !hasMounted else { return }
                 hasMounted = true
+                DispatchQueue.main.async {
+                    isPresentationHierarchyReady = true
+                    #if DEBUG
+                    print("[PresentationMount] hierarchy attached; brief presentation enabled")
+                    #endif
+                    maybePresentEventBrief()
+                }
                 logHomeStateUI()
                 #if DEBUG
                 EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.onAppear")
@@ -916,6 +924,12 @@ struct HomeView: View {
 
     private func maybePresentEventBrief() {
         guard hasMounted else { return }
+        guard isPresentationHierarchyReady else {
+            #if DEBUG
+            print("[PresentationMount] deferred brief until hierarchy attached")
+            #endif
+            return
+        }
         // Do not auto-present during cold-launch restore — wait for backend confirmation
         // so the brief doesn't flash and disappear if membership was revoked.
         guard !eventJoin.isRestoringFromPersist else { return }

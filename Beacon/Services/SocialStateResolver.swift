@@ -50,6 +50,13 @@ final class SocialStateResolver: ObservableObject {
     private var retainedRecommendationUntil: Date?
     private var lastRecommendationSnapshot = false
 
+    enum PresenceInvalidation: String {
+        case softLoss
+        case hardReset
+    }
+
+    @Published private(set) var lastInvalidation: PresenceInvalidation?
+
     private let liveRetentionWindow: TimeInterval = 20
     private let liveModeExitHysteresis: TimeInterval = 12
     private let earlyArrivalExitHysteresis: TimeInterval = 10
@@ -128,6 +135,33 @@ final class SocialStateResolver: ObservableObject {
         String(id.prefix(8)).lowercased()
     }
 
+    func invalidateSocialContinuity(reason: String) {
+        let now = Date()
+        #if DEBUG
+        print("[HardReset] \(reason) — clearing live continuity")
+        print("[RetentionClear] recommendations/recentlyNearby/transientLoss cleared")
+        #endif
+
+        lastLiveAttendeeSeenAt = nil
+        lastAnyPresenceSeenAt = nil
+        retainedRecommendationUntil = nil
+        lastRecommendationSnapshot = false
+        modeEnteredAt = now
+        lastInvalidation = .hardReset
+
+        state = State(
+            mode: .preEventPreparation,
+            activeAttendeeCount: 0,
+            hasBLEOnlyNearby: false,
+            hasRenderableRecommendations: false,
+            canLaunchFind: false,
+            canShowWhosHere: false,
+            canPreviewLikelyArrivals: true,
+            hasRecentlyNearby: false,
+            presenceConfidence: .unstable
+        )
+    }
+
     private func recalculate(reason: String) {
         let joined = EventJoinService.shared.isEventJoined
         let checkedIn = EventJoinService.shared.isCheckedIn
@@ -199,8 +233,9 @@ final class SocialStateResolver: ObservableObject {
         if activeCount > 0 { return .stableLive }
         if let lastLiveAttendeeSeenAt, now.timeIntervalSince(lastLiveAttendeeSeenAt) <= liveRetentionWindow {
             #if DEBUG
-            print("[TransientLoss] active attendees dropped but within live retention window")
+            print("[SoftLoss] active attendees dropped but within live retention window")
             #endif
+            lastInvalidation = .softLoss
             return .transientLoss
         }
         if checkedIn && joined && hasRecentlyNearby(now: now) {
@@ -208,8 +243,9 @@ final class SocialStateResolver: ObservableObject {
         }
         if hasFreshBLE {
             #if DEBUG
-            print("[TransientLoss] BLE visibility present while backend currently empty")
+            print("[SoftLoss] BLE visibility present while backend currently empty")
             #endif
+            lastInvalidation = .softLoss
             return .transientLoss
         }
         return .unstable
