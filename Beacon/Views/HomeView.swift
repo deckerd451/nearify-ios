@@ -13,6 +13,7 @@ struct HomeView: View {
     @ObservedObject private var explore = ExploreEventsService.shared
     @ObservedObject private var resolver = AttendeeStateResolver.shared
     @ObservedObject private var briefController = BriefHydrationController.shared
+    @ObservedObject private var socialResolver = SocialStateResolver.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
     @State private var showLastSummaryRecap = false
@@ -139,6 +140,11 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showGoalPickerSheet) {
                 goalPickerSheet
+            }
+            .onChange(of: showEventBrief) { _, isPresented in
+                #if DEBUG
+                print("[PresentationAudit] HomeView.showEventBrief=\(isPresented) hasMounted=\(hasMounted)")
+                #endif
             }
             .fullScreenCover(item: $briefConnectionDestination) { destination in
                 FindAttendeeView(
@@ -898,9 +904,7 @@ struct HomeView: View {
         _ recommendation: PreEventBriefBuilder.PriorityPerson?
     ) -> BriefConnectionDestination? {
         guard let recommendation else { return nil }
-        guard eventJoin.isCheckedIn else { return nil }
-        let isFindable = (recommendation.statusLabel == "nearby") || (recommendation.isNearby == true)
-        guard isFindable else { return nil }
+        guard socialResolver.canLaunchFind(for: recommendation) else { return nil }
 
         let resolvedAttendee = attendeesService.attendees.first(where: { $0.id == recommendation.id })
             ?? EventAttendee(
@@ -920,8 +924,11 @@ struct HomeView: View {
     }
 
     private var briefPresentationMode: PreEventBriefView.PresentationMode {
-        if !eventJoin.isCheckedIn { return .preEventPreparation }
-        return attendeesService.liveOtherCount > 0 ? .liveNavigation : .earlyArrival
+        switch socialResolver.state.mode {
+        case .preEventPreparation: return .preEventPreparation
+        case .earlyArrival: return .earlyArrival
+        case .liveNavigation: return .liveNavigation
+        }
     }
 
     private var checkInConfirmationCard: some View {
@@ -976,13 +983,14 @@ struct HomeView: View {
         #if DEBUG
         let mode: String
         let cta: String
-        if !eventJoin.isCheckedIn {
+        switch socialResolver.state.mode {
+        case .preEventPreparation:
             mode = "preEventPreparation"
             cta = "checkIn"
-        } else if attendeesService.liveOtherCount == 0 {
+        case .earlyArrival:
             mode = "earlyArrival"
             cta = "previewLikely"
-        } else {
+        case .liveNavigation:
             mode = "liveNavigation"
             cta = "findTarget"
         }
