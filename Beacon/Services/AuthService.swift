@@ -319,6 +319,8 @@ final class AuthService: ObservableObject {
         if wasAuthenticated {
             print("[Auth] 🛑 Stopping event services due to auth loss")
             await MainActor.run {
+                SocialStateResolver.shared.invalidateSocialContinuity(reason: "auth invalidation")
+                print("[LifecycleInvalidation] auth invalidation")
                 EventPresenceService.shared.stopDueToAuthLoss()
                 EventJoinService.shared.stopDueToAuthLoss()
             }
@@ -332,6 +334,8 @@ final class AuthService: ObservableObject {
         #endif
         // Stop services BEFORE signing out to prevent RLS failures
         await MainActor.run {
+            SocialStateResolver.shared.invalidateSocialContinuity(reason: "logout")
+            print("[LifecycleInvalidation] logout requested")
             EventPresenceService.shared.stopDueToAuthLoss()
             EventJoinService.shared.stopDueToAuthLoss()
         }

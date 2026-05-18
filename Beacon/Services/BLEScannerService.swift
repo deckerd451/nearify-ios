@@ -124,8 +124,10 @@ final class BLEScannerService: NSObject, ObservableObject, CBCentralManagerDeleg
     func stopScanning() {
         #if DEBUG
         print("[BLE] 🛑 Stopping BLE scanning")
+        print("[LifecycleInvalidation] scanner stopped intentionally")
         #endif
 
+        SocialStateResolver.shared.invalidateSocialContinuity(reason: "scanner stopped intentionally")
         shouldBeScanning = false
 
         if centralManager.state == .poweredOn {
