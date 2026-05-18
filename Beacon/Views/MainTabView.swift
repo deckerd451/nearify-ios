@@ -175,6 +175,12 @@ struct MainTabView: View {
         .onChange(of: navigationState.peopleSubrouteResetSignal) { _, newValue in
             guard newValue != lastHandledPeopleResetSignal else { return }
             lastHandledPeopleResetSignal = newValue
+            guard !peopleNavigationPath.isEmpty else {
+                #if DEBUG
+                print("[VisibleRouteGuard] ignored attendee refresh; route unchanged")
+                #endif
+                return
+            }
             #if DEBUG
             print("[PeopleNav] reset signal received; tab=\(selectedTab)")
             #endif
@@ -194,7 +200,7 @@ struct MainTabView: View {
         }
         .onChange(of: peopleNavigationPath) { _, _ in
             #if DEBUG
-            print("[PeopleNav] peopleNavigationPath changed; activeTab=\(selectedTab)")
+            print("[ViewRenderGuard] peopleNavigationPath changed; activeTab=\(selectedTab)")
             #endif
         }
         .onChange(of: messaging.totalUnreadCount) { _, newCount in

@@ -25,6 +25,7 @@ struct PeopleView: View {
     @State private var findTarget: EventAttendee?
     @State private var isOpeningConversation = false
     @State private var highlightedProfileId: UUID?
+    @State private var lastFocusedTargetId: UUID?
 
     /// Sections are read from the controller, which handles debouncing
     /// and change detection. No direct computation in the view.
@@ -164,6 +165,13 @@ struct PeopleView: View {
     }
 
     private func focusPersonIfLoaded(target: PeopleFocusTarget, proxy: ScrollViewProxy) {
+        if lastFocusedTargetId == target.profileId {
+            #if DEBUG
+            debugLog("[NavigationDestinationGuard] ignored duplicate selectedPerson id=\(target.profileId)")
+            #endif
+            return
+        }
+
         let allIds = sections.hereNow.map(\.id) + sections.followUp.map(\.id) + sections.notHere.map(\.id)
         guard allIds.contains(target.profileId) else {
             #if DEBUG
@@ -176,6 +184,7 @@ struct PeopleView: View {
         debugLog("[People] focus target matched/opened")
         #endif
 
+        lastFocusedTargetId = target.profileId
         expandedPersonId = target.profileId
         withAnimation(.easeInOut(duration: 0.4)) {
             proxy.scrollTo(target.profileId, anchor: .center)
@@ -188,6 +197,9 @@ struct PeopleView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             if navigationState.peopleFocusTarget == target {
+                #if DEBUG
+                debugLog("[VisibleRouteGuard] clearing consumed focus target id=\(target.profileId)")
+                #endif
                 navigationState.peopleFocusTarget = nil
             }
         }

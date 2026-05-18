@@ -2,6 +2,7 @@ import Foundation
 
 enum IdentityDisplayName {
     static let fallback = "Nearify Member"
+    private static var loggedReplacements = Set<String>()
 
     static func primaryName(
         displayName: String? = nil,
@@ -23,10 +24,11 @@ enum IdentityDisplayName {
 
         if let rawEmail, let humanized = humanizedEmailLocalPart(from: rawEmail) {
             #if DEBUG
-            if let debugSource {
-                print("[IdentityDisplay] replaced email fallback raw=\(rawEmail) display=\(humanized) source=\(debugSource)")
-            } else {
-                print("[IdentityDisplay] replaced email fallback raw=\(rawEmail) display=\(humanized)")
+            let sourceTag = debugSource ?? "unknown"
+            let cacheKey = "\(sourceTag)|\(rawEmail.lowercased())|\(humanized.lowercased())"
+            if loggedReplacements.insert(cacheKey).inserted {
+                print("[IdentityDisplayGuard] cached display name for profile=\(sourceTag) display=\(humanized)")
+                print("[IdentityDisplay] replaced email fallback raw=\(rawEmail) display=\(humanized) source=\(sourceTag)")
             }
             #endif
             return humanized

@@ -32,6 +32,7 @@ final class PeopleIntelligenceController: ObservableObject {
         hereNow: [], followUp: [], notHere: []
     )
 
+    private var lastPublishedSectionsFingerprint: String?
     private var lastSignature: PeopleBuildSignature?
     private var lastBuildTime: Date = .distantPast
     private var pendingRebuild: Task<Void, Never>?
@@ -162,6 +163,15 @@ final class PeopleIntelligenceController: ObservableObject {
 
         let eventContext = NavigationState.shared.eventContext
         let result = PeopleIntelligenceBuilder.build(eventContext: eventContext)
+        let newFingerprint = Self.sectionsFingerprint(result)
+        if lastPublishedSectionsFingerprint == newFingerprint {
+            #if DEBUG
+            print("[PeoplePublishGuard] skipped identical people output reason=\(reason)")
+            #endif
+            return
+        }
+
+        lastPublishedSectionsFingerprint = newFingerprint
         sections = result
 
         #if DEBUG
@@ -169,7 +179,17 @@ final class PeopleIntelligenceController: ObservableObject {
         #endif
     }
 
-    // MARK: - Signature Computation
+    
+
+    private static func sectionsFingerprint(_ sections: PeopleIntelligenceBuilder.Sections) -> String {
+        func encode(_ people: [PersonIntelligence]) -> String {
+            people.map { person in
+                "\(person.id.uuidString)|\(person.presence.rawValue)|\(person.presenceSource.rawValue)|\(person.connectionStatus.rawValue)|\(person.relationshipState.rawValue)|\(person.primaryAction.label)|\(person.secondaryAction?.label ?? "none")|\(person.isTargetIntent)"
+            }.joined(separator: "||")
+        }
+        return [encode(sections.hereNow), encode(sections.followUp), encode(sections.notHere)].joined(separator: "###")
+    }
+// MARK: - Signature Computation
 
     private static func computeSignature() -> PeopleBuildSignature {
         let attendees = EventAttendeesService.shared.attendees
