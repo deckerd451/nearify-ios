@@ -30,6 +30,7 @@ struct EventRelevanceScorer {
 
         let myInterests = Set((user?.interests ?? []).map { $0.lowercased() })
         let mySkills = Set((user?.skills ?? []).map { $0.lowercased() })
+        let dynamicThemes = Set(ProfileSignalService.shared.topThemes.map { $0.lowercased() })
 
         // ── FAMILIARITY SCORE ──
         var familiarity: Double = 0
@@ -84,6 +85,7 @@ struct EventRelevanceScorer {
         let interestOverlap = myInterests.filter { eventText.contains($0) }
         let skillOverlap = mySkills.filter { eventText.contains($0) }
         let totalOverlap = interestOverlap.count + skillOverlap.count
+        let dynamicThemeOverlap = dynamicThemes.filter { eventText.contains($0) }.count
         let wasAttended = !peopleFromEvent.isEmpty || !eventFeedItems.isEmpty
 
         if familiarity < 2.0 {
@@ -96,6 +98,14 @@ struct EventRelevanceScorer {
                 expansion += 2.0
                 let topic = interestOverlap.first ?? skillOverlap.first ?? ""
                 expansionReasons.append("Builds on your interest in \(topic)")
+            }
+
+            if dynamicThemeOverlap >= 1 {
+                expansion += min(Double(dynamicThemeOverlap) * 1.5, 3.0)
+                expansionReasons.append("Matches your emerging event patterns")
+                #if DEBUG
+                print("[RecommendationBoost] dynamic themes overlap=\(dynamicThemeOverlap) event=\(event.name)")
+                #endif
             }
 
             // Not previously attended = novelty bonus
@@ -129,6 +139,7 @@ struct EventRelevanceScorer {
         print("[EventRelevance] Event: \(event.name)")
         print("[EventRelevance] familiarityScore: \(familiarity)")
         print("[EventRelevance] expansionScore: \(expansion)")
+        print("[SignalConfidence] explicitOverlap=\(totalOverlap) dynamicOverlap=\(dynamicThemeOverlap)")
         #endif
 
         // ── SELECT BEST REASON ──

@@ -15,17 +15,21 @@ struct DynamicProfileSignals {
     let hasFollowUpMomentum: Bool
     /// Raw recent shared interests from encounters (for overlap matching)
     let recentSharedInterests: Set<String>
+    /// Repeated people overlap count over the recent window.
+    let recurringOverlapCount: Int
 
     init(
         topThemes: [String] = [],
         recentEventName: String? = nil,
         hasFollowUpMomentum: Bool = false,
-        recentSharedInterests: Set<String> = []
+        recentSharedInterests: Set<String> = [],
+        recurringOverlapCount: Int = 0
     ) {
         self.topThemes = topThemes
         self.recentEventName = recentEventName
         self.hasFollowUpMomentum = hasFollowUpMomentum
         self.recentSharedInterests = recentSharedInterests
+        self.recurringOverlapCount = recurringOverlapCount
     }
 }
 
@@ -108,12 +112,27 @@ final class DynamicProfileService: ObservableObject {
             isLoading = false
 
             #if DEBUG
-            print("[Lately] Generated \(lines.count) lines: \(lines)")
-            print("[Lately] Signals: themes=\(currentSignals.topThemes) event=\(currentSignals.recentEventName ?? "none") momentum=\(currentSignals.hasFollowUpMomentum) sharedInterests=\(currentSignals.recentSharedInterests.count)")
+            print("[DynamicProfile] Generated \(lines.count) lines: \(lines)")
+            print("[ProfileEmergence] themes=\(currentSignals.topThemes) event=\(currentSignals.recentEventName ?? "none") momentum=\(currentSignals.hasFollowUpMomentum)")
+            print("[ContinuityEvolution] repeated overlap count=\(currentSignals.recurringOverlapCount)")
+            if let first = currentSignals.topThemes.first {
+                print("[BehavioralSignal] recurringTheme=\(first) confidence=\(String(format: "%.2f", min(0.9, 0.35 + Double(currentSignals.topThemes.count) * 0.17))) evidence=\(currentSignals.topThemes.count)")
+            }
             print("[EmergingStrengths] Paragraph: \(emergingStrengthsParagraph ?? "nil")")
             print("[EarnedTraits] \(earnedTraits.map { $0.publicText })")
             #endif
         }
+    }
+
+    func resetSignals() {
+        latelyLines = []
+        emergingStrengthsParagraph = nil
+        earnedTraits = []
+        currentSignals = DynamicProfileSignals()
+        lastGenerated = nil
+        #if DEBUG
+        print("[DynamicProfile] signals reset by user")
+        #endif
     }
 
     // MARK: - Public Profile Generation (for other users)
@@ -780,9 +799,13 @@ final class DynamicProfileService: ObservableObject {
 
         // Recent shared interests from encounters/connections
         var sharedInterests: Set<String> = []
+        var encounterCounts: [UUID: Int] = [:]
         for item in feedItems {
             guard item.feedType == .encounter || item.feedType == .connection else { continue }
             guard let date = item.createdAt, now.timeIntervalSince(date) < Weight.thirtyDays else { continue }
+            if let actor = item.actorProfileId {
+                encounterCounts[actor, default: 0] += 1
+            }
             if let interests = item.metadata?.sharedInterests {
                 for interest in interests {
                     let raw = interest.lowercased().trimmingCharacters(in: .whitespaces)
@@ -795,7 +818,8 @@ final class DynamicProfileService: ObservableObject {
             topThemes: topThemes,
             recentEventName: recentEvent,
             hasFollowUpMomentum: hasFollowUp,
-            recentSharedInterests: sharedInterests
+            recentSharedInterests: sharedInterests,
+            recurringOverlapCount: encounterCounts.values.filter { $0 >= 2 }.count
         )
     }
 

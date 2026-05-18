@@ -25,6 +25,7 @@ struct MyQRView: View {
     @State private var showProfilePreview = false
     @State private var showFullScreenQR = false
     @State private var showIntelligenceDebug = false
+    @AppStorage("nearify.dynamicProfile.hidden") private var hideEmergence = false
 
     @ObservedObject private var authService = AuthService.shared
     @ObservedObject private var latelyService = DynamicProfileService.shared
@@ -324,6 +325,43 @@ struct MyQRView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.primary)
                         }
+                    }
+                }
+            }
+
+            if !hideEmergence {
+                sectionCard(title: "Nearify is Learning") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Recurring themes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(latelyService.currentSignals.topThemes.prefix(3).joined(separator: " · ").ifEmpty("Still learning from your recent activity."))
+                            .font(.subheadline.weight(.semibold))
+
+                        if latelyService.currentSignals.recurringOverlapCount > 0 {
+                            Text("Relationship continuity")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("You've crossed paths with \(latelyService.currentSignals.recurringOverlapCount) people repeatedly.")
+                                .font(.subheadline)
+                        }
+
+                        Text("Momentum")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(latelyService.currentSignals.hasFollowUpMomentum ? "Follow-up behavior is becoming a strong pattern." : "Keep engaging consistently and momentum will emerge.")
+                            .font(.subheadline)
+
+                        Text("Private to you. Used to improve recommendations.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button("Hide") { hideEmergence = true }
+                            Spacer()
+                            Button("Reset signals") { DynamicProfileService.shared.resetSignals() }
+                        }
+                        .font(.caption.weight(.semibold))
                     }
                 }
             }
@@ -794,5 +832,11 @@ struct InfoRow: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private extension String {
+    func ifEmpty(_ fallback: String) -> String {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : self
     }
 }
