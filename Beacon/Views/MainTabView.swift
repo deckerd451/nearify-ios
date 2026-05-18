@@ -141,7 +141,15 @@ struct MainTabView: View {
 
         .onReceive(navigationState.$pendingTabRoute.removeDuplicates()) { pendingTab in
             guard let pendingTab else { return }
-            _ = NavigationState.shared.requestTabChange(
+            guard selectedTab != pendingTab else {
+                #if DEBUG
+                print("[NavigationDebounce] ignored pending global route; already on tab=\(pendingTab)")
+                #endif
+                NavigationState.shared.pendingTabRoute = nil
+                return
+            }
+            DispatchQueue.main.async {
+                _ = NavigationState.shared.requestTabChange(
                 from: selectedTab,
                 to: pendingTab,
                 source: .user,
@@ -153,6 +161,7 @@ struct MainTabView: View {
                 print("[TAB-WRITE] \(pendingTab) -> nil source=MainTabView.consumePendingTabRoute file=MainTabView")
                 #endif
                 NavigationState.shared.pendingTabRoute = nil
+            }
             }
         }
         .onChange(of: navigationState.peopleSubrouteResetSignal) { _, newValue in
@@ -171,7 +180,7 @@ struct MainTabView: View {
             messaging.setMessagesTabActive(newValue == .messages)
             MessagingRefreshCoordinator.shared.requestRefresh(reason: .tabChange, mode: .quiet)
             #if DEBUG
-            print("[TAB-WRITE] \(oldValue) -> \(newValue) source=MainTabView.TabViewBinding file=MainTabView")
+            print("[TabRouting] [TAB-WRITE] \(oldValue) -> \(newValue) source=MainTabView.TabViewBinding file=MainTabView")
             print("[PeopleNav] visible-route tab changed; activeTab=\(newValue)")
             #endif
         }

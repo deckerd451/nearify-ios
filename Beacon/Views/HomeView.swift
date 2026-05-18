@@ -27,6 +27,8 @@ struct HomeView: View {
     @State private var showCheckInConfirmation = false
     @State private var checkInDismissTask: Task<Void, Never>?
     @State private var hasMounted = false
+    @State private var lastBriefPresentationWriteAt: Date = .distantPast
+    @State private var activeFindLaunchTargetId: UUID?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -132,7 +134,7 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showEventBrief, onDismiss: {
                 if let pending = pendingBriefConnectionDestination {
-                    briefConnectionDestination = pending
+                    launchFindDestination(pending, reason: "briefDismiss")
                     pendingBriefConnectionDestination = nil
                 }
             }) {
@@ -146,7 +148,9 @@ struct HomeView: View {
                 print("[PresentationAudit] HomeView.showEventBrief=\(isPresented) hasMounted=\(hasMounted)")
                 #endif
             }
-            .fullScreenCover(item: $briefConnectionDestination) { destination in
+            .fullScreenCover(item: $briefConnectionDestination, onDismiss: {
+                activeFindLaunchTargetId = nil
+            }) { destination in
                 FindAttendeeView(
                     attendee: destination.attendee,
                     connectionMode: .briefRecommendation(destination.attendee)
@@ -353,7 +357,7 @@ struct HomeView: View {
             }
 
             Button {
-                showEventBrief = true
+                setEventBriefPresentation(true, reason: "direct")
             } label: {
                 Text(briefCTALabel)
                     .font(.subheadline)
@@ -483,7 +487,7 @@ struct HomeView: View {
                 .buttonStyle(PressableScaleButtonStyle())
 
                 Button {
-                    showEventBrief = true
+                    setEventBriefPresentation(true, reason: "direct")
                 } label: {
                     Text("Open Briefing")
                         .font(.caption.weight(.semibold))
@@ -495,7 +499,7 @@ struct HomeView: View {
             } else {
                 // Not yet at venue: prepare — briefing is the dominant action
                 Button {
-                    showEventBrief = true
+                    setEventBriefPresentation(true, reason: "direct")
                 } label: {
                     Text("Open Briefing")
                         .font(.subheadline.weight(.semibold))
@@ -594,9 +598,9 @@ struct HomeView: View {
             case .openMessages:
                 switchTab(to: .messages)
             case .findAttendee(let attendee):
-                briefConnectionDestination = BriefConnectionDestination(attendee: attendee)
+                launchFindDestination(BriefConnectionDestination(attendee: attendee), reason: "nextBestAction")
             case .showBrief:
-                showEventBrief = true
+                setEventBriefPresentation(true, reason: "direct")
             case .showGoalPicker:
                 showGoalPickerSheet = true
             case .goToPeople:
@@ -811,7 +815,7 @@ struct HomeView: View {
                         hydrationState: briefController.hydrationState,
                         presentationMode: briefPresentationMode
                     ) { recommendation in
-                        showEventBrief = false
+                        setEventBriefPresentation(false, reason: "direct")
                         pendingBriefConnectionDestination = destinationForBriefRecommendation(recommendation)
                     } canStartLooking: { recommendation in
                         socialResolver.canLaunchFind(for: recommendation)
@@ -822,7 +826,7 @@ struct HomeView: View {
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Dismiss") {
-                            showEventBrief = false
+                            setEventBriefPresentation(false, reason: "direct")
                         }
                     }
                 }
@@ -875,6 +879,41 @@ struct HomeView: View {
         }
     }
 
+    private func setEventBriefPresentation(_ shouldPresent: Bool, reason: String) {
+        if showEventBrief == shouldPresent {
+            #if DEBUG
+            print("[NavigationDebounce] ignored duplicate event brief write value=\(shouldPresent) reason=\(reason)")
+            #endif
+            return
+        }
+        let now = Date()
+        if !shouldPresent, now.timeIntervalSince(lastBriefPresentationWriteAt) < 0.12 {
+            #if DEBUG
+            print("[SheetLifecycle] preserving event brief during transient state update reason=\(reason)")
+            #endif
+            return
+        }
+        lastBriefPresentationWriteAt = now
+        showEventBrief = shouldPresent
+        #if DEBUG
+        print("[SheetLifecycle] eventBrief=\(shouldPresent) reason=\(reason)")
+        #endif
+    }
+
+    private func launchFindDestination(_ destination: BriefConnectionDestination, reason: String) {
+        if activeFindLaunchTargetId == destination.attendee.id || briefConnectionDestination?.id == destination.id {
+            #if DEBUG
+            print("[RouteGuard] prevented duplicate Find launch target=\(destination.attendee.name) reason=\(reason)")
+            #endif
+            return
+        }
+        activeFindLaunchTargetId = destination.attendee.id
+        briefConnectionDestination = destination
+        #if DEBUG
+        print("[PresentationCoordinator] launched Find target=\(destination.attendee.name) reason=\(reason)")
+        #endif
+    }
+
     private func maybePresentEventBrief() {
         guard hasMounted else { return }
         // Do not auto-present during cold-launch restore — wait for backend confirmation
@@ -887,7 +926,7 @@ struct HomeView: View {
         }
         guard autoPresentedBriefEventId != eventId else { return }
         autoPresentedBriefEventId = eventId
-        showEventBrief = true
+        setEventBriefPresentation(true, reason: "autoPresent")
         #if DEBUG
         EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
         #endif
