@@ -32,6 +32,8 @@ final class NavigationState: ObservableObject {
 
     private var lastTabWriteSignature: String?
     private var lastTabWriteAt: CFTimeInterval = 0
+    private var lastGlobalRouteWriteSignature: String?
+    private var lastGlobalRouteWriteAt: CFTimeInterval = 0
     private let sameFrameWriteThreshold: CFTimeInterval = 1.0 / 120.0
 
     private init() {}
@@ -43,6 +45,16 @@ final class NavigationState: ObservableObject {
             #endif
             return
         }
+        let now = CACurrentMediaTime()
+        let signature = "\(target.rawValue)-\(source)"
+        if signature == lastGlobalRouteWriteSignature, (now - lastGlobalRouteWriteAt) < sameFrameWriteThreshold {
+            #if DEBUG
+            print("[NavigationFrameGuard] coalesced same-frame global route target=\(target) source=\(source)")
+            #endif
+            return
+        }
+        lastGlobalRouteWriteSignature = signature
+        lastGlobalRouteWriteAt = now
         #if DEBUG
         let oldValue = pendingTabRoute?.description ?? "nil"
         print("[TabRouting] [TAB-WRITE] \(oldValue) -> \(target) source=\(source) file=NavigationState.requestGlobalTabRoute")

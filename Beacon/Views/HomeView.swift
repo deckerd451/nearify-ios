@@ -30,6 +30,23 @@ struct HomeView: View {
     @State private var lastBriefPresentationWriteAt: Date = .distantPast
     @State private var activeFindLaunchTargetId: UUID?
     @State private var isPresentationHierarchyReady = false
+    @State private var briefDismissSuppressionUntil: Date = .distantPast
+    @State private var briefPresentationState: BriefPresentationState = .idle
+
+    private enum BriefPresentationState: String {
+        case idle
+        case presenting
+        case visible
+        case dismissing
+        case suppressed
+    }
+
+    private enum BriefPresentationReason: String {
+        case autoPresent
+        case direct
+    }
+
+    private let manualDismissSuppressionWindow: TimeInterval = 2.5
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -152,6 +169,7 @@ struct HomeView: View {
                 goalPickerSheet
             }
             .onChange(of: showEventBrief) { _, isPresented in
+                updateBriefPresentationState(isPresented: isPresented)
                 #if DEBUG
                 print("[PresentationAudit] HomeView.showEventBrief=\(isPresented) hasMounted=\(hasMounted)")
                 #endif
@@ -888,24 +906,63 @@ struct HomeView: View {
     }
 
     private func setEventBriefPresentation(_ shouldPresent: Bool, reason: String) {
+        let normalizedReason = BriefPresentationReason(rawValue: reason) ?? .direct
+        setEventBriefPresentation(shouldPresent, reason: normalizedReason)
+    }
+
+    private func setEventBriefPresentation(_ shouldPresent: Bool, reason: BriefPresentationReason) {
         if showEventBrief == shouldPresent {
             #if DEBUG
-            print("[NavigationDebounce] ignored duplicate event brief write value=\(shouldPresent) reason=\(reason)")
+            print("[PresentationGuard] ignored duplicate show=\(shouldPresent) reason=\(reason.rawValue)")
             #endif
             return
         }
         let now = Date()
-        if !shouldPresent, now.timeIntervalSince(lastBriefPresentationWriteAt) < 0.12 {
+        if shouldPresent, reason == .autoPresent, now < briefDismissSuppressionUntil {
+            briefPresentationState = .suppressed
             #if DEBUG
-            print("[SheetLifecycle] preserving event brief during transient state update reason=\(reason)")
+            print("[DismissSuppression] ignoring auto-present until \(briefDismissSuppressionUntil) reason=\(reason.rawValue)")
             #endif
             return
+        }
+        if !shouldPresent, now.timeIntervalSince(lastBriefPresentationWriteAt) < 0.12 {
+            #if DEBUG
+            print("[NavigationFrameGuard] coalesced same-frame presentation write show=\(shouldPresent) reason=\(reason.rawValue)")
+            #endif
+            return
+        }
+        if shouldPresent {
+            transitionBriefState(to: .presenting, context: reason.rawValue)
+        } else {
+            transitionBriefState(to: .dismissing, context: reason.rawValue)
+            if reason == .direct {
+                briefDismissSuppressionUntil = now.addingTimeInterval(manualDismissSuppressionWindow)
+                #if DEBUG
+                print("[DismissSuppression] armed until \(briefDismissSuppressionUntil)")
+                #endif
+            }
         }
         lastBriefPresentationWriteAt = now
         showEventBrief = shouldPresent
         #if DEBUG
-        print("[SheetLifecycle] eventBrief=\(shouldPresent) reason=\(reason)")
+        print("[BriefPresentation] eventBrief=\(shouldPresent) reason=\(reason.rawValue)")
         #endif
+    }
+
+    private func updateBriefPresentationState(isPresented: Bool) {
+        if isPresented {
+            transitionBriefState(to: .visible, context: "sheetVisible")
+        } else if briefPresentationState == .dismissing || briefPresentationState == .suppressed {
+            transitionBriefState(to: .idle, context: "sheetHidden")
+        }
+    }
+
+    private func transitionBriefState(to next: BriefPresentationState, context: String) {
+        guard briefPresentationState != next else { return }
+        #if DEBUG
+        print("[PresentationState] \(briefPresentationState.rawValue) → \(next.rawValue) context=\(context)")
+        #endif
+        briefPresentationState = next
     }
 
     private func launchFindDestination(_ destination: BriefConnectionDestination, reason: String) {
@@ -940,7 +997,7 @@ struct HomeView: View {
         }
         guard autoPresentedBriefEventId != eventId else { return }
         autoPresentedBriefEventId = eventId
-        setEventBriefPresentation(true, reason: "autoPresent")
+        setEventBriefPresentation(true, reason: .autoPresent)
         #if DEBUG
         EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
         #endif
