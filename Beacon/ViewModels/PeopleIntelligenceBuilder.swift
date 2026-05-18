@@ -175,6 +175,10 @@ final class PeopleIntelligenceController: ObservableObject {
         sections = result
 
         #if DEBUG
+        let stableIds = result.hereNow.map(\.id) + result.followUp.map(\.id) + result.notHere.map(\.id)
+        for id in stableIds.prefix(6) {
+            print("[CardModelStability] preserved attendee row identity profile=\(String(id.uuidString.prefix(8)))")
+        }
         print("[People] rebuild: EXECUTED (reason: \(reason)) → hereNow=\(result.hereNow.count) followUp=\(result.followUp.count) notHere=\(result.notHere.count)")
         #endif
     }
@@ -444,6 +448,11 @@ struct PeopleIntelligenceBuilder {
         return PersonIntelligence(
             id: memory.profileId,
             name: memory.profileName,
+            displayName: IdentityDisplayName.primaryNameCached(
+                profileId: memory.profileId,
+                name: memory.profileName,
+                debugSource: "PeopleIntelligenceBuilder.claimedGuest"
+            ),
             avatarUrl: memory.avatarUrl,
             presence: .notHere,
             presenceSource: .none,
@@ -574,6 +583,11 @@ struct PeopleIntelligenceBuilder {
         return PersonIntelligence(
             id: rel.profileId,
             name: rel.name,
+            displayName: IdentityDisplayName.primaryNameCached(
+                profileId: rel.profileId,
+                name: rel.name,
+                debugSource: "PeopleIntelligenceBuilder.relationship"
+            ),
             avatarUrl: rel.avatarUrl,
             presence: presence,
             presenceSource: presenceSource,
@@ -602,10 +616,16 @@ struct PeopleIntelligenceBuilder {
         presenceSource: PresenceSource = .backend
     ) -> PersonIntelligence {
         let isTarget = TargetIntentManager.shared.targetProfileId == attendee.id
+        let displayName = IdentityDisplayName.primaryNameCached(
+            profileId: attendee.id,
+            name: attendee.name,
+            email: attendee.publicEmail,
+            debugSource: "PeopleIntelligenceBuilder.attendee"
+        )
         let topTraits = TraitReasoning.topTraits(for: attendee)
         let whyThisMatters = TraitReasoning.whyThisMattersLine(traits: topTraits)
         let insight = generateInsight(
-            name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PeopleIntelligenceBuilder.swift"),
+            name: displayName,
             isHere: true,
             isTarget: isTarget,
             encounter: encounter,
@@ -654,7 +674,8 @@ struct PeopleIntelligenceBuilder {
 
         return PersonIntelligence(
             id: attendee.id,
-            name: IdentityDisplayName.primaryName(name: attendee.name, email: attendee.publicEmail, debugSource: "PeopleIntelligenceBuilder.swift"),
+            name: displayName,
+            displayName: displayName,
             avatarUrl: attendee.avatarUrl,
             presence: .hereNow,
             presenceSource: presenceSource,

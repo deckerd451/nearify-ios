@@ -34,6 +34,7 @@ struct DeepInsight: Identifiable {
 struct PersonIntelligence: Identifiable {
     let id: UUID               // profileId
     let name: String
+    let displayName: String
     let avatarUrl: String?
 
     // State

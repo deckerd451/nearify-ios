@@ -21,7 +21,7 @@ enum PeopleRelationshipAdapter {
             if var existing = merged[id], existing.relationshipState != PeopleRelationshipState.savedContact {
                 let before = existing.relationshipState
                 existing = PersonIntelligence(
-                    id: existing.id, name: existing.name, avatarUrl: existing.avatarUrl,
+                    id: existing.id, name: existing.name, displayName: existing.displayName, avatarUrl: existing.avatarUrl,
                     presence: existing.presence, presenceSource: existing.presenceSource,
                     connectionStatus: existing.connectionStatus, isTargetIntent: existing.isTargetIntent,
                     distilledInsight: "Saved to Contacts", topTraits: existing.topTraits, whyThisMatters: existing.whyThisMatters,

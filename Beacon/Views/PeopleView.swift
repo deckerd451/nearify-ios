@@ -250,6 +250,11 @@ struct PeopleView: View {
                 personCard(person, sectionColor: color)
             }
         }
+        .onAppear {
+            #if DEBUG
+            debugLog("[ForEachIdentity] people section=\(title) using profileId identity count=\(people.count)")
+            #endif
+        }
     }
 
     // MARK: - Person Card (Surface + Deep)
@@ -315,7 +320,6 @@ struct PeopleView: View {
     // MARK: - Surface Row
 
     private func surfaceRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
-        let displayName = IdentityDisplayName.primaryName(name: person.name, debugSource: "PeopleView.card")
         return HStack(spacing: 12) {
             // Avatar
             ZStack(alignment: .bottomTrailing) {
@@ -329,7 +333,7 @@ struct PeopleView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(displayName)
+                    Text(person.displayName)
                         .font(.subheadline).fontWeight(.medium).foregroundColor(.white)
                     let relationshipState = person.relationshipState
                     relationshipBadge(for: relationshipState)
@@ -473,11 +477,11 @@ struct PeopleView: View {
                         image.resizable().aspectRatio(contentMode: .fill)
                             .frame(width: 42, height: 42).clipShape(Circle())
                     default:
-                        initialsCircle(person.name, color: color)
+                        initialsCircle(person.displayName, color: color)
                     }
                 }
             } else {
-                initialsCircle(person.name, color: color)
+                initialsCircle(person.displayName, color: color)
             }
         }
         .frame(width: 42, height: 42)
