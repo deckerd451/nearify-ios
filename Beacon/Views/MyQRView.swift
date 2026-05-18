@@ -329,42 +329,7 @@ struct MyQRView: View {
                 }
             }
 
-            if !hideEmergence {
-                sectionCard(title: "Nearify is Learning") {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Recurring themes")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(latelyService.currentSignals.topThemes.prefix(3).joined(separator: " · ").ifEmpty("Still learning from your recent activity."))
-                            .font(.subheadline.weight(.semibold))
-
-                        if latelyService.currentSignals.recurringOverlapCount > 0 {
-                            Text("Relationship continuity")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("You've crossed paths with \(latelyService.currentSignals.recurringOverlapCount) people repeatedly.")
-                                .font(.subheadline)
-                        }
-
-                        Text("Momentum")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(latelyService.currentSignals.hasFollowUpMomentum ? "Follow-up behavior is becoming a strong pattern." : "Keep engaging consistently and momentum will emerge.")
-                            .font(.subheadline)
-
-                        Text("Private to you. Used to improve recommendations.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        HStack {
-                            Button("Hide") { hideEmergence = true }
-                            Spacer()
-                            Button("Reset signals") { DynamicProfileService.shared.resetSignals() }
-                        }
-                        .font(.caption.weight(.semibold))
-                    }
-                }
-            }
+            dynamicProfileSection
 
             if !remainingEarnedTraits.isEmpty {
                 sectionCard(title: "Earned Traits") {
@@ -708,6 +673,75 @@ struct MyQRView: View {
         } catch {
             debugLog("Failed to load auth details: \(error)")
         }
+    }
+}
+
+private extension MyQRView {
+    @ViewBuilder
+    var dynamicProfileSection: some View {
+        Group {
+            if hideEmergence {
+                sectionCard(title: "Nearify Intelligence hidden") {
+                    HStack(alignment: .center) {
+                        Text("Hidden for now. Your intelligence still updates in the background.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        Button("Show again") {
+                            withAnimation(.easeInOut(duration: 0.22)) {
+                                hideEmergence = false
+                            }
+                            debugLog("[DynamicProfileToggle] hidden=false source=user")
+                            debugLog("[DynamicProfileVisibility] restored intelligence card")
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                sectionCard(title: "Nearify is Learning") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Recurring themes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(latelyService.currentSignals.topThemes.prefix(3).joined(separator: " · ").ifEmpty("Still learning from your recent activity."))
+                            .font(.subheadline.weight(.semibold))
+
+                        if latelyService.currentSignals.recurringOverlapCount > 0 {
+                            Text("Relationship continuity")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("You've crossed paths with \(latelyService.currentSignals.recurringOverlapCount) people repeatedly.")
+                                .font(.subheadline)
+                        }
+
+                        Text("Momentum")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(latelyService.currentSignals.hasFollowUpMomentum ? "Follow-up behavior is becoming a strong pattern." : "Keep engaging consistently and momentum will emerge.")
+                            .font(.subheadline)
+
+                        Text("Private to you. Used to improve recommendations.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button("Hide for now") {
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    hideEmergence = true
+                                }
+                                debugLog("[DynamicProfileToggle] hidden=true source=user")
+                            }
+                            Spacer()
+                            Button("Reset signals") { DynamicProfileService.shared.resetSignals() }
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: hideEmergence)
     }
 }
 
