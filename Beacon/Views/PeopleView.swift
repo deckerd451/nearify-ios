@@ -74,7 +74,7 @@ struct PeopleView: View {
         .onChange(of: eventJoin.isEventJoined) { _, isJoined in
             // Clear event context when user leaves the event
             if !isJoined && navigationState.eventContext != nil {
-                navigationState.eventContext = nil
+                navigationState.setEventContext(nil, source: "PeopleView.eventJoinChanged")
             }
         }
         .sheet(item: $activeConversation) { target in
@@ -200,7 +200,7 @@ struct PeopleView: View {
                 #if DEBUG
                 debugLog("[VisibleRouteGuard] clearing consumed focus target id=\(target.profileId)")
                 #endif
-                navigationState.peopleFocusTarget = nil
+                navigationState.setPeopleFocusTarget(nil, source: "PeopleView.focusConsumed")
             }
         }
     }
@@ -584,7 +584,7 @@ struct PeopleView: View {
             Spacer()
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
-                    navigationState.eventContext = nil
+                    navigationState.setEventContext(nil, source: "PeopleView.eventJoinChanged")
                 }
             } label: {
                 Image(systemName: "xmark")
