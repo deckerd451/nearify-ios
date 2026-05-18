@@ -813,6 +813,8 @@ struct HomeView: View {
                     ) { recommendation in
                         showEventBrief = false
                         pendingBriefConnectionDestination = destinationForBriefRecommendation(recommendation)
+                    } canStartLooking: { recommendation in
+                        socialResolver.canLaunchFind(for: recommendation)
                     }
                     .padding()
                 }
@@ -892,11 +894,17 @@ struct HomeView: View {
     }
 
     private var resolvedBriefForSheet: PreEventBriefBuilder.Brief? {
-        // Prefer the live hydrated brief; fall back to an inline build if hydration
-        // hasn't started yet (e.g. user taps "Briefing" before join flow completes).
-        if let live = briefController.currentBrief { return live }
         guard let eventIdString = eventJoin.currentEventID,
               let eventId = UUID(uuidString: eventIdString) else { return nil }
+
+        // In live navigation, always rebuild from current live attendees so recommendation
+        // identity stays aligned with SocialStateResolver and Find targets.
+        if socialResolver.state.mode == .liveNavigation {
+            return PreEventBriefBuilder.build(eventId: eventId, eventName: eventDisplayName)
+        }
+
+        // Pre-check-in / early-arrival can use hydrated snapshots.
+        if let hydrated = briefController.currentBrief { return hydrated }
         return PreEventBriefBuilder.build(eventId: eventId, eventName: eventDisplayName)
     }
 

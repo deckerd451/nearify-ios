@@ -12,6 +12,7 @@ struct PreEventBriefView: View {
     let hydrationState: BriefHydrationController.BriefHydrationState
     let presentationMode: PresentationMode
     let onContinue: (PreEventBriefBuilder.PriorityPerson?) -> Void
+    let canStartLooking: (PreEventBriefBuilder.PriorityPerson) -> Bool
     @State private var lastLoggedRecommendationState: String?
     @State private var selectedRecommendation: PreEventBriefBuilder.PriorityPerson?
 
@@ -20,13 +21,15 @@ struct PreEventBriefView: View {
         ctaTitle: String = "Go to event",
         hydrationState: BriefHydrationController.BriefHydrationState = .hydrated,
         presentationMode: PresentationMode = .preEventPreparation,
-        onContinue: @escaping (PreEventBriefBuilder.PriorityPerson?) -> Void
+        onContinue: @escaping (PreEventBriefBuilder.PriorityPerson?) -> Void,
+        canStartLooking: @escaping (PreEventBriefBuilder.PriorityPerson) -> Bool = { _ in true }
     ) {
         self.brief = brief
         self.ctaTitle = ctaTitle
         self.hydrationState = hydrationState
         self.presentationMode = presentationMode
         self.onContinue = onContinue
+        self.canStartLooking = canStartLooking
     }
 
     var body: some View {
@@ -261,11 +264,13 @@ struct PreEventBriefView: View {
 
                 Spacer(minLength: 0)
 
+                let canFindNow = canStartLooking(person)
+
                 Button {
                     selectedRecommendation = nil
-                    onContinue(person)
+                    onContinue(canFindNow ? person : nil)
                 } label: {
-                    Text(detailCTA)
+                    Text(detailCTA(for: person, canFindNow: canFindNow))
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -273,7 +278,7 @@ struct PreEventBriefView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue))
                 }
 
-                if let secondaryCTA = detailSecondaryCTA {
+                if let secondaryCTA = detailSecondaryCTA(for: person, canFindNow: canFindNow) {
                     Button {
                         selectedRecommendation = nil
                         onContinue(nil)
@@ -286,7 +291,7 @@ struct PreEventBriefView: View {
                     }
                 }
 
-                if let detailFooter = detailFooterCopy {
+                if let detailFooter = detailFooterCopy(for: person, canFindNow: canFindNow) {
                     Text(detailFooter)
                         .font(.footnote)
                         .foregroundColor(.secondary)
@@ -396,21 +401,23 @@ private extension PreEventBriefView {
         case .preEventPreparation: return "May be there"
         }
     }
-    var detailCTA: String {
+    func detailCTA(for person: PreEventBriefBuilder.PriorityPerson, canFindNow: Bool) -> String {
         switch presentationMode {
-        case .liveNavigation: return "Start Looking"
+        case .liveNavigation: return canFindNow ? "Start Looking" : "Keep in mind"
         case .earlyArrival: return "Keep in mind"
         case .preEventPreparation: return "Keep in mind"
         }
     }
-    var detailSecondaryCTA: String? {
-        presentationMode == .preEventPreparation ? "Check in when you arrive" : nil
+    func detailSecondaryCTA(for person: PreEventBriefBuilder.PriorityPerson, canFindNow: Bool) -> String? {
+        if presentationMode == .preEventPreparation { return "Check in when you arrive" }
+        if presentationMode == .liveNavigation, !canFindNow { return "Not nearby right now" }
+        return nil
     }
-    var detailFooterCopy: String? {
+    func detailFooterCopy(for person: PreEventBriefBuilder.PriorityPerson, canFindNow: Bool) -> String? {
         switch presentationMode {
         case .preEventPreparation: return "Live proximity guidance starts after you check in."
         case .earlyArrival: return "Nearify will switch to live guidance when they’re nearby."
-        case .liveNavigation: return nil
+        case .liveNavigation: return canFindNow ? nil : "Nearify can’t locate this person nearby yet. We’ll enable live finding when they’re resolvable."
         }
     }
     var loadingCopy: String {
