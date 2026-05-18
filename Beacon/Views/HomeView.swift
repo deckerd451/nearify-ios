@@ -462,7 +462,7 @@ struct HomeView: View {
               let topPerson = brief.priorityPeople.first(where: { ($0.statusLabel == "nearby") || ($0.isNearby == true) }) else {
             return "Keep in mind"
         }
-        let name = topPerson.displayName
+        let name = topPerson.name
         #if DEBUG
         print("[IdentityRenderPath] using normalized displayName source=HomeView.briefCTALabel person=\(name)")
         #endif
