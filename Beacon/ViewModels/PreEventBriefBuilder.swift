@@ -4,6 +4,12 @@ import Foundation
 /// No new backend calls and no schema changes.
 @MainActor
 enum PreEventBriefBuilder {
+    private enum MomentumState: String {
+        case empty
+        case forming
+        case active
+        case recentlyActive
+    }
 
     struct Brief {
         let isLive: Bool
@@ -103,7 +109,28 @@ enum PreEventBriefBuilder {
     ) -> [String] {
         let attendees = EventAttendeesService.shared.attendees
         let resolvedJoinedCount = joinedCount ?? max(attendees.count, chosenPeople.count)
-        var summary: [String] = ["\(resolvedJoinedCount) people already joined"]
+        let now = Date()
+        let liveCount = attendees.filter { $0.isHereNow }.count
+        let recentlyNearbyCount = attendees.filter {
+            !$0.isHereNow && now.timeIntervalSince($0.lastSeen) < 300
+        }.count
+        let mode = SocialStateResolver.shared.state.mode
+        let momentumState: MomentumState = {
+            if liveCount > 0 { return .active }
+            if recentlyNearbyCount > 0 { return .recentlyActive }
+            if resolvedJoinedCount > 0 || !chosenPeople.isEmpty { return .forming }
+            return .empty
+        }()
+
+        var summary: [String] = [arrivalToneHeadline(
+            mode: mode,
+            momentumState: momentumState,
+            joinedCount: resolvedJoinedCount,
+            liveCount: liveCount
+        )]
+        if let continuityLine = continuityLine(mode: mode, momentumState: momentumState, recentlyNearbyCount: recentlyNearbyCount) {
+            summary.append(continuityLine)
+        }
         let goalTokens = tokenize(goal)
         let overlapCount = relationships.filter { relation in
             !goalTokens.isDisjoint(with: Set(relation.sharedInterests.map { $0.lowercased() }))
@@ -123,7 +150,75 @@ enum PreEventBriefBuilder {
                 summary.append("\(collaboration) attendees are also looking for collaborators")
             }
         }
+        #if DEBUG
+        print("[MomentumFraming] mode=\(mode.rawValue) joined=\(resolvedJoinedCount) live=\(liveCount) recentlyNearby=\(recentlyNearbyCount) state=\(momentumState.rawValue)")
+        print("[ArrivalTone] path=joinedSummary.primary mode=\(mode.rawValue) state=\(momentumState.rawValue) line=\"\(summary.first ?? "")\"")
+        #endif
         return Array(summary.prefix(3))
+    }
+
+    private static func arrivalToneHeadline(
+        mode: SocialStateResolver.Mode,
+        momentumState: MomentumState,
+        joinedCount: Int,
+        liveCount: Int
+    ) -> String {
+        switch mode {
+        case .preEventPreparation:
+            switch momentumState {
+            case .empty:
+                return "People are still arriving"
+            case .forming:
+                return "\(joinedCount) people plan to attend"
+            case .active:
+                return "\(liveCount) people are active now"
+            case .recentlyActive:
+                return "\(joinedCount) people joined this event"
+            }
+        case .earlyArrival:
+            switch momentumState {
+            case .empty:
+                return "You’re among the first to arrive"
+            case .forming:
+                return "\(joinedCount) people joined this event"
+            case .active:
+                return "\(liveCount) people are active now"
+            case .recentlyActive:
+                return "The room is starting to become active"
+            }
+        case .liveNavigation:
+            switch momentumState {
+            case .empty:
+                return "People are still arriving"
+            case .forming:
+                return "\(joinedCount) people joined this event"
+            case .active:
+                return "\(liveCount) people are active now"
+            case .recentlyActive:
+                return "People were nearby recently"
+            }
+        }
+    }
+
+    private static func continuityLine(
+        mode: SocialStateResolver.Mode,
+        momentumState: MomentumState,
+        recentlyNearbyCount: Int
+    ) -> String? {
+        guard recentlyNearbyCount > 0 else {
+            if mode == .earlyArrival, momentumState == .forming {
+                return "Others are expected soon"
+            }
+            return nil
+        }
+        switch mode {
+        case .preEventPreparation:
+            return "People were nearby recently"
+        case .earlyArrival:
+            return "Nearify will surface live people as they arrive"
+        case .liveNavigation:
+            return "Nearify will surface live people as they arrive"
+        }
     }
 
     private static func buildPredictivePeople(
