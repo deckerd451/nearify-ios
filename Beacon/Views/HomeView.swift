@@ -33,6 +33,9 @@ struct HomeView: View {
     @State private var briefDismissSuppressionUntil: Date = .distantPast
     @State private var briefPresentationState: BriefPresentationState = .idle
     @State private var lastManualDismissedContextKey: String?
+    @State private var autoPresentDeferredTask: Task<Void, Never>?
+    @State private var homeTabSelectionToken: Int = 0
+    @State private var runloopDefersSinceHomeTabSelection: Int = 0
 
     private enum BriefPresentationState: String {
         case idle
@@ -114,9 +117,31 @@ struct HomeView: View {
             .onChange(of: attendeesService.liveOtherCount) { _, _ in
                 logHomeStateUI()
             }
+            .onChange(of: selectedTab) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                if newValue == .home {
+                    homeTabSelectionToken += 1
+                    runloopDefersSinceHomeTabSelection = 0
+                    #if DEBUG
+                    print("[PresentationMount] home tab activated token=\(homeTabSelectionToken)")
+                    #endif
+                    scheduleRunloopAttachDefers(token: homeTabSelectionToken)
+                    maybePresentEventBrief()
+                } else {
+                    cancelDeferredAutoPresent(reason: "homeTabInactive")
+                }
+            }
             .onAppear {
                 guard !hasMounted else { return }
                 hasMounted = true
+                if selectedTab == .home {
+                    homeTabSelectionToken += 1
+                    runloopDefersSinceHomeTabSelection = 0
+                    #if DEBUG
+                    print("[PresentationMount] HomeView appeared with active Home tab token=\(homeTabSelectionToken)")
+                    #endif
+                    scheduleRunloopAttachDefers(token: homeTabSelectionToken)
+                }
                 DispatchQueue.main.async {
                     isPresentationHierarchyReady = true
                     #if DEBUG
@@ -134,6 +159,7 @@ struct HomeView: View {
             }
             .onDisappear {
                 checkInDismissTask?.cancel()
+                cancelDeferredAutoPresent(reason: "homeViewDisappear")
             }
             .confirmationDialog("Say Goodbye?", isPresented: $showLeaveConfirmation, titleVisibility: .visible) {
                 Button("Leave Event", role: .destructive) { Task { await eventJoin.leaveEvent() } }
@@ -997,29 +1023,84 @@ struct HomeView: View {
 
     private func maybePresentEventBrief() {
         guard hasMounted else { return }
-        guard isPresentationHierarchyReady else {
-            #if DEBUG
-            print("[PresentationMount] deferred brief until hierarchy attached")
-            #endif
+        guard let gateBlockReason = autoPresentGateBlockReason() else {
+            scheduleDeferredAutoPresent()
             return
+        }
+        #if DEBUG
+        print("[AutoPresentGate] blocked reason=\(gateBlockReason)")
+        #endif
+    }
+
+    private func autoPresentGateBlockReason() -> String? {
+        if selectedTab != .home { return "homeTabNotActive" }
+        if !hasMounted { return "homeViewNotMounted" }
+        if !isPresentationHierarchyReady { return "hierarchyNotReady" }
+        if runloopDefersSinceHomeTabSelection < 1 { return "tabAttachRunloopNotSettled" }
+        if showEventBrief { return "briefAlreadyVisible" }
+        if briefPresentationState == .presenting || briefPresentationState == .dismissing {
+            return "activeTransitionInProgress"
         }
         // Do not auto-present during cold-launch restore — wait for backend confirmation
         // so the brief doesn't flash and disappear if membership was revoked.
-        guard !eventJoin.isRestoringFromPersist else { return }
+        if eventJoin.isRestoringFromPersist { return "restoringFromPersist" }
         guard eventJoin.isEventJoined,
               !eventJoin.isCheckedIn,
               let eventId = eventJoin.currentEventID else {
-            return
+            return "eventJoinStateNotEligible"
         }
-        guard autoPresentedBriefEventId != eventId else { return }
-        autoPresentedBriefEventId = eventId
-        setEventBriefPresentation(
-            true,
-            reason: eventJoin.isRestoringFromPersist ? .stateRecovery : .autoPresent,
-            source: "maybePresentEventBrief"
-        )
+        if autoPresentedBriefEventId == eventId { return "alreadyAutoPresentedForEvent" }
+        return nil
+    }
+
+    private func scheduleRunloopAttachDefers(token: Int) {
+        DispatchQueue.main.async {
+            guard token == homeTabSelectionToken else { return }
+            runloopDefersSinceHomeTabSelection = max(runloopDefersSinceHomeTabSelection, 1)
+            #if DEBUG
+            print("[PresentationMount] runloop defer completed token=\(token)")
+            #endif
+            maybePresentEventBrief()
+        }
+    }
+
+    private func scheduleDeferredAutoPresent() {
+        cancelDeferredAutoPresent(reason: "reschedule")
         #if DEBUG
-        EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
+        print("[AutoPresentDeferred] scheduled after tab attach")
+        #endif
+        autoPresentDeferredTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            guard autoPresentGateBlockReason() == nil else {
+                #if DEBUG
+                print("[PresentationReject] deferred auto-present aborted by readiness recheck")
+                #endif
+                return
+            }
+            guard let eventId = eventJoin.currentEventID else { return }
+            autoPresentedBriefEventId = eventId
+            #if DEBUG
+            print("[AutoPresentDeferred] presenting after readiness recheck")
+            #endif
+            setEventBriefPresentation(
+                true,
+                reason: eventJoin.isRestoringFromPersist ? .stateRecovery : .autoPresent,
+                source: "maybePresentEventBrief.deferred"
+            )
+            autoPresentDeferredTask = nil
+            #if DEBUG
+            EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.briefPresented")
+            #endif
+        }
+    }
+
+    private func cancelDeferredAutoPresent(reason: String) {
+        guard autoPresentDeferredTask != nil else { return }
+        autoPresentDeferredTask?.cancel()
+        autoPresentDeferredTask = nil
+        #if DEBUG
+        print("[AutoPresentDeferred] canceled reason=\(reason)")
         #endif
     }
 
