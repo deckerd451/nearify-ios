@@ -30,6 +30,7 @@ struct MainTabView: View {
     @State private var peopleNavigationPath = NavigationPath()
     @State private var lastHandledPeopleResetSignal = 0
     @State private var lastPendingRouteSignature: String?
+    @State private var lastPeoplePathMutationSignature: String?
     @ObservedObject private var messaging = MessagingService.shared
     @ObservedObject private var navigationState = NavigationState.shared
 
@@ -133,10 +134,11 @@ struct MainTabView: View {
             print("[DeepLink] 🟣 pendingProfileId changed while MainTabView active: \(pendingProfileId)")
             #endif
             switchTab(to: .people, source: .user)
-            NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
+            NavigationState.shared.setPeopleFocusTarget(PeopleFocusTarget(
                 profileId: pendingProfileId,
                 source: "deepLink"
             )
+            , source: "MainTabView.deepLinkProfile")
             _ = deepLinkManager.consumeProfileId()
         }
 
@@ -164,13 +166,20 @@ struct MainTabView: View {
             #if DEBUG
             print("[NavigationObserverSource] source=MainTabView.pendingGlobalRoute currentTab=\(selectedTab) requestedTab=\(pendingTab) route=globalObserver")
             #endif
-            _ = navigationState.applyObserverTabRequest(
+            let didApply = navigationState.applyObserverTabRequest(
                 current: selectedTab,
                 requested: pendingTab,
                 source: "MainTabView.pendingGlobalRoute",
                 binding: &selectedTab
             )
-            navigationState.consumePendingTabRouteIfMatching(pendingTab, source: "MainTabView.pendingGlobalRoute.consume")
+            DispatchQueue.main.async {
+                navigationState.consumePendingTabRouteIfMatching(
+                    pendingTab,
+                    source: didApply
+                        ? "MainTabView.pendingGlobalRoute.consume.deferred"
+                        : "MainTabView.pendingGlobalRoute.consume.deferredNoOp"
+                )
+            }
         }
         .onChange(of: navigationState.peopleSubrouteResetSignal) { _, newValue in
             guard newValue != lastHandledPeopleResetSignal else { return }
@@ -181,13 +190,18 @@ struct MainTabView: View {
                 #endif
                 return
             }
+            let signature = "reset-\(newValue)-tab-\(selectedTab.rawValue)-count-\(peopleNavigationPath.count)"
+            if lastPeoplePathMutationSignature == signature {
+                #if DEBUG
+                print("[NavigationFrameCoalesce] source=MainTabView.peopleSubrouteReset sameFrameDuplicate=true signature=\(signature)")
+                #endif
+                return
+            }
+            lastPeoplePathMutationSignature = signature
             #if DEBUG
-            print("[PeopleNav] reset signal received; tab=\(selectedTab)")
+            print("[PathMutation] source=MainTabView.peopleSubrouteReset action=clearPath tab=\(selectedTab) count=\(peopleNavigationPath.count)")
             #endif
             peopleNavigationPath = NavigationPath()
-            #if DEBUG
-            print("[PeopleNav] path cleared")
-            #endif
         }
         .onChange(of: selectedTab) { oldValue, newValue in
             guard oldValue != newValue else { return }

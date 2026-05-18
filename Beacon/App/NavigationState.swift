@@ -40,6 +40,33 @@ final class NavigationState: ObservableObject {
 
     private init() {}
 
+
+    func setPeopleFocusTarget(_ target: PeopleFocusTarget?, source: String) {
+        guard peopleFocusTarget != target else {
+            #if DEBUG
+            print("[NavigationNoOp] source=\(source) property=peopleFocusTarget action=skipDuplicate")
+            #endif
+            return
+        }
+        #if DEBUG
+        print("[NavigationObserverAudit] source=\(source) property=peopleFocusTarget action=write")
+        #endif
+        peopleFocusTarget = target
+    }
+
+    func setEventContext(_ context: PeopleEventContext?, source: String) {
+        guard eventContext != context else {
+            #if DEBUG
+            print("[NavigationNoOp] source=\(source) property=eventContext action=skipDuplicate")
+            #endif
+            return
+        }
+        #if DEBUG
+        print("[NavigationObserverAudit] source=\(source) property=eventContext action=write")
+        #endif
+        eventContext = context
+    }
+
     func requestGlobalTabRoute(to target: AppTab, source: String) {
         guard pendingTabRoute != target else {
             #if DEBUG
