@@ -77,7 +77,10 @@ struct NextBestActionCard: View {
            let topPerson = briefController.currentBrief?.priorityPeople.first {
             let matchedAttendee = attendeesService.attendees.first { $0.id == topPerson.id }
             let isLocatable = matchedAttendee != nil || topPerson.isNearby == true
-            let displayName = IdentityDisplayName.primaryName(name: topPerson.name)
+            let displayName = topPerson.displayName
+            #if DEBUG
+            print("[IdentityRenderPath] using normalized displayName source=RecommendationCard person=\(displayName)")
+            #endif
             let score = topPerson.matchScore ?? 0.5
             let headline: String
             if score >= 0.75 {
@@ -104,7 +107,10 @@ struct NextBestActionCard: View {
         // Shows a warm teaser before the user arrives.
         if eventJoin.isEventJoined, !eventJoin.isCheckedIn,
            let topPerson = briefController.currentBrief?.priorityPeople.first {
-            let displayName = IdentityDisplayName.primaryName(name: topPerson.name)
+            let displayName = topPerson.displayName
+            #if DEBUG
+            print("[IdentityRenderPath] using normalized displayName source=RecommendationCard.preEvent person=\(displayName)")
+            #endif
             let score = topPerson.matchScore ?? 0.5
             let headline = score >= 0.65
                 ? "You might enjoy meeting \(displayName)"
@@ -130,7 +136,10 @@ struct NextBestActionCard: View {
                 }
                 .first
             if let rel = topFollowUp {
-                let relDisplayName = IdentityDisplayName.primaryName(name: rel.name)
+                let relDisplayName = IdentityDisplayName.primaryName(
+                    name: rel.name,
+                    debugSource: "NextBestActionCard.followUp"
+                )
                 candidates.append(DisplayAction(
                     headline: "Follow up with \(relDisplayName)",
                     subtitle: rel.whyLine.isEmpty ? nil : rel.whyLine,

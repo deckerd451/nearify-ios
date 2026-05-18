@@ -236,7 +236,10 @@ struct HomeView: View {
             return []
         }
 
-        let attendeeNamesById = Dictionary(uniqueKeysWithValues: attendeesService.attendees.map { ($0.id, IdentityDisplayName.primaryName(name: $0.name)) })
+        let attendeeNamesById = Dictionary(uniqueKeysWithValues: attendeesService.attendees.map { ($0.id, $0.displayName) })
+        #if DEBUG
+        print("[IdentityRenderPath] using normalized displayName source=HomeView.unsavedInteractionNames count=\(attendeeNamesById.count)")
+        #endif
 
         let profileIds = LocalEncounterStore.shared.encounters(forEvent: eventUUID)
             .filter { $0.duration >= 30 }
@@ -459,7 +462,10 @@ struct HomeView: View {
               let topPerson = brief.priorityPeople.first(where: { ($0.statusLabel == "nearby") || ($0.isNearby == true) }) else {
             return "Keep in mind"
         }
-        let name = IdentityDisplayName.primaryName(name: topPerson.name)
+        let name = topPerson.displayName
+        #if DEBUG
+        print("[IdentityRenderPath] using normalized displayName source=HomeView.briefCTALabel person=\(name)")
+        #endif
         return "Find \(name)"
     }
 
