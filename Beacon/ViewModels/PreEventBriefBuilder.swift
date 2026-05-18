@@ -10,6 +10,7 @@ enum PreEventBriefBuilder {
         let liveOthers: Int
         let recommendationEligible: Int
         let recentlyNearby: Int
+        let previewLikelyCount: Int
     }
     private enum MomentumState: String {
         case empty
@@ -173,13 +174,29 @@ enum PreEventBriefBuilder {
         let liveOthers = attendees.filter { $0.isHereNow }.count
         let recentlyNearby = attendees.filter { !$0.isHereNow && now.timeIntervalSince($0.lastSeen) < 300 }.count
         let recommendationEligible = max(chosenPeople.count, liveOthers)
+        let previewLikelyCount = max(joinedOthers, recommendationEligible, recentlyNearby)
+        let mode = SocialStateResolver.shared.state.mode
+        #if DEBUG
+        let joinedSource = joinedCount != nil ? "briefHydration" : (chosenPeople.isEmpty ? "attendeesService" : "priorityPeople")
+        print("[CountSource] mode=\(mode.rawValue) joinedOthers=\(joinedOthers) source=\(joinedSource)")
+        print("[CountSource] mode=\(mode.rawValue) liveOthers=\(liveOthers) source=activeLiveAttendees")
+        print("[CountSource] mode=\(mode.rawValue) recommendationEligible=\(recommendationEligible) source=\(isCheckedInMode(mode) ? "liveFindableRecommendations" : "priorityPeople")")
+        print("[CountSource] mode=\(mode.rawValue) recentlyNearby=\(recentlyNearby) source=resolverRecentNearby")
+        print("[CountSource] mode=\(mode.rawValue) previewLikelyCount=\(previewLikelyCount) source=\(isCheckedInMode(mode) ? "liveAttendees" : "priorityPeople")")
+        print("[CountSemantics] mode=\(mode.rawValue) totalJoinedIncludingSelf=\(joinedOthers + 1) joinedOthers=\(joinedOthers) liveOthers=\(liveOthers) recommendationEligible=\(recommendationEligible) recentlyNearby=\(recentlyNearby) previewLikelyCount=\(previewLikelyCount)")
+        #endif
         return AttendeeCountSemantics(
             totalJoinedIncludingSelf: joinedOthers + 1,
             joinedOthers: joinedOthers,
             liveOthers: liveOthers,
             recommendationEligible: recommendationEligible,
-            recentlyNearby: recentlyNearby
+            recentlyNearby: recentlyNearby,
+            previewLikelyCount: previewLikelyCount
         )
+    }
+
+    private static func isCheckedInMode(_ mode: SocialStateResolver.SocialMode) -> Bool {
+        mode == .liveNavigation
     }
 
     private static func arrivalToneHeadline(
