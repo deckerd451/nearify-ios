@@ -44,6 +44,20 @@ final class EventJoinService: ObservableObject {
     /// Maps eventID → eventName for all joined events.
     @Published private(set) var joinedEventNames: [String: String] = [:]
 
+    /// Singular social context the user is actively inhabiting right now.
+    /// This is intentionally stricter than joined membership:
+    /// - joinedEventIDs = "I may attend these"
+    /// - activeSocialContextEventID = "I am socially here now"
+    var activeSocialContextEventID: String? {
+        guard isCheckedIn else { return nil }
+        return currentEventID
+    }
+
+    var activeSocialContextEventName: String? {
+        guard isCheckedIn else { return nil }
+        return currentEventName
+    }
+
     // MARK: - Check-In Switch Confirmation
     //
     // A check-in conflict arises only when the user tries to CHECK IN to
@@ -106,6 +120,8 @@ final class EventJoinService: ObservableObject {
 
     private let lastEventKey = "nearify.lastEventContext"
     private let activeJoinedEventKey = "nearify.activeJoinedEventContext"
+    private let restoreActiveContextWindow: TimeInterval = 90 * 60 // 90 minutes
+    private let staleCheckInWindow: TimeInterval = 20 * 60 // 20 minutes
 
     private struct ActiveJoinedEventContext: Codable {
         let eventId: String
@@ -191,23 +207,48 @@ final class EventJoinService: ObservableObject {
             return
         }
 
-        currentEventID = context.eventId
-        currentEventName = context.eventName
-        isEventJoined = true
-        isCheckedIn = false
-        membershipState = .joined(eventName: context.eventName)
-        activeSessionStartedAt = context.sessionStartedAt
-
         // Restore full multi-join set from snapshot; fall back to primary event for legacy contexts.
         joinedEventIDs = Set(context.joinedEventIDs ?? [context.eventId])
         joinedEventNames = context.joinedEventNames ?? [context.eventId: context.eventName]
 
+        let shouldRestoreActiveContext = shouldRestoreActiveContext(from: context)
+        if shouldRestoreActiveContext {
+            currentEventID = context.eventId
+            currentEventName = context.eventName
+            isEventJoined = true
+            isCheckedIn = false
+            membershipState = .joined(eventName: context.eventName)
+            activeSessionStartedAt = context.sessionStartedAt
+        } else {
+            // Restore joined membership passively without forcing a dominant context on Home.
+            currentEventID = nil
+            currentEventName = nil
+            isEventJoined = !joinedEventIDs.isEmpty
+            isCheckedIn = false
+            membershipState = .notInEvent
+            activeSessionStartedAt = nil
+        }
+
         #if DEBUG
-        print("[EventRestore] ✅ Cold-launch restore: \"\(context.eventName)\"")
+        print("[EventRestore] ✅ Cold-launch membership restore: \(joinedEventIDs.count) joined events")
+        print("[EventRestore]    active context restored: \(shouldRestoreActiveContext ? "yes" : "no")")
         print("[EventRestore]    Auth user: \(context.authUserId.map { String($0.prefix(8)) } ?? "legacy — no user stamp")")
         print("[EventRestore]    Multi-join events: \(joinedEventIDs.count)")
         print("[EventRestore]    Session started: \(context.sessionStartedAt?.description ?? "none")")
         #endif
+    }
+
+    private func shouldRestoreActiveContext(from context: ActiveJoinedEventContext) -> Bool {
+        // Passive restore is always allowed for joined memberships.
+        // Active context restore is intentionally conservative.
+        let age = Date().timeIntervalSince(context.persistedAt)
+        guard age <= restoreActiveContextWindow else { return false }
+        guard context.isCheckedIn else { return false }
+        if let startedAt = context.sessionStartedAt {
+            let inactiveDuration = Date().timeIntervalSince(startedAt)
+            if inactiveDuration > staleCheckInWindow { return false }
+        }
+        return true
     }
 
     private func reconcilePersistedJoinedStateWithBackend() async {
@@ -259,18 +300,18 @@ final class EventJoinService: ObservableObject {
 
             // Validate the primary persisted event is still active on the backend.
             let confirmedIds = Set(rows.map { $0.event_id.uuidString })
-            let primaryIsActive = confirmedIds.contains(primaryEventId ?? "")
+            let primaryIsActive = primaryEventId.map { confirmedIds.contains($0) } ?? false
             if primaryIsActive {
                 #if DEBUG
                 print("[RestoreHydration] active event preserved: \"\(currentEventName ?? primaryEventId ?? "?")\"")
                 #endif
-            } else if let first = rows.first {
+            } else if primaryEventId != nil, let first = rows.first {
                 // Primary was left server-side — fall back to next confirmed active event.
                 currentEventID = first.event_id.uuidString
                 currentEventName = first.eventName
                 let restoredName = first.eventName?.trimmingCharacters(in: .whitespacesAndNewlines)
                 membershipState = .joined(eventName: restoredName?.isEmpty == false ? restoredName! : "Event")
-            } else {
+            } else if primaryEventId != nil {
                 clearPersistedJoinedState()
                 return
             }
@@ -314,6 +355,10 @@ final class EventJoinService: ObservableObject {
                 #if DEBUG
                 print("[RestoreHydration] attendees refresh started")
                 print("[EventMembership] reconciled joined events count: \(ids.count)")
+                #endif
+            } else {
+                #if DEBUG
+                print("[RestoreHydration] passive joined restore complete — no active social context selected")
                 #endif
             }
         } catch {
