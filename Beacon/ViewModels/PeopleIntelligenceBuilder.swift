@@ -592,6 +592,7 @@ struct PeopleIntelligenceBuilder {
             lastEventName: rel.eventContexts.first,
             relationshipState: relationshipState(for: rel, isConnected: isConnected)
         )
+        .loggingAvatarSource(source: "relationship")
     }
 
     // MARK: - Build from live attendee (no relationship history)
@@ -680,6 +681,7 @@ struct PeopleIntelligenceBuilder {
             lastEventName: nil,
             relationshipState: isConnected ? .connected : .encountered
         )
+        .loggingAvatarSource(source: "live")
     }
 
     private static func relationshipState(for rel: RelationshipMemory, isConnected: Bool) -> PeopleRelationshipState {
@@ -837,5 +839,13 @@ struct PeopleIntelligenceBuilder {
             return "Met at \(first) and 1 other event"
         }
         return "Met at \(first)"
+    }
+}
+
+private extension PersonIntelligence {
+    func loggingAvatarSource(source: String) -> PersonIntelligence {
+        let hasAvatar = !(avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        print("[PeopleAvatarSource] profile=\(id.uuidString.prefix(8)) hasAvatar=\(hasAvatar) source=\(source)")
+        return self
     }
 }
