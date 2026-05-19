@@ -270,9 +270,8 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 PresencePulseDot(color: contextAccentColor)
                 Text(contextEyebrow)
-                    .font(.caption2.weight(.semibold))
-                    .tracking(1.2)
-                    .foregroundColor(contextAccentColor.opacity(0.92))
+                    .font(.caption.weight(.medium))
+                    .foregroundColor(contextAccentColor.opacity(0.7))
                 Spacer()
                 Text(contextStatusPill)
                     .font(.caption2.weight(.semibold))
@@ -393,9 +392,8 @@ struct HomeView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundColor(VisualStyle.intelligence.opacity(0.75))
                 Text("Quiet signal")
-                    .font(.caption2.weight(.semibold))
-                    .tracking(1.1)
-                    .foregroundColor(VisualStyle.tertiaryText)
+                    .font(.caption)
+                    .foregroundColor(VisualStyle.tertiaryText.opacity(0.7))
                 Spacer()
             }
 
@@ -717,10 +715,10 @@ struct HomeView: View {
     }
 
     private var contextEyebrow: String {
-        if eventJoin.isCheckedIn { return "LIVE CONTEXT" }
-        if eventJoin.isEventJoined { return "TONIGHT’S SHAPE" }
-        if EventParticipationStateResolver.resolve() == .left { return "CONTINUITY" }
-        return "READY WHEN YOU ARE"
+        if eventJoin.isCheckedIn { return "Live" }
+        if eventJoin.isEventJoined { return "Tonight" }
+        if EventParticipationStateResolver.resolve() == .left { return "Continuing" }
+        return ""
     }
 
     private var contextStatusPill: String {
@@ -875,10 +873,9 @@ struct HomeView: View {
     private var scanCard: some View {
         Button(action: { showScanner = true }) {
             VStack(spacing: 14) {
-                Text("READY TO JOIN")
-                    .font(.caption2.weight(.semibold))
-                    .tracking(1.2)
-                    .foregroundColor(VisualStyle.tertiaryText)
+                Text("Ready when you are")
+                    .font(.caption)
+                    .foregroundColor(VisualStyle.tertiaryText.opacity(0.7))
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 38, weight: .semibold))
                     .foregroundColor(VisualStyle.primaryAction)
@@ -904,10 +901,9 @@ struct HomeView: View {
     private var postEventCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
-                Text("Session ended")
-                    .font(.caption2.weight(.semibold))
-                    .tracking(1.1)
-                    .foregroundColor(VisualStyle.intelligence.opacity(0.9))
+                Text("Your evening in review")
+                    .font(.caption)
+                    .foregroundColor(VisualStyle.intelligence.opacity(0.7))
                 Spacer()
             }
 
@@ -918,7 +914,7 @@ struct HomeView: View {
                 Button {
                     showLastSummaryRecap = true
                 } label: {
-                    Text("Review Session")
+                    Text("See the evening")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -951,9 +947,8 @@ struct HomeView: View {
             HStack(spacing: 6) {
                 PresencePulseDot(color: VisualStyle.live)
                 Text("You’re here")
-                    .font(.caption2.weight(.semibold))
-                    .tracking(1.1)
-                    .foregroundColor(VisualStyle.live.opacity(0.9))
+                    .font(.caption)
+                    .foregroundColor(VisualStyle.live.opacity(0.7))
                 Spacer()
                 let liveCount = attendeesService.liveOtherCount
                 if liveCount > 0 {
@@ -1051,8 +1046,7 @@ struct HomeView: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Text(isNearVenue ? "You're nearby" : "You're going")
-                    .font(.caption2.weight(.semibold))
-                    .tracking(1.1)
+                    .font(.caption)
                     .foregroundColor(VisualStyle.primaryAction.opacity(0.9))
                 Spacer()
                 if attendeeCount > 0 {

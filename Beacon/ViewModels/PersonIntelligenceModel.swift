@@ -83,10 +83,10 @@ enum PersonAction {
 
     var label: String {
         switch self {
-        case .find:         return "Find"
-        case .message:      return "Message"
-        case .viewProfile:  return "View Profile"
-        case .keepWatching: return "Keep Watching"
+        case .find:         return "Walk over"
+        case .message:      return "Continue"
+        case .viewProfile:  return "View profile"
+        case .keepWatching: return "Still nearby"
         }
     }
 

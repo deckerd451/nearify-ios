@@ -46,10 +46,10 @@ enum DecisionActionType: String {
 
     var label: String {
         switch self {
-        case .goSayHi:    return "Go say hi"
-        case .find:       return "Find"
-        case .navigate:   return "Navigate"
-        case .followUp:   return "Follow up"
+        case .goSayHi:    return "Say hello"
+        case .find:       return "Walk over"
+        case .navigate:   return "Head over"
+        case .followUp:   return "Pick up the thread"
         case .viewProfile: return "View profile"
         }
     }
@@ -57,8 +57,8 @@ enum DecisionActionType: String {
     var icon: String {
         switch self {
         case .goSayHi:    return "hand.wave"
-        case .find:       return "location"
-        case .navigate:   return "arrow.triangle.turn.up.right.diamond"
+        case .find:       return "arrow.right"
+        case .navigate:   return "arrow.right"
         case .followUp:   return "bubble.left"
         case .viewProfile: return "person"
         }

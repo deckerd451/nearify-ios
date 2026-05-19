@@ -197,7 +197,7 @@ final class HomeStateResolver: ObservableObject {
             if encounters.count >= 2 {
                 return "People are starting to cluster."
             }
-            return "Proximity signals are forming."
+            return "The room is starting to fill."
 
         case .active:
             let encounterCount = encounters.count
@@ -223,7 +223,7 @@ final class HomeStateResolver: ObservableObject {
             if isAtEvent {
                 return "First arrivals shape the room. Position yourself before it fills."
             }
-            return "Scan an event QR code to begin."
+            return "Scan an event QR to join."
 
         case .early:
             let knownHere = attendees.filter { connectedIds.contains($0.id) }.count
@@ -405,7 +405,7 @@ final class HomeStateResolver: ObservableObject {
                     lines.append("The room is yours to shape. Move around and claim space.")
                 }
             } else {
-                lines.append("Scan an event QR to begin.")
+                lines.append("Scan an event QR to join.")
             }
 
         case .early:

@@ -129,17 +129,17 @@ enum UserPresenceStateResolver {
         switch current {
         case .insideEvent:
             if hasEncounter {
-                return "You've been near \(name) — go say hi"
+                return "You've already been near (name)."
             }
-            return "You're both here — go say hi"
+            return "You're both here."
         case .activeNow, .nearbyOnly, .notPresent:
-            return "Go say hi"
+            return "Say hello"
         }
     }
 
     /// Short action label for feed card buttons (space-constrained).
     static var shortMeetLabel: String {
-        current == .insideEvent ? "They're here — say hi" : "Go say hi"
+        current == .insideEvent ? "Say hello" : "Say hello"
     }
 
     // MARK: - Home Context

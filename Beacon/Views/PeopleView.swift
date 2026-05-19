@@ -50,17 +50,17 @@ struct PeopleView: View {
     private var contextHeader: (title: String, subtitle: String)? {
         guard let context = navigationState.peopleContext else { return nil }
         switch context.mode {
-        case .liveNearby: return ("Here Now", "Live attendees nearby")
-        case .recurringNearby: return ("Recurring nearby", "People you keep crossing paths with")
-        case .unfinishedMomentum: return ("Momentum waiting", "A conversation is ready to continue")
-        case .recommendedNow: return ("Recommended now", "People aligned with this moment")
-        case .metBefore: return ("People worth reconnecting with", "Strong continuity from earlier events")
-        case .strongMatch: return ("Strong matches", "People aligned with your current goal")
-        case .waitingOnReply: return ("Waiting on reply", "Conversations that may need a nudge")
-        case .followUpNeeded: return ("Follow-up needed", "High-value conversations to revisit")
-        case .findTarget: return ("Find someone", "Focused navigation for a specific person")
-        case .eventCluster: return ("Active event cluster", "People active around this event context")
-        case .continuityFocus: return ("Continuity focus", "People you already have momentum with")
+        case .liveNearby: return ("Here now", "People at this event")
+        case .recurringNearby: return ("Crossing paths again", "People you keep running into")
+        case .unfinishedMomentum: return ("A conversation is waiting", "Pick up where you left off")
+        case .recommendedNow: return ("Worth saying hello", "People aligned with this moment")
+        case .metBefore: return ("Familiar faces", "People with continuity")
+        case .strongMatch: return ("Aligned with your goal", "People who may be useful right now")
+        case .waitingOnReply: return ("Still waiting", "Conversations that may need a nudge")
+        case .followUpNeeded: return ("Worth following up", "Threads worth continuing")
+        case .findTarget: return ("Looking for someone", "Focused navigation")
+        case .eventCluster: return ("Around this event", "People active in this orbit")
+        case .continuityFocus: return ("You already have momentum", "Threads that are warm")
         }
     }
 
@@ -258,7 +258,7 @@ struct PeopleView: View {
     }
     private var activeOrbitSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Active orbit")
+            Text("Your orbit")
                 .font(.headline.weight(.semibold))
                 .foregroundColor(.white.opacity(0.88))
             ForEach(supportingPeople) { person in
@@ -290,13 +290,13 @@ struct PeopleView: View {
 
             if showFullRoster {
                 if !sections.hereNow.isEmpty {
-                    sectionBlock(title: "Recently active", icon: "clock", color: .white.opacity(0.55), subtitle: "Recent live presence", people: sections.hereNow)
+                    sectionBlock(title: "Recently seen", icon: "clock", color: .white.opacity(0.55), subtitle: "Recent live presence", people: sections.hereNow)
                 }
                 if !sections.followUp.isEmpty {
                     sectionBlock(title: "Prior momentum", icon: "clock.arrow.circlepath", color: .white.opacity(0.55), subtitle: "Threads with continuity", people: sections.followUp)
                 }
                 if !sections.notHere.isEmpty {
-                    sectionBlock(title: "Archive", icon: "archivebox", color: .white.opacity(0.5), subtitle: "Historical continuity", people: sections.notHere)
+                    sectionBlock(title: "Quiet orbit", icon: "circle.dotted", color: .white.opacity(0.5), subtitle: "Historical continuity", people: sections.notHere)
                 }
             }
         }
@@ -380,13 +380,11 @@ struct PeopleView: View {
         VStack(alignment: .leading, spacing: DesignTokens.elementSpacing) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Image(systemName: icon).font(.caption).foregroundColor(color)
-                    Text(title.uppercased())
-                        .font(.caption).fontWeight(.bold).foregroundColor(color).tracking(1.0)
+                    Text(title)
+                        .font(.caption).foregroundColor(color.opacity(0.7))
                     Spacer()
-                    Text("\(people.count)").font(.caption2).foregroundColor(.gray)
+                    Text("\(people.count)").font(.caption2).foregroundColor(.gray.opacity(0.5))
                 }
-                Text(subtitle).font(.system(size: 11)).foregroundColor(.gray.opacity(0.6))
             }
             .padding(.horizontal)
 
@@ -604,9 +602,6 @@ struct PeopleView: View {
 
     private func dominantMomentSurface(_ person: PersonIntelligence) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Live moment")
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(.white.opacity(0.78))
             HStack(spacing: 14) {
                 avatarView(person, color: .white)
                     .frame(width: 72, height: 72)
@@ -663,7 +658,7 @@ struct PeopleView: View {
             debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: person))) source=\(person.presenceSource.rawValue) reason=\(canFind ? "live-proximity" : "softened-cta")")
             debugLog("[PeopleUrgency] person=\(person.id.uuidString.prefix(8)) state=\(person.presence.rawValue) weighting=\(String(format: "%.2f", liveConfidence(for: person)))")
             #endif
-            return canFind ? "Find" : "Continue"
+            return canFind ? "Walk over" : "Continue"
         case .message: return "Continue"
         case .viewProfile: return "Reconnect"
         case .keepWatching: return "Still nearby"

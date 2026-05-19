@@ -13,17 +13,10 @@ struct ArrivalBriefView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header with event name + dismiss
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("EVENT BRIEF")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.cyan.opacity(0.5))
-                        .tracking(0.8)
-
-                    Text(eventName)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white.opacity(0.9))
-                }
+                Text(eventName)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white.opacity(0.9))
 
                 Spacer()
 

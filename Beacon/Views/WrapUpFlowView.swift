@@ -91,7 +91,7 @@ struct WrapUpFlowView: View {
                 }
 
             }
-            .navigationTitle("Say Goodbye")
+            .navigationTitle("Say goodbye")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -158,11 +158,7 @@ struct WrapUpFlowView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Image(systemName: "hand.wave.fill")
-                .font(.system(size: 36))
-                .foregroundColor(.orange)
-
-            Text("Before you go")
+            Text("Before you leave")
                 .font(.title3)
                 .fontWeight(.bold)
                 .foregroundColor(.white)
@@ -170,7 +166,7 @@ struct WrapUpFlowView: View {
                 .padding(.horizontal, 24)
 
             if !people.isEmpty {
-                Text("from \(eventName)")
+                Text(eventName)
                     .font(.subheadline)
                     .foregroundColor(.gray)
             }
@@ -181,15 +177,11 @@ struct WrapUpFlowView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "person.2.slash")
-                .font(.system(size: 28))
-                .foregroundColor(.white.opacity(0.3))
-
-            Text("No interactions to save")
+            Text("A quiet evening.")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.6))
 
-            Text("You can still leave the event")
+            Text("Your presence still mattered.")
                 .font(.caption)
                 .foregroundColor(.gray)
         }
@@ -442,16 +434,13 @@ struct WrapUpFlowView: View {
         Button {
             finishWrapUp()
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                Text("Finish and save for later")
-                    .fontWeight(.semibold)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background(Color.orange)
-            .foregroundColor(.black)
-            .cornerRadius(14)
+            Text("Carry this forward")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .background(Color.orange)
+                .foregroundColor(.black)
+                .cornerRadius(14)
         }
         .padding(.horizontal, 32)
         .disabled(isWrappingUpEvent)
@@ -664,7 +653,7 @@ struct WrapUpFlowView: View {
             if minutes >= 2 {
                 return "\(minutes) min together"
             }
-            return "Spent time nearby · say hi before you go"
+            return "Spent time nearby"
         }
 
         // Repeat encounters from relationship history
@@ -779,7 +768,7 @@ struct WrapUpFlowView: View {
             return "Connected · \(minutes) min together"
         }
         if minutes >= 5 {
-            return "\(minutes) min together · worth connecting"
+            return "\(minutes) min together"
         }
 
         // Connection status
@@ -795,7 +784,7 @@ struct WrapUpFlowView: View {
             return "Crossed paths \(encounterCount) times"
         }
         if minutes > 0 {
-            return "\(minutes) min nearby · say hi before you go"
+            return "\(minutes) min nearby"
         }
 
         return "Met at \(eventName)"
@@ -824,11 +813,11 @@ struct WrapUpFlowView: View {
                     .tint(.white)
                     .scaleEffect(1.25)
 
-                Text("Wrapping up your event…")
+                Text("One moment…")
                     .font(.headline)
                     .foregroundColor(.white)
 
-                Text("Saving your session")
+                Text("Carrying your orbit forward.")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.75))
             }
