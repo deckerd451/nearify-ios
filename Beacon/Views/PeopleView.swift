@@ -32,6 +32,7 @@ struct PeopleView: View {
     @State private var isOpeningConversation = false
     @State private var highlightedProfileId: UUID?
     @State private var lastFocusedTargetId: UUID?
+    @State private var lastContextMode: PeopleContextMode?
 
     /// Sections are read from the controller, which handles debouncing
     /// and change detection. No direct computation in the view.
@@ -41,6 +42,23 @@ struct PeopleView: View {
 
     private var isEmpty: Bool {
         sections.hereNow.isEmpty && sections.followUp.isEmpty && sections.notHere.isEmpty
+    }
+
+    private var contextHeader: (title: String, subtitle: String)? {
+        guard let context = navigationState.peopleContext else { return nil }
+        switch context.mode {
+        case .liveNearby: return ("Here Now", "Live attendees nearby")
+        case .recurringNearby: return ("Recurring nearby", "People you keep crossing paths with")
+        case .unfinishedMomentum: return ("Momentum waiting", "A conversation is ready to continue")
+        case .recommendedNow: return ("Recommended now", "People aligned with this moment")
+        case .metBefore: return ("People worth reconnecting with", "Strong continuity from earlier events")
+        case .strongMatch: return ("Strong matches", "People aligned with your current goal")
+        case .waitingOnReply: return ("Waiting on reply", "Conversations that may need a nudge")
+        case .followUpNeeded: return ("Follow-up needed", "High-value conversations to revisit")
+        case .findTarget: return ("Find someone", "Focused navigation for a specific person")
+        case .eventCluster: return ("Active event cluster", "People active around this event context")
+        case .continuityFocus: return ("Continuity focus", "People you already have momentum with")
+        }
     }
 
     var body: some View {
@@ -120,6 +138,9 @@ struct PeopleView: View {
                     if let ctx = navigationState.eventContext {
                         eventContextBanner(ctx)
                     }
+                    if let contextHeader {
+                        contextualHeader(contextHeader.title, subtitle: contextHeader.subtitle)
+                    }
 
                     NavigationLink(value: PeopleRoute.nearifyContacts) {
                         nearifyContactsEntry
@@ -170,7 +191,34 @@ struct PeopleView: View {
                 guard let target = navigationState.peopleFocusTarget else { return }
                 focusPersonIfLoaded(target: target, proxy: proxy)
             }
+            .onChange(of: navigationState.peopleContext) { _, context in
+                guard let context else { return }
+                guard lastContextMode != context.mode else { return }
+                lastContextMode = context.mode
+                #if DEBUG
+                debugLog("[OperationalSurface] contextualEntry mode=\(context.mode.rawValue) reason=\(context.reason)")
+                #endif
+                if let highlighted = context.highlightedProfileId {
+                    highlightedProfileId = highlighted
+                    #if DEBUG
+                    debugLog("[MomentumFocus] highlightedProfile=\(highlighted.uuidString.prefix(8))")
+                    #endif
+                }
+            }
         }
+    }
+
+    private func contextualHeader(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.white)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
     }
 
     private func focusPersonIfLoaded(target: PeopleFocusTarget, proxy: ScrollViewProxy) {

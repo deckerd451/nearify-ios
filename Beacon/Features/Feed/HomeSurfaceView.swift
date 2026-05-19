@@ -890,10 +890,18 @@ struct HomeSurfaceView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 if let personId = decision.personId {
-                    NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
+                    NavigationState.shared.setPeopleFocusTarget(PeopleFocusTarget(
                         profileId: personId,
                         source: "home"
-                    )
+                    ), source: "HomeSurfaceView.decisionCardTap")
+                    NavigationState.shared.setPeopleContext(PeopleContextRoute(
+                        mode: .unfinishedMomentum,
+                        reason: "homeDecisionCardTap",
+                        highlightedProfileId: personId
+                    ), source: "HomeSurfaceView.decisionCardTap")
+                    #if DEBUG
+                    print("[HomePeopleRouting] destination=people context=unfinishedMomentum")
+                    #endif
                     switchTab(to: .people)
                 }
             }
@@ -1036,9 +1044,16 @@ struct HomeSurfaceView: View {
                 if decision.primaryAction == "Preview your network" {
                     // Empty state → inject event context and navigate to People tab.
                     if let eventId = decision.eventId, let eventName = decision.eventName {
-                        NavigationState.shared.eventContext = PeopleEventContext(
+                        NavigationState.shared.setEventContext(PeopleEventContext(
                             eventId: eventId, eventName: eventName
-                        )
+                        ), source: "HomeSurfaceView.previewNetwork.primary")
+                        NavigationState.shared.setPeopleContext(PeopleContextRoute(
+                            mode: .liveNearby,
+                            reason: "previewYourNetwork"
+                        ), source: "HomeSurfaceView.previewNetwork.primary")
+                        #if DEBUG
+                        print("[HomePeopleRouting] destination=people context=liveNearby")
+                        #endif
                     }
                     switchTab(to: .people)
                     return
@@ -1050,9 +1065,16 @@ struct HomeSurfaceView: View {
                 case "Preview your network":
                     // Early state secondary → inject event context and go to People tab
                     if let eventId = decision.eventId, let eventName = decision.eventName {
-                        NavigationState.shared.eventContext = PeopleEventContext(
+                        NavigationState.shared.setEventContext(PeopleEventContext(
                             eventId: eventId, eventName: eventName
-                        )
+                        ), source: "HomeSurfaceView.previewNetwork.secondary")
+                        NavigationState.shared.setPeopleContext(PeopleContextRoute(
+                            mode: .recommendedNow,
+                            reason: "previewYourNetworkSecondary"
+                        ), source: "HomeSurfaceView.previewNetwork.secondary")
+                        #if DEBUG
+                        print("[HomePeopleRouting] destination=people context=recommendedNow")
+                        #endif
                     }
                     switchTab(to: .people)
                 case "View everyone":
@@ -1236,10 +1258,18 @@ struct HomeSurfaceView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 if let profileId = item.profileId {
-                    NavigationState.shared.peopleFocusTarget = PeopleFocusTarget(
+                    NavigationState.shared.setPeopleFocusTarget(PeopleFocusTarget(
                         profileId: profileId,
                         source: "home"
-                    )
+                    ), source: "HomeSurfaceView.surfaceCardTap")
+                    NavigationState.shared.setPeopleContext(PeopleContextRoute(
+                        mode: .continuityFocus,
+                        reason: "homeSurfaceCardTap",
+                        highlightedProfileId: profileId
+                    ), source: "HomeSurfaceView.surfaceCardTap")
+                    #if DEBUG
+                    print("[HomePeopleRouting] destination=people context=continuityFocus")
+                    #endif
                     switchTab(to: .people)
                 }
             }
@@ -2859,6 +2889,9 @@ struct HomeSurfaceView: View {
             }
         case .reply, .followUp, .message:
             if let profileId = item.profileId {
+                #if DEBUG
+                print("[RelationshipRouting] routedDirectlyToConversation=true profile=\(profileId.uuidString.prefix(8))")
+                #endif
                 handleMessage(profileId: profileId)
             }
         case .connect:
@@ -2903,6 +2936,7 @@ struct HomeSurfaceView: View {
 
         #if DEBUG
         print("[PeopleCTA] crowdState=\(crowdState.rawValue) specificPerson=\(specificPersonId?.uuidString.prefix(8) ?? "nil")")
+        print("[OperationalSurface] entry=peopleCTA state=\(crowdState.rawValue)")
         #endif
 
         if crowdState == .empty {
