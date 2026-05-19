@@ -139,7 +139,10 @@ struct PeopleView: View {
             claimedGuestInteractions.requestRefresh()
             SavedContactsStateService.shared.requestRefresh()
             PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-appear")
+            logActiveContextUI(screen: "People")
         }
+        .onChange(of: eventJoin.currentEventID) { _, _ in logActiveContextUI(screen: "People") }
+        .onChange(of: eventJoin.isCheckedIn) { _, _ in logActiveContextUI(screen: "People") }
 
         .onReceive(Timer.publish(every: 12, on: .main, in: .common).autoconnect()) { _ in
             semanticTick += 1
@@ -181,6 +184,7 @@ struct PeopleView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: DesignTokens.sectionSpacing) {
+                    activeEventContextStrip
                     // Event context banner — shown when navigated from Home
                     if let ctx = navigationState.eventContext {
                         eventContextBanner(ctx)
@@ -810,6 +814,50 @@ struct PeopleView: View {
     }
 
     // MARK: - Event Context Banner
+
+    private var activeEventContextStrip: some View {
+        Group {
+            if eventJoin.isCheckedIn {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("You’re live at")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.white.opacity(0.62))
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(eventJoin.currentEventName ?? "Event")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white.opacity(0.93))
+                            .lineLimit(2)
+                        Spacer(minLength: 6)
+                        if eventJoin.joinedEventIDs.count > 1 {
+                            Button("Switch event") {
+                                NavigationState.shared.requestGlobalTabRoute(to: .event, source: "PeopleView.activeContextSwitch")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.green.opacity(0.95))
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.045))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.10), lineWidth: 1))
+                )
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    private func logActiveContextUI(screen: String) {
+        let eventId = eventJoin.currentEventID ?? "nil"
+        let title = eventJoin.currentEventName ?? "nil"
+        let checkedIn = eventJoin.isCheckedIn
+        let joinedCount = eventJoin.joinedEventIDs.count
+        print("[ActiveContextUI] screen=\(screen) event=\(eventId) title=\(title) checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
+    }
 
     private func eventContextBanner(_ ctx: PeopleEventContext) -> some View {
         HStack(spacing: 8) {

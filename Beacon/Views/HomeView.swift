@@ -95,9 +95,11 @@ struct HomeView: View {
             .refreshable { attendeesService.refresh() }
             .onChange(of: eventJoin.currentEventID) { _, _ in
                 maybePresentEventBrief()
+                logActiveContextUI(screen: "Home")
             }
             .onChange(of: eventJoin.isCheckedIn) { _, _ in
                 maybePresentEventBrief()
+                logActiveContextUI(screen: "Home")
             }
             .onChange(of: eventJoin.isRestoringFromPersist) { _, isRestoring in
                 // When cold-launch restore completes, decide whether to show the brief.
@@ -150,6 +152,7 @@ struct HomeView: View {
                     maybePresentEventBrief()
                 }
                 logHomeStateUI()
+                logActiveContextUI(screen: "Home")
                 RelationshipMemoryService.shared.requestRefresh(reason: "home-four-layer-appear")
                 logHomeHierarchyAudit(reason: "onAppear")
                 #if DEBUG
@@ -270,11 +273,60 @@ struct HomeView: View {
 
     private var homeFourLayerSurface: some View {
         VStack(alignment: .leading, spacing: 14) {
+            activeEventContextStrip
             contextNarrativeLayer
             curatedMomentumLayer
             ambientIntelligenceLayer
         }
         .padding(.horizontal)
+    }
+
+    private var activeEventContextStrip: some View {
+        Group {
+            if eventJoin.isCheckedIn {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("You’re live at")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(VisualStyle.tertiaryText)
+
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(eventJoin.currentEventName ?? "Event")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.white.opacity(0.92))
+                            .lineLimit(2)
+
+                        Spacer(minLength: 8)
+
+                        if eventJoin.joinedEventIDs.count > 1 {
+                            Button("Switch event") {
+                                NavigationState.shared.requestGlobalTabRoute(to: .event, source: "HomeView.activeContextSwitch")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(contextAccentColor)
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.045))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+
+    private func logActiveContextUI(screen: String) {
+        let eventId = eventJoin.currentEventID ?? "nil"
+        let title = eventJoin.currentEventName ?? "nil"
+        let checkedIn = eventJoin.isCheckedIn
+        let joinedCount = eventJoin.joinedEventIDs.count
+        print("[ActiveContextUI] screen=\(screen) event=\(eventId) title=\(title) checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
     }
 
     private var contextNarrativeLayer: some View {
