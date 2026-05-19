@@ -11,13 +11,7 @@ struct NetworkView: View {
     @State private var showSettings = false
     @State private var showPresenceTestResult = false
     @State private var selectedAttendee: EventAttendee?
-    @State private var viewMode: ViewMode = .visualization
-    @State private var showSuggestions = false
 
-    enum ViewMode {
-        case visualization
-        case list
-    }
 
     var body: some View {
         NavigationView {
@@ -33,17 +27,6 @@ struct NetworkView: View {
             .navigationTitle("Network")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if (presence.currentEvent != nil || eventJoin.isEventJoined) && !displayAttendees.isEmpty {
-                        Picker("View Mode", selection: $viewMode) {
-                            Image(systemName: "circle.grid.2x2").tag(ViewMode.visualization)
-                            Image(systemName: "list.bullet").tag(ViewMode.list)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 100)
-                    }
-                }
-
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: { showSettings.toggle() }) {
                         Image(systemName: "gearshape")
@@ -137,18 +120,12 @@ struct NetworkView: View {
                     .background(Color.white.opacity(0.04))
                 }
 
-                nearbyDevicesSection
-
                 if displayAttendees.isEmpty {
                     emptyState
                 } else {
-                    if viewMode == .visualization {
-                        attendeeVisualization
-                            .frame(height: 420)
-                    } else {
-                        attendeeListView
-                            .padding(.horizontal)
-                    }
+                    peopleContinuitySurface
+                        .padding(.horizontal)
+                        .padding(.top, 14)
                 }
             }
         }
@@ -188,6 +165,119 @@ struct NetworkView: View {
         .background(Color.black.opacity(0.3))
     }
 
+
+    private var peopleContinuitySurface: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            dominantContinuationCard
+
+            supportingAttendeesSection
+
+            if !nearbyDevices.isEmpty {
+                subtleNearbySignals
+            }
+        }
+        .onAppear {
+            debugLog("[PeopleHierarchy] Rendered continuity-first people surface")
+            if contextualEntryActive {
+                debugLog("[ContextualEntry] Arrived from active event context")
+            }
+        }
+    }
+
+    private var dominantContinuationCard: some View {
+        guard let attendee = dominantAttendee else {
+            return AnyView(EmptyView())
+        }
+
+        let opener = momentumCopy(for: attendee)
+
+        return AnyView(
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Pick up where things already started")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textCase(.uppercase)
+
+                HStack(spacing: 12) {
+                    AvatarView(imageUrl: attendee.avatarUrl, name: attendee.name, size: 52)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(attendee.name)
+                            .font(.title3.weight(.semibold))
+                            .foregroundColor(.white)
+                        Text(opener)
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.76))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Button(action: { selectedAttendee = attendee }) {
+                    Label("Find \(attendee.name)", systemImage: "location.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.blue.opacity(0.95))
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.blue.opacity(0.24), lineWidth: 0.8)
+                    )
+            )
+            .onAppear {
+                debugLog("[DominantSurface] Dominant attendee=\(attendee.name)")
+                debugLog("[MomentumContinuity] \(opener)")
+                debugLog("[VisualPriority] Dominant surface emphasized with single CTA")
+            }
+        )
+    }
+
+    private var supportingAttendeesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Worth continuing")
+                .font(.headline)
+                .foregroundColor(.white.opacity(0.9))
+
+            let rows = Array(supportingAttendees.prefix(2))
+            ForEach(rows) { attendee in
+                Button(action: { selectedAttendee = attendee }) {
+                    AttendeeCardView(attendee: attendee, subdued: true)
+                }
+                .buttonStyle(.plain)
+                .background(Color.white.opacity(0.02))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+
+            if supportingAttendees.count > 2 {
+                Text("\(supportingAttendees.count - 2) more worth revisiting")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    private var subtleNearbySignals: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Nearby now")
+                .font(.caption.weight(.medium))
+                .foregroundColor(.gray)
+                .textCase(.uppercase)
+
+            ForEach(nearbyDevices.prefix(3)) { device in
+                nearbyDeviceRow(device)
+            }
+        }
+    }
+
     // MARK: - Nearby Devices
 
     private var nearbyDevicesSection: some View {
@@ -217,8 +307,7 @@ struct NetworkView: View {
             }
         }
         .padding()
-        .background(Color.white.opacity(0.03))
-        .cornerRadius(16)
+        
         .padding(.horizontal)
         .padding(.top, 12)
     }
@@ -253,8 +342,7 @@ struct NetworkView: View {
                 .fixedSize()
         }
         .padding(10)
-        .background(Color.white.opacity(0.04))
-        .cornerRadius(12)
+        
     }
 
     private func deviceTag(_ text: String, color: Color) -> some View {
@@ -505,6 +593,40 @@ struct NetworkView: View {
                 }
             }
         }
+    }
+
+    private var contextualEntryActive: Bool {
+        presence.currentEvent != nil || eventJoin.isEventJoined
+    }
+
+    private var dominantAttendee: EventAttendee? {
+        displayAttendees.max { attendeePriorityScore(for: $0) < attendeePriorityScore(for: $1) }
+    }
+
+    private var supportingAttendees: [EventAttendee] {
+        guard let dominant = dominantAttendee else { return displayAttendees }
+        return displayAttendees.filter { $0.id != dominant.id }
+            .sorted { attendeePriorityScore(for: $0) > attendeePriorityScore(for: $1) }
+    }
+
+    private func attendeePriorityScore(for attendee: EventAttendee) -> Double {
+        let proximity = proximityScore(for: attendee)
+        let recency = max(0, 1.0 - min(600, abs(attendee.lastSeen.timeIntervalSinceNow)) / 600.0)
+        return proximity * 0.7 + recency * 0.3
+    }
+
+    private func momentumCopy(for attendee: EventAttendee) -> String {
+        let score = attendeePriorityScore(for: attendee)
+        if score > 0.82 { return "There’s still energy here." }
+        if score > 0.72 { return "This conversation may be worth continuing." }
+        if attendee.isActiveNow { return "You’re likely to cross paths again." }
+        return "You already opened the door to this conversation."
+    }
+
+    private func debugLog(_ message: String) {
+        #if DEBUG
+        print(message)
+        #endif
     }
 
     // MARK: - Helpers
