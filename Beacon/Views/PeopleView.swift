@@ -103,15 +103,6 @@ struct PeopleView: View {
         let overlapBoost: Double = person.presence == .hereNow ? 0.12 : (person.presence == .followUp ? 0.06 : 0)
         return min(1.0, bleBoost + backendBoost + freshnessBoost + overlapBoost)
     }
-
-    private var liveNowPeople: [PersonIntelligence] {
-        flattenedPeople
-            .filter { liveConfidence(for: $0) >= 0.42 || $0.presence == .hereNow }
-            .sorted { liveConfidence(for: $0) > liveConfidence(for: $1) }
-            .prefix(3)
-            .map { $0 }
-    }
-
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -197,20 +188,12 @@ struct PeopleView: View {
                         contextualHeader(contextHeader.title, subtitle: contextHeader.subtitle)
                     }
 
-                    if !liveNowPeople.isEmpty {
-                        liveNowSection
-                    }
-
                     if let dominantPerson {
-                        dominantMomentumCard(dominantPerson)
+                        dominantMomentSurface(dominantPerson)
                     }
 
                     if !supportingPeople.isEmpty {
-                        compactSectionBlock(
-                            title: "Worth continuing",
-                            subtitle: "People where continuing should feel easy",
-                            people: supportingPeople
-                        )
+                        activeOrbitSection
                     }
 
                     NavigationLink(value: PeopleRoute.nearifyContacts) {
@@ -242,7 +225,6 @@ struct PeopleView: View {
                 guard let target = navigationState.peopleFocusTarget else { return }
                 focusPersonIfLoaded(target: target, proxy: proxy)
             }
-            .animation(.easeInOut(duration: 0.25), value: liveNowPeople.map(\.id))
             .animation(.easeInOut(duration: 0.25), value: flattenedPeople.map(\.id))
             .onChange(of: navigationState.peopleContext) { _, context in
                 guard let context else { return }
@@ -273,27 +255,16 @@ struct PeopleView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
     }
-
-    private var liveNowSection: some View {
+    private var activeOrbitSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Live now")
-                .font(.title3.weight(.semibold))
-                .foregroundColor(.white.opacity(0.95))
-            Text("The room is shifting — these people are active right now")
-                .font(.subheadline)
-                .foregroundColor(.white.opacity(0.62))
-            ForEach(liveNowPeople) { person in
-                personCard(person, sectionColor: .green.opacity(0.45), compact: true)
+            Text("Active orbit")
+                .font(.headline.weight(.semibold))
+                .foregroundColor(.white.opacity(0.88))
+            ForEach(supportingPeople) { person in
+                personCard(person, sectionColor: .white.opacity(0.45), compact: true)
             }
         }
         .padding(.horizontal)
-        .onAppear {
-            #if DEBUG
-            if let lead = liveNowPeople.first {
-                debugLog("[PeopleLiveState] lead=\(lead.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: lead))) freshnessAge=\(Int(freshnessAge(for: lead) ?? -1)) source=\(lead.presenceSource.rawValue)")
-            }
-            #endif
-        }
     }
 
     private var rosterDisclosure: some View {
@@ -304,7 +275,7 @@ struct PeopleView: View {
                 }
             } label: {
                 HStack {
-                    Text(showFullRoster ? "Hide attendee roster" : "Show attendee roster")
+                    Text(showFullRoster ? "Hide quiet continuity" : "Show quiet continuity")
                         .font(.subheadline)
                         .foregroundColor(.white.opacity(0.85))
                     Spacer()
@@ -318,13 +289,13 @@ struct PeopleView: View {
 
             if showFullRoster {
                 if !sections.hereNow.isEmpty {
-                    sectionBlock(title: "Still nearby", icon: "circle.fill", color: .white.opacity(0.6), subtitle: "People active around you", people: sections.hereNow)
+                    sectionBlock(title: "Recently active", icon: "clock", color: .white.opacity(0.55), subtitle: "Recent live presence", people: sections.hereNow)
                 }
                 if !sections.followUp.isEmpty {
-                    sectionBlock(title: "Existing momentum", icon: "clock.arrow.circlepath", color: .white.opacity(0.6), subtitle: "Conversations that may be worth continuing", people: sections.followUp)
+                    sectionBlock(title: "Prior momentum", icon: "clock.arrow.circlepath", color: .white.opacity(0.55), subtitle: "Threads with continuity", people: sections.followUp)
                 }
                 if !sections.notHere.isEmpty {
-                    sectionBlock(title: "Familiar faces", icon: "sparkles", color: .white.opacity(0.55), subtitle: "People you may want to reconnect with", people: sections.notHere)
+                    sectionBlock(title: "Archive", icon: "archivebox", color: .white.opacity(0.5), subtitle: "Historical continuity", people: sections.notHere)
                 }
             }
         }
@@ -520,35 +491,14 @@ struct PeopleView: View {
             }
 
             VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Text(person.displayName)
-                        .font(.body.weight(.semibold)).foregroundColor(.white)
-                    if person.presence == .hereNow {
-                        Text("NOW")
-                            .font(.caption2.weight(.bold))
-                            .foregroundColor(.green.opacity(0.95))
-                    } else if person.presence == .followUp {
-                        Text("LATER")
-                            .font(.caption2.weight(.bold))
-                            .foregroundColor(.white.opacity(0.6))
-                    } else {
-                        Text("PASSIVE")
-                            .font(.caption2.weight(.bold))
-                            .foregroundColor(.white.opacity(0.45))
-                    }
-                }
+                Text(person.displayName)
+                    .font(.body.weight(.semibold)).foregroundColor(.white)
 
                 Text(dominantHeadline(for: person))
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.76))
                     .lineLimit(1)
 
-                if let why = humanizedWhyText(for: person) {
-                    Text(why)
-                        .font(.caption2)
-                        .foregroundColor(.gray.opacity(0.9))
-                        .lineLimit(1)
-                }
             }
 
             Spacer()
@@ -651,14 +601,14 @@ struct PeopleView: View {
         }
     }
 
-    private func dominantMomentumCard(_ person: PersonIntelligence) -> some View {
+    private func dominantMomentSurface(_ person: PersonIntelligence) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Live thread to act on")
+            Text("Live moment")
                 .font(.subheadline.weight(.medium))
                 .foregroundColor(.white.opacity(0.78))
             HStack(spacing: 14) {
                 avatarView(person, color: .white)
-                    .frame(width: 56, height: 56)
+                    .frame(width: 72, height: 72)
                 Text(person.displayName)
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
@@ -671,7 +621,7 @@ struct PeopleView: View {
                 .lineLimit(2)
             actionButton(person.primaryAction, person: person, color: .white, compact: false)
         }
-        .padding(26)
+         .padding(28)
         .background(
             RoundedRectangle(cornerRadius: 22)
                 .fill(
@@ -692,11 +642,11 @@ struct PeopleView: View {
         let lines: [String]
         switch person.presence {
         case .hereNow:
-            lines = ["Still nearby.", "You already crossed paths tonight.", "You’re both still active.", "Likely easy to reconnect with."]
+            lines = ["Still nearby.", "You both are active right now.", "You already crossed paths tonight.", "Conversation momentum is live."]
         case .followUp:
-            lines = ["Conversation reopened naturally.", "Easy to continue with.", "You already have context.", "Social momentum detected."]
+            lines = ["Easy reconnect.", "Conversation is warm.", "You already have context.", "Momentum is waiting."]
         case .notHere:
-            lines = ["You’ve interacted before.", "Recurring overlap.", "Quiet momentum is still here.", "Pick this back up when ready."]
+            lines = ["Prior connection.", "Familiar thread.", "Quiet continuity.", "Reconnect when ready."]
         }
         let pick = lines[(semanticTick + Int(person.priorityScore.rounded())) % lines.count]
         #if DEBUG
@@ -704,18 +654,6 @@ struct PeopleView: View {
         #endif
         return pick
     }
-
-    private func humanizedWhyText(for person: PersonIntelligence) -> String? {
-        if let existing = person.whyThisMatters, !existing.isEmpty {
-            return existing.replacingOccurrences(of: "Why this matters:", with: "").trimmingCharacters(in: .whitespaces)
-        }
-        switch person.presence {
-        case .hereNow: return "You both stayed active nearby."
-        case .followUp: return "You already broke the ice."
-        case .notHere: return "You've crossed paths before."
-        }
-    }
-
     private func primaryActionLabel(for action: PersonAction, person: PersonIntelligence) -> String {
         switch action {
         case .find:
@@ -724,7 +662,7 @@ struct PeopleView: View {
             debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: person))) source=\(person.presenceSource.rawValue) reason=\(canFind ? "live-proximity" : "softened-cta")")
             debugLog("[PeopleUrgency] person=\(person.id.uuidString.prefix(8)) state=\(person.presence.rawValue) weighting=\(String(format: "%.2f", liveConfidence(for: person)))")
             #endif
-            return canFind ? "Find them" : "Continue"
+            return canFind ? "Find" : "Continue"
         case .message: return "Continue"
         case .viewProfile: return "Reconnect"
         case .keepWatching: return "Still nearby"
