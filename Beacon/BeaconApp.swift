@@ -253,25 +253,9 @@ struct BeaconApp: App {
                     switchTab(to: .people, source: .user)
                 }
             }
-            // MARK: - Check-In Switch Confirmation
-            //
-            // Shown when the user tries to check in to Event B while already checked
-            // in to Event A. Joining additional events (RSVP) never requires confirmation.
-            .sheet(
-                isPresented: Binding(
-                    get: { EventJoinService.shared.pendingCheckInSwitch != nil },
-                    set: { if !$0 { EventJoinService.shared.cancelCheckInSwitch() } }
-                )
-            ) {
-                CheckInSwitchConfirmationSheet(
-                    pending: EventJoinService.shared.pendingCheckInSwitch,
-                    onCancel: {
-                        EventJoinService.shared.cancelCheckInSwitch()
-                    },
-                    onConfirm: {
-                        Task { await EventJoinService.shared.confirmCheckInSwitch() }
-                    }
-                )
+            .onChange(of: EventJoinService.shared.pendingCheckInSwitch) { _, pending in
+                guard pending != nil else { return }
+                Task { await EventJoinService.shared.confirmCheckInSwitch() }
             }
         }
     }
@@ -335,85 +319,6 @@ struct BeaconApp: App {
         let targetProfileId: UUID
         let targetName: String
         let conversation: Conversation
-    }
-
-    private struct CheckInSwitchConfirmationSheet: View {
-        let pending: EventJoinService.PendingCheckInSwitch?
-        let onCancel: () -> Void
-        let onConfirm: () -> Void
-
-        var body: some View {
-            NavigationStack {
-                ZStack {
-                    Color.black.ignoresSafeArea()
-
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Check in here instead?")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-
-                        if let pending {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("You’re currently checked in at:")
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
-
-                                Text(pending.currentCheckedInEventName)
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-
-                                Text("Check in here instead:")
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
-                                    .padding(.top, 2)
-
-                                Text(pending.targetEventName ?? "Selected event")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                            }
-                        }
-
-                        HStack(spacing: 12) {
-                            Button(action: onCancel) {
-                                Text("Stay here")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.white.opacity(0.12))
-                                    .cornerRadius(12)
-                            }
-
-                            Button(action: onConfirm) {
-                                Text("Check in here")
-                                    .font(.subheadline)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.black)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .background(Color.green)
-                                    .cornerRadius(12)
-                            }
-                        }
-                    }
-                    .padding(20)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Color.white.opacity(0.08))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                            )
-                    )
-                    .padding(.horizontal)
-                }
-            }
-            .presentationDetents([.height(340)])
-            .presentationDragIndicator(.visible)
-            .interactiveDismissDisabled()
-        }
     }
 
     private struct IncomingMessageBannerView: View {
