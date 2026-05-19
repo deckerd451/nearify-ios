@@ -26,6 +26,7 @@ final class NavigationState: ObservableObject {
 
     /// Global tab route requests for flows that cannot directly access the tab binding.
     @Published var pendingTabRoute: AppTab?
+    @Published var peopleContext: PeopleContextRoute?
     /// Monotonic signal used to pop the People tab's nested navigation stack to root.
     @Published private(set) var peopleSubrouteResetSignal: Int = 0
     @Published var activeNavigationTransaction: NavigationTransaction?
@@ -86,6 +87,21 @@ final class NavigationState: ObservableObject {
     func requestPeopleSubroutePopToRoot() {
         DebugLog.verbose("[PathMutation] source=requestPeopleSubroutePopToRoot action=incrementResetSignal")
         peopleSubrouteResetSignal &+= 1
+    }
+
+    func setPeopleContext(_ context: PeopleContextRoute?, source: String) {
+        guard peopleContext != context else {
+            DebugLog.verbose("[NavigationNoOp] source=\(source) property=peopleContext action=skipDuplicate")
+            return
+        }
+        #if DEBUG
+        if let context {
+            print("[PeopleContext] activeMode=\(context.mode.rawValue)")
+        } else {
+            print("[PeopleContext] activeMode=none")
+        }
+        #endif
+        peopleContext = context
     }
 
     /// Attempts a tab change with source guard.
@@ -184,4 +200,32 @@ struct PeopleFocusTarget: Equatable {
 struct PeopleEventContext: Equatable {
     let eventId: String
     let eventName: String
+}
+
+enum PeopleContextMode: String, Equatable {
+    case liveNearby
+    case recurringNearby
+    case unfinishedMomentum
+    case recommendedNow
+    case metBefore
+    case strongMatch
+    case waitingOnReply
+    case followUpNeeded
+    case findTarget
+    case eventCluster
+    case continuityFocus
+}
+
+struct PeopleContextRoute: Equatable {
+    let mode: PeopleContextMode
+    let reason: String
+    let eventClusterTag: String?
+    let highlightedProfileId: UUID?
+
+    init(mode: PeopleContextMode, reason: String, eventClusterTag: String? = nil, highlightedProfileId: UUID? = nil) {
+        self.mode = mode
+        self.reason = reason
+        self.eventClusterTag = eventClusterTag
+        self.highlightedProfileId = highlightedProfileId
+    }
 }
