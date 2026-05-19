@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// Compact status card shown at the top of Home when in Nearby Mode.
-/// Communicates that the app is intentionally operating locally via BLE.
+/// Compact momentum card shown at the top of Home when in Nearby Mode.
 struct NearbyModeCardView: View {
     @ObservedObject private var scanner = BLEScannerService.shared
 
@@ -13,7 +12,7 @@ struct NearbyModeCardView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.cyan)
 
-                Text("Nearby Mode")
+                Text("Social momentum is live")
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
@@ -21,7 +20,7 @@ struct NearbyModeCardView: View {
                 Spacer()
             }
 
-            Text("Discover people around you using Bluetooth")
+            Text("People around you update in real time so your next hello feels natural.")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.6))
 
@@ -29,20 +28,20 @@ struct NearbyModeCardView: View {
             HStack(spacing: 16) {
                 statusPill(
                     icon: "dot.radiowaves.left.and.right",
-                    label: "Bluetooth",
-                    value: scanner.isScanning ? "On" : "Ready",
+                    label: "Presence",
+                    value: scanner.isScanning ? "Active" : "Warming up",
                     isActive: true
                 )
 
                 statusPill(
                     icon: "icloud.slash",
-                    label: "Cloud Sync",
-                    value: "Paused",
+                    label: "Conversation",
+                    value: "Ready",
                     isActive: false
                 )
             }
 
-            Text("Full features return when connection is restored")
+            Text("As people move, suggestions quietly re-order around who feels most relevant now.")
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.35))
         }
