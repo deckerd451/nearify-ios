@@ -3,6 +3,7 @@ import SwiftUI
 /// Compact horizontal card for displaying event attendee profile information
 struct AttendeeCardView: View {
     let attendee: EventAttendee
+    var subdued: Bool = false
     
     var body: some View {
         HStack(spacing: 12) {
@@ -11,8 +12,7 @@ struct AttendeeCardView: View {
                 .frame(width: 44, height: 44)
             
             // Profile info
-            VStack(alignment: .leading, spacing: 4) {
-                // Name
+            VStack(alignment: .leading, spacing: 3) {
                 Text(attendee.name)
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -24,8 +24,7 @@ struct AttendeeCardView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                 
-                // Tags (if available)
-                if !attendee.topTags.isEmpty {
+                if !subdued, !attendee.topTags.isEmpty {
                     HStack(spacing: 6) {
                         ForEach(attendee.topTags, id: \.self) { tag in
                             Text(tag)
@@ -44,7 +43,6 @@ struct AttendeeCardView: View {
             
             Spacer()
             
-            // Status indicator
             VStack(alignment: .trailing, spacing: 4) {
                 Circle()
                     .fill(attendee.isActiveNow ? Color.green : Color.gray)
@@ -55,14 +53,11 @@ struct AttendeeCardView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .padding(12)
+        .padding(.horizontal, subdued ? 10 : 12)
+        .padding(.vertical, subdued ? 8 : 12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(.separator), lineWidth: 0.5)
+                .fill(subdued ? Color.clear : Color(.systemBackground))
         )
     }
     
