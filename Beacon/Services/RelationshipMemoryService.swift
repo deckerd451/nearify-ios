@@ -210,6 +210,10 @@ final class RelationshipMemoryService: ObservableObject {
         for conn in connections {
             let other = conn.otherUser(for: myId)
             profileNames[other.id] = other.name
+            if let avatarUrl = other.avatarUrl, !avatarUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                profileAvatars[other.id] = avatarUrl
+                print("[PeopleAvatarSource] profile=\(other.id.uuidString.prefix(8)) hasAvatar=true source=connection")
+            }
         }
 
         // 6. Aggregate per other-profile
@@ -269,6 +273,9 @@ final class RelationshipMemoryService: ObservableObject {
     ) -> RelationshipMemory? {
         let name = profileNames[profileId] ?? "Unknown"
         let avatar = profileAvatars[profileId]
+        if let avatar, !avatar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            print("[PeopleAvatarSource] profile=\(profileId.uuidString.prefix(8)) hasAvatar=true source=relationship")
+        }
 
         // Filter feed items for this profile
         let theirItems = feedItems.filter { $0.actorProfileId == profileId }

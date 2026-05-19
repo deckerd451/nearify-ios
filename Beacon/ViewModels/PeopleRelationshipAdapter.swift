@@ -59,12 +59,49 @@ enum PeopleRelationshipAdapter {
 
     private static func promote(person current: PersonIntelligence?, with candidate: PersonIntelligence, reason: String) -> PersonIntelligence {
         guard let current else { return candidate }
-        if candidate.relationshipState > current.relationshipState {
+        let mergedAvatar = preferredAvatar(primary: current.avatarUrl, secondary: candidate.avatarUrl)
+        let keptExistingAvatar = mergedAvatar == current.avatarUrl
+        let overwritten = mergedAvatar == candidate.avatarUrl && current.avatarUrl != mergedAvatar
+        if mergedAvatar != current.avatarUrl || mergedAvatar != candidate.avatarUrl {
+            print("[PeopleAvatarMerge] profile=\(candidate.id.uuidString.prefix(8)) keptAvatar=\(keptExistingAvatar) overwritten=\(overwritten)")
+        }
+
+        let currentWithAvatar = PersonIntelligence(
+            id: current.id, name: current.name, displayName: current.displayName, avatarUrl: mergedAvatar,
+            presence: current.presence, presenceSource: current.presenceSource,
+            connectionStatus: current.connectionStatus, isTargetIntent: current.isTargetIntent,
+            distilledInsight: current.distilledInsight, topTraits: current.topTraits, whyThisMatters: current.whyThisMatters,
+            primaryAction: current.primaryAction, secondaryAction: current.secondaryAction,
+            deepInsights: current.deepInsights, priorityScore: current.priorityScore,
+            liveEventName: current.liveEventName, lastEventName: current.lastEventName,
+            relationshipState: current.relationshipState
+        )
+
+        let candidateWithAvatar = PersonIntelligence(
+            id: candidate.id, name: candidate.name, displayName: candidate.displayName, avatarUrl: mergedAvatar,
+            presence: candidate.presence, presenceSource: candidate.presenceSource,
+            connectionStatus: candidate.connectionStatus, isTargetIntent: candidate.isTargetIntent,
+            distilledInsight: candidate.distilledInsight, topTraits: candidate.topTraits, whyThisMatters: candidate.whyThisMatters,
+            primaryAction: candidate.primaryAction, secondaryAction: candidate.secondaryAction,
+            deepInsights: candidate.deepInsights, priorityScore: candidate.priorityScore,
+            liveEventName: candidate.liveEventName, lastEventName: candidate.lastEventName,
+            relationshipState: candidate.relationshipState
+        )
+
+        if candidateWithAvatar.relationshipState > currentWithAvatar.relationshipState {
             #if DEBUG
             print("[PeopleRelationship] Promoted \(candidate.id.uuidString) to \(candidate.relationshipState)")
             #endif
-            return candidate
+            return candidateWithAvatar
         }
-        return current
+        return currentWithAvatar
+    }
+
+    private static func preferredAvatar(primary: String?, secondary: String?) -> String? {
+        let first = primary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let first, !first.isEmpty { return first }
+        let second = secondary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let second, !second.isEmpty { return second }
+        return nil
     }
 }

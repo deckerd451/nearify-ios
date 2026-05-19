@@ -282,8 +282,8 @@ final class ConnectionService {
             status,
             created_at,
             updated_at,
-            requester_profile:profiles!connections_requester_profile_id_fkey(id, name),
-            addressee_profile:profiles!connections_addressee_profile_id_fkey(id, name)
+            requester_profile:profiles!connections_requester_profile_id_fkey(id, name, avatar_url),
+            addressee_profile:profiles!connections_addressee_profile_id_fkey(id, name, avatar_url)
             """
 
         let orFilter = "requester_profile_id.eq.\(myId),addressee_profile_id.eq.\(myId)"

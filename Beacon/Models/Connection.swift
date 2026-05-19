@@ -16,6 +16,13 @@ struct CommunityProfile: Codable {
 struct ConnectionProfile: Codable {
     let id: UUID
     let name: String
+    let avatarUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case avatarUrl = "avatar_url"
+    }
 }
 
 // MARK: - Connection
@@ -53,14 +60,16 @@ struct Connection: Codable, Identifiable {
         case addresseeProfile   = "addressee_profile"
     }
 
-    /// Returns the id and name of whichever user is NOT the current user.
-    func otherUser(for currentProfileId: UUID) -> (id: UUID, name: String) {
+    /// Returns the id/name/avatar of whichever user is NOT the current user.
+    func otherUser(for currentProfileId: UUID) -> (id: UUID, name: String, avatarUrl: String?) {
         if requesterProfileId == currentProfileId {
             return (id: addresseeProfile?.id ?? addresseeProfileId,
-                    name: addresseeProfile?.name ?? "Unknown")
+                    name: addresseeProfile?.name ?? "Unknown",
+                    avatarUrl: addresseeProfile?.avatarUrl)
         } else {
             return (id: requesterProfile?.id ?? requesterProfileId,
-                    name: requesterProfile?.name ?? "Unknown")
+                    name: requesterProfile?.name ?? "Unknown",
+                    avatarUrl: requesterProfile?.avatarUrl)
         }
     }
 }

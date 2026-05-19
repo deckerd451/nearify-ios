@@ -718,6 +718,8 @@ final class EventAttendeesService: ObservableObject {
                     sharePhone: profile?.sharePhone,
                     preferredContactMethod: profile?.preferredContactMethod
                 )
+                let hasAvatar = !(baseAttendee.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+                print("[PeopleAvatarSource] profile=\(baseAttendee.id.uuidString.prefix(8)) hasAvatar=\(hasAvatar) source=live")
 
                 // Preserve backend freshness logic, but promote to live "here now"
                 // when a strong direct BLE identity match is currently active.
