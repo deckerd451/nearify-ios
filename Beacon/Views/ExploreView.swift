@@ -172,7 +172,7 @@ struct ExploreView: View {
         VStack(spacing: DesignTokens.sectionSpacing) {
             if !explore.happeningNow.isEmpty {
                 eventSection(
-                    title: "Live Now",
+                    title: "happening now",
                     icon: "circle.fill",
                     iconColor: .green,
                     events: explore.happeningNow,
@@ -182,7 +182,7 @@ struct ExploreView: View {
 
             if !explore.upcoming.isEmpty {
                 eventSection(
-                    title: "Upcoming Events",
+                    title: "coming up",
                     icon: "calendar",
                     iconColor: .blue,
                     events: explore.upcoming,
@@ -192,7 +192,7 @@ struct ExploreView: View {
 
             if !explore.recent.isEmpty {
                 eventSection(
-                    title: "Past Events",
+                    title: "from before",
                     icon: "arrow.counterclockwise",
                     iconColor: .orange,
                     events: explore.recent,
@@ -652,53 +652,38 @@ private struct SimpleEventCardView: View {
                 .background(Capsule().fill(Color.orange.opacity(0.12)))
             }
         } else if isJoined {
-            // Joined — show status chip + contextual action.
-            VStack(alignment: .leading, spacing: 8) {
-                // Status chip
-                if isCheckedInHere {
-                    checkedInStatusChip
-                } else {
-                    joinedStatusChip
-                }
-
-                // Primary action
-                if isCheckedInHere {
-                    // Already checked in here — open the live view.
-                    Button("Open Event", action: onGoToEvent)
+            if isCheckedInHere {
+                Button("Open Event", action: onGoToEvent)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green))
+            } else if role == .happeningNow && isCheckedInElsewhere {
+                Button(action: onCheckIn) {
+                    Text("Check in here instead")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(Capsule().fill(Color.green))
-                } else if role == .happeningNow && isCheckedInElsewhere {
-                    // Live event + checked in elsewhere → offer check-in switch.
-                    Button(action: onCheckIn) {
-                        Text("Check in here instead")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(Color.green))
-                    }
-                } else if role == .happeningNow {
-                    // Live event, joined but not checked in anywhere.
-                    Button(action: onCheckIn) {
-                        Text("Check In")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(Color.green))
-                    }
-                } else {
-                    // Future/upcoming event — navigate to event view.
-                    Button("Open Event", action: onGoToEvent)
+                }
+            } else if role == .happeningNow {
+                Button(action: onCheckIn) {
+                    Text("I'm here")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.black)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.blue))
+                        .background(Capsule().fill(Color.green))
                 }
+            } else {
+                Button("Open Event", action: onGoToEvent)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.blue))
             }
         } else {
             // Not joined — show Join button (no "Switch Event" concept).
@@ -719,33 +704,6 @@ private struct SimpleEventCardView: View {
             }
             .disabled(isJoining)
         }
-    }
-
-    // MARK: - Supporting views
-
-    private var joinedStatusChip: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.caption)
-            Text("You're going")
-                .font(.caption.weight(.semibold))
-        }
-        .foregroundColor(.green)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(Color.green.opacity(0.12)))
-    }
-
-    private var checkedInStatusChip: some View {
-        HStack(spacing: 5) {
-            PresencePulseDot(color: .green)
-            Text("You're here")
-                .font(.caption.weight(.semibold))
-        }
-        .foregroundColor(.green)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(Color.green.opacity(0.12)))
     }
 
     private var borderColor: Color {

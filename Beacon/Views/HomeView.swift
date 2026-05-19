@@ -321,7 +321,7 @@ struct HomeView: View {
                 .padding(.top, 2)
             }
         }
-        .padding(22)
+        .padding(26)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -400,16 +400,9 @@ struct HomeView: View {
             if curatedMomentumItems.isEmpty {
                 quietEmptyMomentum
             } else {
-                VStack(spacing: 8) {
-                    ForEach(curatedMomentumItems, id: \.id) { item in
-                        momentumRow(item)
-                    }
+                ForEach(curatedMomentumItems, id: \.id) { item in
+                    momentumRow(item)
                 }
-            }
-
-            if eventJoin.isCheckedIn && !attendeesService.attendees.isEmpty {
-                nearbyPeopleContinuityStrip
-                    .padding(.top, 4)
             }
         }
     }
@@ -497,10 +490,12 @@ struct HomeView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundColor(.white.opacity(0.92))
                         .lineLimit(2)
-                    Text(item.subtitle)
-                        .font(.caption)
-                        .foregroundColor(VisualStyle.tertiaryText)
-                        .lineLimit(2)
+                    if !item.subtitle.isEmpty {
+                        Text(item.subtitle)
+                            .font(.caption)
+                            .foregroundColor(VisualStyle.tertiaryText)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 8)
@@ -514,7 +509,7 @@ struct HomeView: View {
                         .background(Capsule().fill(item.accent.opacity(0.10)))
                 }
             }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.035)))
         }
@@ -558,7 +553,7 @@ struct HomeView: View {
         let followUps = memory.relationships
             .filter { $0.needsFollowUp }
             .sorted { ($0.lastEncounterAt ?? .distantPast) > ($1.lastEncounterAt ?? .distantPast) }
-            .prefix(2)
+            .prefix(1)
         for relationship in followUps {
             items.append(MomentumItem(
                 id: "followup-\(relationship.profileId.uuidString)",
@@ -583,23 +578,25 @@ struct HomeView: View {
             ))
         }
 
-        let recurring = memory.relationships
-            .filter { $0.encounterCount >= 2 && !$0.needsFollowUp }
-            .sorted { $0.encounterCount > $1.encounterCount }
-            .prefix(max(0, 3 - items.count))
-        for relationship in recurring {
-            items.append(MomentumItem(
-                id: "recurring-\(relationship.profileId.uuidString)",
-                title: "\(IdentityDisplayName.primaryName(name: relationship.name, debugSource: "HomeView.momentum.recurring")) keeps reappearing in your orbit",
-                subtitle: relationship.whyLine.isEmpty ? "Repeated context can be worth remembering, even without rushing it." : relationship.whyLine,
-                icon: "arrow.triangle.2.circlepath",
-                accent: VisualStyle.intelligence,
-                accessory: nil,
-                action: .people
-            ))
+        if items.isEmpty {
+            let recurring = memory.relationships
+                .filter { $0.encounterCount >= 2 && !$0.needsFollowUp }
+                .sorted { $0.encounterCount > $1.encounterCount }
+                .prefix(1)
+            for relationship in recurring {
+                items.append(MomentumItem(
+                    id: "recurring-\(relationship.profileId.uuidString)",
+                    title: "\(IdentityDisplayName.primaryName(name: relationship.name, debugSource: "HomeView.momentum.recurring")) keeps reappearing in your orbit",
+                    subtitle: relationship.whyLine.isEmpty ? "" : relationship.whyLine,
+                    icon: "arrow.triangle.2.circlepath",
+                    accent: VisualStyle.intelligence,
+                    accessory: nil,
+                    action: .people
+                ))
+            }
         }
 
-        return Array(items.prefix(3))
+        return Array(items.prefix(1))
     }
 
     private func performMomentumAction(_ item: MomentumItem) {
@@ -641,7 +638,7 @@ struct HomeView: View {
         }
 
         if eventJoin.isCheckedIn && !attendeesService.attendees.isEmpty {
-            return HomePrimaryAction(kind: .seePeople, title: "See who’s here", subtitle: "Browse nearby people without turning Home into a roster.", icon: "person.2.fill", accent: VisualStyle.live)
+            return HomePrimaryAction(kind: .seePeople, title: "See who’s here", subtitle: "A few familiar faces may be close.", icon: "person.2.fill", accent: VisualStyle.live)
         }
 
         return HomePrimaryAction(kind: .openBrief, title: "Keep the brief in mind", subtitle: "Suggestions will sharpen as people arrive.", icon: "sparkles", accent: VisualStyle.intelligence)
@@ -766,34 +763,34 @@ struct HomeView: View {
 
     private var contextSubheadline: String {
         if eventJoin.isCheckedIn {
-            if let person = topBriefPerson {
-                return "One conversation is enough for now. More context will surface as the room fills."
+            if let _ = topBriefPerson {
+                return "One conversation, well-timed."
             }
             if attendeesService.liveOtherCount == 0 {
                 return "Picking up signals as they form."
             }
-            return "Home is prioritizing continuity, timing, and one clear next move over a stacked list of utilities."
+            return "The room is taking shape."
         }
 
         if eventJoin.isEventJoined {
-            return "When you arrive, check in to activate live recommendations."
+            return "Check in when you arrive."
         }
 
         if EventParticipationStateResolver.resolve() == .left, eventJoin.postEventSummary != nil {
-            return "Your last session can become a few thoughtful follow-ups instead of another stale event recap."
+            return "A few threads worth following up."
         }
 
-        return "Scan into an event and Nearify will surface people and context only when there is enough signal."
+        return "Join a room and let things unfold."
     }
 
     private var emptyMomentumCopy: String {
         if eventJoin.isCheckedIn {
-            return attendeesService.isLoading ? "Looking for signal in the room…" : "No strong continuity yet. That is okay — Home will stay quiet until something is worth surfacing."
+            return attendeesService.isLoading ? "Looking for signal…" : "Nothing yet. That's okay."
         }
         if eventJoin.isEventJoined {
-            return "Momentum will become clearer as people join and your brief hydrates."
+            return "Things will surface as people arrive."
         }
-        return "After an event, this space keeps track of meaningful continuity without becoming a feed."
+        return "This is where threads continue."
     }
 
     private var ambientIntelligenceCopy: String {
@@ -806,10 +803,10 @@ struct HomeView: View {
         .first?.key
 
         if let theme, recurring > 0 {
-            return "A few of your recurring conversations touch \(theme). Treat it as a soft pattern, not a conclusion."
+            return "A recurring thread: \(theme)."
         }
         if recurring > 0 {
-            return recurring == 1 ? "One person has appeared across more than one moment. Repetition may matter, but Home will keep it quiet." : "A few people have appeared across more than one moment. Repetition may matter, but Home will keep it quiet."
+            return recurring == 1 ? "One person keeps coming back." : "A few people keep coming back."
         }
         if eventJoin.isCheckedIn && attendeesService.liveOtherCount > 0 {
             return "Still reading the room."
