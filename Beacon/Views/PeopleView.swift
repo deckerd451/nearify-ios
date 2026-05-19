@@ -87,6 +87,30 @@ struct PeopleView: View {
             .map { $0 }
     }
 
+    private var attendeeLookup: [UUID: EventAttendee] {
+        Dictionary(uniqueKeysWithValues: attendeesService.attendees.map { ($0.id, $0) })
+    }
+
+    private func freshnessAge(for person: PersonIntelligence) -> TimeInterval? {
+        attendeeLookup[person.id].map { Date().timeIntervalSince($0.lastSeen) }
+    }
+
+    private func liveConfidence(for person: PersonIntelligence) -> Double {
+        let bleBoost: Double = (person.presenceSource == .ble || person.presenceSource == .bleAndBackend) ? 0.55 : 0.0
+        let backendBoost: Double = (person.presenceSource == .backend || person.presenceSource == .bleAndBackend) ? 0.25 : 0.0
+        let freshnessBoost: Double = freshnessAge(for: person).map { max(0, 0.30 - min($0, 300) / 1000) } ?? 0
+        let overlapBoost: Double = person.presence == .hereNow ? 0.12 : (person.presence == .followUp ? 0.06 : 0)
+        return min(1.0, bleBoost + backendBoost + freshnessBoost + overlapBoost)
+    }
+
+    private var liveNowPeople: [PersonIntelligence] {
+        flattenedPeople
+            .filter { liveConfidence(for: $0) >= 0.42 || $0.presence == .hereNow }
+            .sorted { liveConfidence(for: $0) > liveConfidence(for: $1) }
+            .prefix(3)
+            .map { $0 }
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -168,6 +192,10 @@ struct PeopleView: View {
                         contextualHeader(contextHeader.title, subtitle: contextHeader.subtitle)
                     }
 
+                    if !liveNowPeople.isEmpty {
+                        liveNowSection
+                    }
+
                     if let dominantPerson {
                         dominantMomentumCard(dominantPerson)
                     }
@@ -209,6 +237,8 @@ struct PeopleView: View {
                 guard let target = navigationState.peopleFocusTarget else { return }
                 focusPersonIfLoaded(target: target, proxy: proxy)
             }
+            .animation(.easeInOut(duration: 0.25), value: liveNowPeople.map(\.id))
+            .animation(.easeInOut(duration: 0.25), value: flattenedPeople.map(\.id))
             .onChange(of: navigationState.peopleContext) { _, context in
                 guard let context else { return }
                 guard lastContextMode != context.mode else { return }
@@ -237,6 +267,28 @@ struct PeopleView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
+    }
+
+    private var liveNowSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Live now")
+                .font(.title3.weight(.semibold))
+                .foregroundColor(.white.opacity(0.95))
+            Text("People currently entering your orbit")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.62))
+            ForEach(liveNowPeople) { person in
+                personCard(person, sectionColor: .green.opacity(0.45), compact: true)
+            }
+        }
+        .padding(.horizontal)
+        .onAppear {
+            #if DEBUG
+            if let lead = liveNowPeople.first {
+                debugLog("[PeopleLivePriority] lead=\(lead.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: lead))) freshnessAge=\(Int(freshnessAge(for: lead) ?? -1)) source=\(lead.presenceSource.rawValue)")
+            }
+            #endif
+        }
     }
 
     private var rosterDisclosure: some View {
@@ -432,6 +484,7 @@ struct PeopleView: View {
                     lineWidth: highlightedProfileId == person.id ? 1.5 : 0.8
                 )
         )
+        .opacity(staleVisualFactor(for: person))
         .scaleEffect(highlightedProfileId == person.id ? 1.02 : 1.0)
         .animation(.easeOut(duration: 0.3), value: highlightedProfileId)
         .id(person.id)
@@ -625,8 +678,8 @@ struct PeopleView: View {
         .padding(.horizontal)
         .onAppear {
             #if DEBUG
-            debugLog("[DominantRecommendation] person=\(person.id.uuidString.prefix(8)) action=\(person.primaryAction.label)")
-            debugLog("[ActionPriority] primary=\(person.primaryAction.label) person=\(person.id.uuidString.prefix(8))")
+            debugLog("[PeopleDominantContext] person=\(person.id.uuidString.prefix(8)) action=\(person.primaryAction.label) confidence=\(String(format: "%.2f", liveConfidence(for: person)))")
+            debugLog("[PeoplePresenceWeight] person=\(person.id.uuidString.prefix(8)) freshnessAge=\(Int(freshnessAge(for: person) ?? -1)) source=\(person.presenceSource.rawValue) dominance=live-signal")
             #endif
         }
     }
@@ -634,11 +687,11 @@ struct PeopleView: View {
     private func dominantHeadline(for person: PersonIntelligence) -> String {
         switch navigationState.peopleContext?.mode {
         case .unfinishedMomentum, .continuityFocus:
-            return "This conversation may be worth continuing."
+            return "This conversation still feels open."
         case .liveNearby:
-            return "\(person.displayName) is nearby."
+            return "A familiar signal is nearby."
         case .recommendedNow:
-            return "You already have context here."
+            return "Someone nearby may be worth continuing with."
         default:
             return "You already have context here."
         }
@@ -657,11 +710,31 @@ struct PeopleView: View {
 
     private func primaryActionLabel(for action: PersonAction, person: PersonIntelligence) -> String {
         switch action {
-        case .find: return person.presence == .hereNow ? "Find them" : "Find"
+        case .find:
+            let canFind = canShowFind(for: person)
+            #if DEBUG
+            debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: person))) source=\(person.presenceSource.rawValue) reason=\(canFind ? "live-proximity" : "softened-cta")")
+            #endif
+            return canFind ? "Find them" : "Continue"
         case .message: return "Continue"
         case .viewProfile: return "Open thread"
         case .keepWatching: return "Keep in view"
         }
+    }
+
+    private func canShowFind(for person: PersonIntelligence) -> Bool {
+        if person.presenceSource == .ble || person.presenceSource == .bleAndBackend { return true }
+        return liveConfidence(for: person) >= 0.72
+    }
+
+    private func staleVisualFactor(for person: PersonIntelligence) -> Double {
+        guard let age = freshnessAge(for: person) else { return 0.78 }
+        if age < 60 { return 1.0 }
+        if age < 300 { return 0.88 }
+        #if DEBUG
+        debugLog("[PeopleTemporalTruth] person=\(person.id.uuidString.prefix(8)) freshnessAge=\(Int(age))s staleDowngrade=expired")
+        #endif
+        return 0.62
     }
 
     // MARK: - Avatar
@@ -711,6 +784,13 @@ struct PeopleView: View {
             #if DEBUG
             debugLog("[PeopleAction] Find tapped for \(person.name)")
             #endif
+            guard canShowFind(for: person) else {
+                #if DEBUG
+                debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) cta=Continue reason=not-discoverable")
+                #endif
+                openConversation(profileId: person.id, name: person.name)
+                return
+            }
             let attendees = attendeesService.attendees
             if let attendee = attendees.first(where: { $0.id == person.id }) {
                 // Live attendee found — open the dedicated find/radar flow
