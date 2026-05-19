@@ -28,6 +28,19 @@ struct CustomTabBar: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(glassBackground)
+        .overlay(alignment: .bottom) {
+            LinearGradient(
+                colors: [Color.black.opacity(0.20), Color.black.opacity(0.06), .clear],
+                startPoint: .bottom,
+                endPoint: .top
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .allowsHitTesting(false)
+        }
+        .onAppear {
+            print("[TabBarVisualContainment] opacityAdjusted=true")
+            print("[TabBarVisualContainment] blurStrength=systemUltraThinMaterialDark+18")
+        }
         .shadow(color: .black.opacity(0.35), radius: 30, x: 0, y: 8)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
@@ -96,10 +109,14 @@ struct CustomTabBar: View {
 
     private var glassBackground: some View {
         RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .fill(Color.white.opacity(0.08))
+            .fill(.ultraThinMaterial)
             .overlay {
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                    .fill(Color.black.opacity(0.18))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(Color.white.opacity(0.20), lineWidth: 1)
             }
     }
 }
