@@ -47,13 +47,13 @@ struct ExploreView: View {
                 explore.refresh()
                 lastJoinedEventID = eventJoin.currentEventID
             }
-            .onChange(of: eventJoin.pendingCheckInSwitch) { pending in
+            .onChange(of: eventJoin.pendingCheckInSwitch) { _, pending in
                 showCheckInSwitchConfirmation = pending != nil
                 if pending == nil {
                     joinInFlightEventID = nil
                 }
             }
-            .onChange(of: eventJoin.currentEventID) { newEventID in
+            .onChange(of: eventJoin.currentEventID) { _, newEventID in
                 guard eventJoin.isEventJoined else {
                     lastJoinedEventID = newEventID
                     return

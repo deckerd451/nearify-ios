@@ -143,7 +143,7 @@ struct PreEventBriefView: View {
             DebugLog.verbose("[CountSemantics] component=PreEventBriefView mode=\(presentationMode) totalJoinedIncludingSelf=\(brief.attendeeCounts.totalJoinedIncludingSelf) joinedOthers=\(brief.attendeeCounts.joinedOthers) liveOthers=\(brief.attendeeCounts.liveOthers) recommendationEligible=\(brief.attendeeCounts.recommendationEligible) recentlyNearby=\(brief.attendeeCounts.recentlyNearby) previewLikelyCount=\(brief.attendeeCounts.previewLikelyCount)")
             DebugLog.verbose(briefContentModeLogLine)
         }
-        .onChange(of: recommendationLogState) { _ in
+        .onChange(of: recommendationLogState) { _, _ in
             logRecommendationIfNeeded()
         }
         .sheet(item: $selectedRecommendation) { person in

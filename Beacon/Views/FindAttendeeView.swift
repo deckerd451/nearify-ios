@@ -272,14 +272,14 @@ struct FindAttendeeView: View {
                 }
             }
         }
-        .onChange(of: encounterConnectionState) { _ in
+        .onChange(of: encounterConnectionState) { _, _ in
             handleConnectionStateChange()
         }
         .onReceive(SocialStateResolver.shared.$lastInvalidation) { invalidation in
             guard invalidation == .hardReset else { return }
             clearRetainedTarget(reason: "hard reset")
         }
-        .onChange(of: signalAge) { _ in
+        .onChange(of: signalAge) { _, _ in
             if findState == .arrived {
                 refreshEncounterConnectionStateIfNeeded()
                 return
