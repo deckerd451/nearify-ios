@@ -638,11 +638,11 @@ struct PeopleView: View {
         let lines: [String]
         switch person.presence {
         case .hereNow:
-            lines = ["Still nearby.", "You both are active right now.", "You already crossed paths tonight.", "Conversation momentum is live."]
+            lines = ["just arrived nearby.", "You both feel active right now.", "You already crossed paths tonight.", "Conversation momentum is live."]
         case .followUp:
-            lines = ["Easy reconnect.", "Conversation is warm.", "You already have context.", "Momentum is waiting."]
+            lines = ["Easy reconnect.", "Conversation is still warm.", "You already have context.", "Continue while timing is good."]
         case .notHere:
-            lines = ["Prior connection.", "Familiar thread.", "Quiet continuity.", "Reconnect when ready."]
+            lines = ["Prior connection.", "Familiar thread.", "Shared context remains.", "Reconnect when it feels right."]
         }
         let pick = lines[(semanticTick + Int(person.priorityScore.rounded())) % lines.count]
         #if DEBUG
@@ -658,9 +658,9 @@ struct PeopleView: View {
             debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: person))) source=\(person.presenceSource.rawValue) reason=\(canFind ? "live-proximity" : "softened-cta")")
             debugLog("[PeopleUrgency] person=\(person.id.uuidString.prefix(8)) state=\(person.presence.rawValue) weighting=\(String(format: "%.2f", liveConfidence(for: person)))")
             #endif
-            return canFind ? "Nearby" : "Continue"
-        case .message: return "Continue"
-        case .viewProfile: return "Reconnect"
+            return canFind ? "Say hello" : "Continue conversation"
+        case .message: return "Continue conversation"
+        case .viewProfile: return "You should meet"
         case .keepWatching: return "Still nearby"
         }
     }

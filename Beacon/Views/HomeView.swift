@@ -938,7 +938,7 @@ struct HomeView: View {
                 Spacer()
                 let liveCount = attendeesService.liveOtherCount
                 if liveCount > 0 {
-                    Text(liveCount == 1 ? "1 person nearby" : "\(liveCount) people nearby")
+                    Text(liveCount == 1 ? "1 person active now" : "\(liveCount) people active now")
                         .font(.caption2.weight(.semibold))
                         .foregroundColor(VisualStyle.tertiaryText)
                 }
@@ -999,21 +999,21 @@ struct HomeView: View {
 
     private var nearbyCountLine: String {
         let count = attendeesService.liveOtherCount
-        return count == 0 ? "No one else nearby yet" : (count == 1 ? "1 person nearby" : "\(count) people nearby")
+        return count == 0 ? "Waiting for the room to warm up" : (count == 1 ? "1 person ready to meet" : "\(count) people ready to meet")
     }
 
     private var briefCTALabel: String {
         guard eventJoin.isCheckedIn else { return "Check in when you arrive" }
-        guard attendeesService.liveOtherCount > 0 else { return "Prepare to meet" }
+        guard attendeesService.liveOtherCount > 0 else { return "Get ready to say hello" }
         guard let brief = briefController.currentBrief,
               let topPerson = brief.priorityPeople.first(where: { ($0.statusLabel == "nearby") || ($0.isNearby == true) }) else {
-            return "Keep in mind"
+            return "Who to meet now"
         }
         let name = topPerson.name
         #if DEBUG
         print("[IdentityRenderPath] using normalized displayName source=HomeView.briefCTALabel person=\(name)")
         #endif
-        return "Find \(name)"
+        return "Say hello to \(name)"
     }
 
     private var preCheckInCard: some View {

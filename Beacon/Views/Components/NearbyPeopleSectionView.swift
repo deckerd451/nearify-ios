@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// People Nearby section for Nearby Mode.
-/// Shows BLE-detected peers with signal strength, cached identity, and gated actions.
-/// Confirmed encounters show "Met nearby ✓" badge and prevent duplicate actions.
+/// Socially framed nearby section for live momentum mode.
 struct NearbyPeopleSectionView: View {
     @ObservedObject private var tracker = NearbyModeTracker.shared
     @ObservedObject private var scanner = BLEScannerService.shared
@@ -17,7 +15,7 @@ struct NearbyPeopleSectionView: View {
         VStack(alignment: .leading, spacing: 16) {
             // MARK: - People Nearby (active BLE)
             if !active.isEmpty {
-                sectionHeader("People Nearby", count: active.count)
+                sectionHeader("Happening now", count: active.count)
 
                 ForEach(active) { encounter in
                     nearbyPersonCard(encounter, isActive: true)
@@ -27,7 +25,7 @@ struct NearbyPeopleSectionView: View {
             // MARK: - Seen Nearby (recent + confirmed, no longer in BLE range)
             let seenList = mergedSeenList(recent: recent, confirmed: confirmed)
             if !seenList.isEmpty {
-                sectionHeader("Seen Nearby", count: seenList.count)
+                sectionHeader("Still in your orbit", count: seenList.count)
 
                 ForEach(seenList) { item in
                     seenNearbyCard(item)
@@ -89,7 +87,7 @@ struct NearbyPeopleSectionView: View {
                         .font(.system(size: 9))
                         .foregroundColor(signalColor(encounter.latestRSSI))
 
-                    Text(isConfirmed ? "Nearby · Met nearby ✓" : encounter.signalLabel)
+                    Text(isConfirmed ? "Still nearby · already met" : socialSignal(for: encounter))
                         .font(.caption2)
                         .foregroundColor(isConfirmed ? .cyan : signalColor(encounter.latestRSSI))
 
@@ -108,7 +106,7 @@ struct NearbyPeopleSectionView: View {
             // Action area
             if isConfirmed {
                 // Already confirmed — show saved badge, no duplicate action
-                Text("✓ Saved")
+                Text("Connected")
                     .font(.caption2)
                     .fontWeight(.semibold)
                     .foregroundColor(.cyan.opacity(0.7))
@@ -120,7 +118,7 @@ struct NearbyPeopleSectionView: View {
                 Button {
                     onFind(encounter)
                 } label: {
-                    Text("Find")
+                    Text("Say hello")
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundColor(.black)
@@ -216,7 +214,7 @@ struct NearbyPeopleSectionView: View {
                 }
 
                 HStack(spacing: 6) {
-                    Text("Nearby for \(item.dwellText.lowercased())")
+                    Text(ambientContext(for: item))
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.4))
 
@@ -235,7 +233,7 @@ struct NearbyPeopleSectionView: View {
             // Status label
             if item.isConfirmed {
                 VStack(spacing: 2) {
-                    Text("✓ Saved")
+                    Text("Connected")
                         .font(.caption2)
                         .fontWeight(.semibold)
                         .foregroundColor(.cyan.opacity(0.7))
@@ -299,16 +297,16 @@ struct NearbyPeopleSectionView: View {
                 .font(.system(size: 36))
                 .foregroundColor(.cyan.opacity(0.3))
 
-            Text("Nearby Mode is active")
+            Text("Your social atmosphere is warming up")
                 .font(.headline)
                 .foregroundColor(.white.opacity(0.7))
 
-            Text("We'll show people here as they come into range")
+            Text("People appear here as moments become relevant")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.4))
                 .multilineTextAlignment(.center)
 
-            Text("Move around the event to discover others")
+            Text("Keep moving — the right intros surface at the right time")
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.25))
                 .padding(.top, 2)
@@ -316,6 +314,16 @@ struct NearbyPeopleSectionView: View {
             Spacer().frame(height: 40)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func socialSignal(for encounter: NearbyModeTracker.LocalEncounter) -> String {
+        if encounter.dwellSeconds < 75 { return "just arrived" }
+        if encounter.dwellSeconds < 240 { return "still nearby" }
+        return "easy to approach right now"
+    }
+
+    private func ambientContext(for item: SeenItem) -> String {
+        item.isConfirmed ? "Conversation seed is still warm" : "Crossed paths \(item.dwellText.lowercased())"
     }
 
     // MARK: - Shared Helpers
