@@ -658,7 +658,7 @@ struct PeopleView: View {
             debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: person))) source=\(person.presenceSource.rawValue) reason=\(canFind ? "live-proximity" : "softened-cta")")
             debugLog("[PeopleUrgency] person=\(person.id.uuidString.prefix(8)) state=\(person.presence.rawValue) weighting=\(String(format: "%.2f", liveConfidence(for: person)))")
             #endif
-            return canFind ? "Walk over" : "Continue"
+            return canFind ? "Nearby" : "Continue"
         case .message: return "Continue"
         case .viewProfile: return "Reconnect"
         case .keepWatching: return "Still nearby"
