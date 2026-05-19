@@ -10,7 +10,6 @@ struct HomeView: View {
     @ObservedObject private var presence = EventPresenceService.shared
     @ObservedObject private var attendeesService = EventAttendeesService.shared
     @ObservedObject private var eventJoin = EventJoinService.shared
-    @ObservedObject private var explore = ExploreEventsService.shared
     @ObservedObject private var resolver = AttendeeStateResolver.shared
     @ObservedObject private var briefController = BriefHydrationController.shared
     @ObservedObject private var socialResolver = SocialStateResolver.shared
@@ -297,14 +296,6 @@ struct HomeView: View {
 
                         Spacer(minLength: 8)
 
-                        if eventJoin.joinedEventIDs.count > 1 {
-                            Button("Switch event") {
-                                NavigationState.shared.requestGlobalTabRoute(to: .event, source: "HomeView.activeContextSwitch")
-                            }
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(contextAccentColor)
-                            .buttonStyle(.plain)
-                        }
                     }
                 }
                 .padding(.horizontal, 14)
@@ -327,6 +318,7 @@ struct HomeView: View {
         let checkedIn = eventJoin.isCheckedIn
         let joinedCount = eventJoin.joinedEventIDs.count
         print("[ActiveContextUI] screen=\(screen) event=\(eventId) title=\(title) checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
+        print("[HomeContext] title=\(checkedIn ? title : "Home") checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
     }
 
     private var contextNarrativeLayer: some View {

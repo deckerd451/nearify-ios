@@ -570,10 +570,15 @@ final class EventJoinService: ObservableObject {
     func confirmCheckInSwitch() async {
         guard let pending = pendingCheckInSwitch else { return }
         pendingCheckInSwitch = nil
+        let fromEventName = currentEventName ?? "none"
+        let toEventName = pending.targetEventName ?? pending.targetEventId
+        let fromEventId = currentEventID ?? "none"
 
         #if DEBUG
         print("[EventCheckIn] switching check-in from \(currentEventName ?? "?") to \(pending.targetEventName ?? pending.targetEventId)")
         #endif
+        print("[EventTransition] from=\(fromEventName) to=\(toEventName) reason=userEnterEvent")
+        print("[PresenceTransition] stop=\(fromEventId) start=\(pending.targetEventId)")
 
         // End the current active session without fully leaving the event (keep RSVP).
         await endActiveCheckIn()
@@ -647,6 +652,8 @@ final class EventJoinService: ObservableObject {
     private func performCheckIn(targetEventID: String) async {
         guard let eventId = UUID(uuidString: targetEventID) else { return }
         let eventName = joinedEventNames[targetEventID] ?? currentEventName ?? "event"
+        let fromEventName = currentEventName ?? "none"
+        let fromEventId = currentEventID ?? "none"
 
         do {
             let profileId: UUID
@@ -663,6 +670,11 @@ final class EventJoinService: ObservableObject {
                 communityId: profileId
             )
             guard didActivate else { return }
+
+            if fromEventId != targetEventID {
+                print("[EventTransition] from=\(fromEventName) to=\(eventName) reason=userEnterEvent")
+                print("[PresenceTransition] stop=\(fromEventId) start=\(targetEventID)")
+            }
 
             // Promote this event to the primary slot.
             currentEventID = targetEventID
