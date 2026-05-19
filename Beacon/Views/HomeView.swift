@@ -18,6 +18,8 @@ struct HomeView: View {
     @ObservedObject private var messaging = MessagingService.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
+    @State private var showWrapUpFlow = false
+    @State private var isWrappingUpEvent = false
     @State private var showLastSummaryRecap = false
     @State private var showEventBrief = false
     @State private var showGoalPickerSheet = false
@@ -166,6 +168,17 @@ struct HomeView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(leaveEventMessage)
+            }
+            .fullScreenCover(isPresented: $showWrapUpFlow) {
+                WrapUpFlowView(
+                    eventName: eventDisplayName
+                ) {
+                    guard !isWrappingUpEvent else { return }
+                    isWrappingUpEvent = true
+                    defer { isWrappingUpEvent = false }
+                    await eventJoin.leaveEvent(source: "event-wrap-up")
+                    showWrapUpFlow = false
+                }
             }
             .fullScreenCover(isPresented: $showScanner) {
                 ScanView(
@@ -347,8 +360,12 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(action.accent.opacity(0.78))
-                    .shadow(color: action.accent.opacity(0.26), radius: 18, x: 0, y: 8)
+                    .fill(action.accent.opacity(0.48))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(action.accent.opacity(0.35), lineWidth: 1)
+                    )
+                    .shadow(color: action.accent.opacity(0.12), radius: 10, x: 0, y: 5)
             )
         }
         .buttonStyle(PressableScaleButtonStyle())
@@ -997,9 +1014,9 @@ struct HomeView: View {
         )
         .overlay(alignment: .bottomTrailing) {
             Button {
-                showLeaveConfirmation = true
+                showWrapUpFlow = true
             } label: {
-                Text("Say Goodbye")
+                Text("Say goodbye")
                     .font(.caption2)
                     .fontWeight(.semibold)
                     .foregroundColor(VisualStyle.danger)
