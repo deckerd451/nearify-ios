@@ -138,7 +138,6 @@ struct ExploreView: View {
         if let current = explore.currentEvent {
             let isJoined = eventJoin.joinedEventIDs.contains(current.id.uuidString)
             let isCheckedInHere = isJoined && eventJoin.isCheckedIn && eventJoin.currentEventID == current.id.uuidString
-            let isCheckedInElsewhere = eventJoin.isCheckedIn && eventJoin.currentEventID != current.id.uuidString
             let statusText: String = {
                 if isCheckedInHere { return "You're here now" }
                 if isJoined { return "You're going" }
