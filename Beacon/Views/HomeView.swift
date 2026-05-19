@@ -269,9 +269,8 @@ struct HomeView: View {
     // MARK: - Four-Layer Momentum Surface
 
     private var homeFourLayerSurface: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             contextNarrativeLayer
-            primaryActionLayer
             curatedMomentumLayer
             ambientIntelligenceLayer
         }
@@ -279,7 +278,8 @@ struct HomeView: View {
     }
 
     private var contextNarrativeLayer: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let action = primaryHomeAction
+        return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 PresencePulseDot(color: contextAccentColor)
                 Text(contextEyebrow)
@@ -305,6 +305,38 @@ struct HomeView: View {
                 .foregroundColor(VisualStyle.secondaryText)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                performPrimaryHomeAction(action.kind)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: action.icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(action.accent)
+                    Text(action.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white.opacity(0.88))
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.28))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(action.accent.opacity(0.10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(action.accent.opacity(0.22), lineWidth: 1)
+                        )
+                )
+            }
+            .buttonStyle(PressableScaleButtonStyle())
+            .onAppear { logHomePrimaryCTA(action) }
+            .onChange(of: eventJoin.isEventJoined) { _, _ in logHomePrimaryCTA(primaryHomeAction) }
+            .onChange(of: eventJoin.isCheckedIn) { _, _ in logHomePrimaryCTA(primaryHomeAction) }
+            .padding(.top, 4)
 
             if eventJoin.isCheckedIn {
                 HStack {
@@ -338,61 +370,6 @@ struct HomeView: View {
                 )
                 .shadow(color: contextAccentColor.opacity(0.18), radius: 22, x: 0, y: 10)
         )
-    }
-
-    private var primaryActionLayer: some View {
-        let action = primaryHomeAction
-        return Button {
-            performPrimaryHomeAction(action.kind)
-        } label: {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.14))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: action.icon)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(action.title)
-                        .font(.headline.weight(.semibold))
-                        .foregroundColor(.white)
-                    Text(action.subtitle)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.72))
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 10)
-
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.85))
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(action.accent.opacity(0.48))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(action.accent.opacity(0.35), lineWidth: 1)
-                    )
-                    .shadow(color: action.accent.opacity(0.12), radius: 10, x: 0, y: 5)
-            )
-        }
-        .buttonStyle(PressableScaleButtonStyle())
-        .onAppear {
-            logHomePrimaryCTA(action)
-        }
-        .onChange(of: eventJoin.isEventJoined) { _, _ in
-            logHomePrimaryCTA(primaryHomeAction)
-        }
-        .onChange(of: eventJoin.isCheckedIn) { _, _ in
-            logHomePrimaryCTA(primaryHomeAction)
-        }
     }
 
     private var curatedMomentumLayer: some View {
@@ -817,7 +794,7 @@ struct HomeView: View {
     private func logHomeHierarchyAudit(reason: String) {
         #if DEBUG
         let action = primaryHomeAction
-        print("[HomeHierarchyAudit] reason=\(reason) firstSections=contextNarrative,primaryCTA,momentum,ambient dominantSection=contextNarrative legacySectionsDemoted=attendeeList,nextBestAction,eventHeader")
+        print("[HomeHierarchyAudit] reason=\(reason) firstSections=contextNarrative,momentum,ambient dominantSection=contextNarrative legacySectionsDemoted=attendeeList,nextBestAction,eventHeader,primaryCTA")
         print("[ContextNarrative] headline=\(contextHeadline) checkedIn=\(eventJoin.isCheckedIn) joined=\(eventJoin.isEventJoined)")
         print("[PrimaryCTA] action=\(primaryCTAIdentifier(action.kind)) title=\(action.title)")
         print("[MomentumSurface] recurringPeople=\(memory.relationships.filter { $0.encounterCount >= 2 }.count) recurringNearby=\(recurringNearbyCount) unfinishedMomentum=\(unfinishedMomentumCount) renderedItems=\(curatedMomentumItems.count)")
