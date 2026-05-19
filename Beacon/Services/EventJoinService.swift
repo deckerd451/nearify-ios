@@ -705,15 +705,23 @@ final class EventJoinService: ObservableObject {
 
         pendingCheckInSwitch = nil
         postEventSummary = nil
-        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=activatingNew success=true")
-        await performCheckIn(targetEventID: targetEventID)
-        guard isCheckedIn, currentEventID == targetEventID else {
+
+        guard currentEventID == targetEventID else {
             print("[EventSwitch] from=\(from) to=\(targetEventID) phase=failed success=false")
             return false
         }
+        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=contextActivated success=true")
 
-        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=refreshingPresence success=true")
-        EventAttendeesService.shared.refresh()
+        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=activatingNew success=true")
+        await performCheckIn(targetEventID: targetEventID)
+
+        if isCheckedIn, currentEventID == targetEventID {
+            print("[EventSwitch] from=\(from) to=\(targetEventID) phase=refreshingPresence success=true")
+            EventAttendeesService.shared.refresh()
+        } else {
+            print("[EventSwitch] from=\(from) to=\(targetEventID) phase=presenceSkipped reason=requiresExplicitIntent")
+        }
+
         print("[EventSwitch] from=\(from) to=\(targetEventID) phase=completed success=true")
         #if DEBUG
         print("[EventSwitch] sequence=\(switchId) source=\(source)")
