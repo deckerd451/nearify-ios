@@ -13,6 +13,34 @@ final class ProfileImageService {
     private let bucketName = "profile-images"
     
     private init() {}
+
+    enum Variant: String, CaseIterable {
+        case immersive = "immersive_4x5"
+        case header = "header"
+        case avatar = "avatar"
+        case nearby = "nearby"
+        case placeholder = "placeholder"
+
+        var maxDimension: CGFloat {
+            switch self {
+            case .immersive: return 1400
+            case .header: return 800
+            case .avatar: return 420
+            case .nearby: return 180
+            case .placeholder: return 48
+            }
+        }
+
+        var compression: CGFloat {
+            switch self {
+            case .immersive: return 0.84
+            case .header: return 0.8
+            case .avatar: return 0.76
+            case .nearby: return 0.7
+            case .placeholder: return 0.45
+            }
+        }
+    }
     
     // MARK: - Image Processing
     
@@ -35,6 +63,62 @@ final class ProfileImageService {
         print("[ProfileImage]    Dimensions: \(resized.size.width)x\(resized.size.height)")
         
         return jpegData
+    }
+
+    func processIdentityImageVariants(_ data: Data) throws -> (primary: Data, variants: [Variant: Data], warnings: [String]) {
+        guard let image = UIImage(data: data) else { throw ProfileImageError.invalidImageData }
+        let normalized = normalizeOrientation(image)
+        let warnings = qualityWarnings(for: normalized)
+
+        let immersiveCrop = cropToRatio(normalized, aspectRatio: 4.0 / 5.0)
+        var variants: [Variant: Data] = [:]
+
+        for variant in Variant.allCases {
+            let source: UIImage = (variant == .immersive) ? immersiveCrop : normalized
+            let resized = resizeImage(source, maxDimension: variant.maxDimension)
+            if let data = resized.jpegData(compressionQuality: variant.compression) {
+                variants[variant] = data
+            }
+        }
+
+        guard let primary = variants[.immersive] else { throw ProfileImageError.compressionFailed }
+        return (primary, variants, warnings)
+    }
+
+    private func normalizeOrientation(_ image: UIImage) -> UIImage {
+        if image.imageOrientation == .up { return image }
+        let renderer = UIGraphicsImageRenderer(size: image.size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
+    private func cropToRatio(_ image: UIImage, aspectRatio: CGFloat) -> UIImage {
+        let width = image.size.width
+        let height = image.size.height
+        let targetHeight = width / aspectRatio
+        if targetHeight <= height {
+            let y = max(0, (height * 0.18) - (targetHeight * 0.18))
+            let rect = CGRect(x: 0, y: min(y, height - targetHeight), width: width, height: targetHeight)
+            let renderer = UIGraphicsImageRenderer(size: rect.size)
+            return renderer.image { _ in image.draw(at: CGPoint(x: -rect.origin.x, y: -rect.origin.y)) }
+        }
+
+        let targetWidth = height * aspectRatio
+        let x = (width - targetWidth) / 2
+        let rect = CGRect(x: max(0, x), y: 0, width: min(width, targetWidth), height: height)
+        let renderer = UIGraphicsImageRenderer(size: rect.size)
+        return renderer.image { _ in image.draw(at: CGPoint(x: -rect.origin.x, y: -rect.origin.y)) }
+    }
+
+    private func qualityWarnings(for image: UIImage) -> [String] {
+        var warnings: [String] = []
+        let area = image.size.width * image.size.height
+        if area < 500_000 { warnings.append("Move slightly closer for better recognition.") }
+        if let cg = image.cgImage {
+            if cg.width < 700 || cg.height < 700 { warnings.append("Face may be difficult to recognize at this resolution.") }
+        }
+        return warnings
     }
     
     /// Resizes an image to fit within maxDimension while maintaining aspect ratio
