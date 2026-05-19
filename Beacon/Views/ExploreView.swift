@@ -216,23 +216,16 @@ struct ExploreView: View {
         role: SectionRole
     ) -> some View {
         VStack(alignment: .leading, spacing: DesignTokens.elementSpacing) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.caption)
-                    .foregroundColor(iconColor)
+            Text(title)
+                .font(.caption)
+                .foregroundColor(iconColor.opacity(0.6))
 
-                Text(title.uppercased())
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(iconColor)
-                    .tracking(1.2)
-            }
-            
-
+            let relationships = RelationshipMemoryService.shared.relationships
             ForEach(events) { event in
                 let isJoined = eventJoin.joinedEventIDs.contains(event.id.uuidString)
                 let isCheckedInHere = isJoined && eventJoin.isCheckedIn && eventJoin.currentEventID == event.id.uuidString
                 let isCheckedInElsewhere = eventJoin.isCheckedIn && eventJoin.currentEventID != event.id.uuidString
+                let orbitCount = relationships.filter { $0.eventContexts.contains(event.name) }.count
                 SimpleEventCardView(
                     event: event,
                     role: role,
@@ -240,6 +233,7 @@ struct ExploreView: View {
                     isJoining: joinInFlightEventID == event.id.uuidString,
                     isCheckedInHere: isCheckedInHere,
                     isCheckedInElsewhere: isCheckedInElsewhere,
+                    orbitCount: orbitCount,
                     onJoin: {
                         if role == .rejoin {
                             selectedPastEvent = event
@@ -257,7 +251,6 @@ struct ExploreView: View {
                         Task { await eventJoin.checkIn(targetEventID: event.id.uuidString) }
                     }
                 )
-                
             }
         }
     }
@@ -527,6 +520,8 @@ private struct SimpleEventCardView: View {
     let isCheckedInHere: Bool
     /// True when the user is checked in to a DIFFERENT event.
     let isCheckedInElsewhere: Bool
+    /// Number of orbit relationships that share this event's name.
+    let orbitCount: Int
     let onJoin: () -> Void
     let onGoToEvent: () -> Void
     let onOpenPastEvent: () -> Void
@@ -559,6 +554,16 @@ private struct SimpleEventCardView: View {
             if let desc = event.eventDescription, !desc.isEmpty {
                 descriptionBlock(desc)
                     .padding(.top, 10)
+            }
+
+            // ── Orbit context ──────────────────────────────────────────────
+            if orbitCount > 0 {
+                Text(orbitCount == 1
+                    ? "Someone from your orbit has been here before."
+                    : "People from your orbit have crossed paths here.")
+                    .font(.caption2)
+                    .foregroundColor(Color.cyan.opacity(0.6))
+                    .padding(.top, 8)
             }
 
             // ── CTA cluster ────────────────────────────────────────────────
