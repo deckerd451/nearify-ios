@@ -10,17 +10,17 @@ enum HomeSurfaceSection: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .continue:  return "Continue"
-        case .insights:  return "Insights"
-        case .nextMoves: return "Next Moves"
+        case .continue:  return "Orbit"
+        case .insights:  return "Patterns"
+        case .nextMoves: return "Keep going"
         }
     }
 
     var icon: String {
         switch self {
-        case .continue:  return "bolt.fill"
-        case .insights:  return "lightbulb.fill"
-        case .nextMoves: return "arrow.right.circle.fill"
+        case .continue:  return "circle.dotted"
+        case .insights:  return "waveform"
+        case .nextMoves: return "arrow.right"
         }
     }
 }

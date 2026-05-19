@@ -33,57 +33,40 @@ struct PostEventSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Header
-            VStack(alignment: .leading, spacing: 4) {
-                Text("SESSION RECAP")
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(.cyan)
-                    .tracking(0.8)
-
+            // Evening summary header — no mechanical labels
+            VStack(alignment: .leading, spacing: 6) {
                 if summary.totalPeopleMet > 0 {
-                    Text("\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "interaction" : "interactions") at \(summary.eventName)")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    Text("\(summary.totalPeopleMet) \(summary.totalPeopleMet == 1 ? "person" : "people") at \(summary.eventName).")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.9))
                 }
-            }
-
-            summarySection(
-                title: "Time at event",
-                icon: "clock.badge.checkmark",
-                color: .cyan
-            ) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
                     if let attended = summary.snapshot.attendedMinutes {
-                        Text("Attended for \(attended) min")
+                        Text("\(attended) min there.")
                             .font(.caption)
-                            .foregroundColor(.white.opacity(0.85))
+                            .foregroundColor(.white.opacity(0.55))
                     }
-                    Text("\(summary.snapshot.meaningfulPeopleCount) \(summary.snapshot.meaningfulPeopleCount == 1 ? "person" : "people") you spent time with")
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.85))
                     Text(summary.snapshot.activityLine)
-                        .font(.caption2)
-                        .foregroundColor(.cyan.opacity(0.9))
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.45))
                 }
             }
 
-            // ── Top Connection ──
+            // ── Strongest moment ──
             if let strongest = summary.strongestInteraction {
                 summarySection(
-                    title: "Top Connection",
-                    icon: "bolt.fill",
+                    title: "Strongest moment",
                     color: .orange
                 ) {
                     profileRow(strongest, accentColor: .orange, showActions: true)
                 }
             }
 
-            // ── Recent Connections ──
+            // ── Also connected ──
             if !summary.recentConnections.isEmpty {
                 summarySection(
-                    title: "Also connected",
-                    icon: "link",
+                    title: "You also connected",
                     color: .green
                 ) {
                     ForEach(summary.recentConnections) { profile in
@@ -92,11 +75,10 @@ struct PostEventSummaryView: View {
                 }
             }
 
-            // ── Key People ──
+            // ── Time spent nearby ──
             if !summary.keyPeople.isEmpty {
                 summarySection(
-                    title: "Others you spent time with",
-                    icon: "person.3.fill",
+                    title: "Time spent nearby",
                     color: .mint
                 ) {
                     ForEach(summary.keyPeople) { person in
@@ -105,11 +87,10 @@ struct PostEventSummaryView: View {
                 }
             }
 
-            // ── Also there ──
+            // ── Also in the room ──
             if !summary.missedConnections.isEmpty {
                 summarySection(
-                    title: "Also there",
-                    icon: "eye.slash",
+                    title: "Also in the room",
                     color: .purple
                 ) {
                     ForEach(summary.missedConnections) { profile in
@@ -118,11 +99,10 @@ struct PostEventSummaryView: View {
                 }
             }
 
-            // ── Follow-Up Suggestions ──
+            // ── Worth continuing ──
             if !summary.followUpSuggestions.isEmpty {
                 summarySection(
-                    title: "Follow Up",
-                    icon: "exclamationmark.bubble",
+                    title: "Worth continuing",
                     color: .yellow
                 ) {
                     ForEach(summary.followUpSuggestions) { suggestion in
@@ -132,21 +112,16 @@ struct PostEventSummaryView: View {
             }
 
             if !summary.narrativeWrapUp.isEmpty {
-                summarySection(
-                    title: "Wrap-Up",
-                    icon: "text.quote",
-                    color: .white
-                ) {
-                    Text(summary.narrativeWrapUp)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.82))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(summary.narrativeWrapUp)
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.55))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
             }
         }
         .overlay(alignment: .bottom) {
             if showFollowUpToast {
-                Text("Saved for follow-up")
+                Text("Saved to orbit")
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.black)
@@ -167,21 +142,13 @@ struct PostEventSummaryView: View {
 
     private func summarySection<Content: View>(
         title: String,
-        icon: String,
         color: Color,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 9))
-                    .foregroundColor(color)
-                Text(title.uppercased())
-                    .font(.caption2)
-                    .fontWeight(.bold)
-                    .foregroundColor(color)
-                    .tracking(0.8)
-            }
+            Text(title)
+                .font(.caption)
+                .foregroundColor(color.opacity(0.7))
 
             content()
         }
@@ -371,9 +338,9 @@ struct PostEventSummaryView: View {
 
     private func suggestionActionLabel(_ type: FollowUpSuggestion.SuggestionType, isRemembered: Bool = false) -> String {
         switch type {
-        case .followUp:     return "Follow up"
-        case .message:      return "Message"
-        case .meetNextTime: return isRemembered ? "Remembered" : "Remember"
+        case .followUp:     return "Pick up the thread"
+        case .message:      return "Say hello"
+        case .meetNextTime: return isRemembered ? "Saved" : "Save for later"
         }
     }
 

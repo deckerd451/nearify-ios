@@ -728,16 +728,10 @@ struct HomeSurfaceView: View {
 
     private var arrivalWaitingHeader: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("EVENT BRIEF")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.cyan.opacity(0.5))
-                    .tracking(0.8)
-                Text(eventJoin.currentEventName ?? "Event")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white.opacity(0.9))
-            }
+            Text(eventJoin.currentEventName ?? "Event")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.white.opacity(0.9))
             Spacer()
             ProgressView()
                 .tint(.cyan.opacity(0.4))
@@ -753,19 +747,15 @@ struct HomeSurfaceView: View {
         VStack(spacing: 0) {
             Spacer().frame(height: 16)
 
-            // "Who to Talk To" — persistent entry point after arrival brief is dismissed
+            // "Who's here" — persistent entry point after arrival brief is dismissed
             if hasSeenArrivalBrief {
                 Button {
                     showBriefSheet = true
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "doc.text.magnifyingglass")
-                            .font(.system(size: 11))
-                        Text("Who to Talk To")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .foregroundColor(.cyan.opacity(0.5))
+                    Text("Who's here")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.cyan.opacity(0.5))
                 }
                 .padding(.bottom, 12)
             }
@@ -773,12 +763,9 @@ struct HomeSurfaceView: View {
             Button {
                 showWrapUp = true
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "hand.wave")
-                    Text("Say Goodbye")
-                        .fontWeight(.medium)
-                }
-                .foregroundColor(.white.opacity(0.4))
+                Text("Say goodbye")
+                    .fontWeight(.medium)
+                    .foregroundColor(.white.opacity(0.4))
             }
             Spacer().frame(height: 24)
         }
@@ -958,13 +945,10 @@ struct HomeSurfaceView: View {
                 Button {
                     showWrapUp = true
                 } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "hand.wave")
-                        Text("Say Goodbye")
-                            .fontWeight(.medium)
-                    }
-                    .foregroundColor(.white.opacity(0.4))
-                    .padding(.top, 12)
+                    Text("Say goodbye")
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.4))
+                        .padding(.top, 12)
                 }
             }
 
@@ -1016,10 +1000,10 @@ struct HomeSurfaceView: View {
         switch decision.type {
         case .liveInteraction:
             if decision.primaryAction == "Preview your network" { return "person.2" }
-            return decision.personName != nil ? "location.fill" : "person.2"
+            return decision.personName != nil ? "arrow.right" : "person.2"
         case .rejoinEvent:     return "arrow.right.circle.fill"
         case .reconnect:       return decision.primaryAction == "Message" ? "bubble.left" : "person.badge.plus"
-        case .meetNew:         return "location.fill"
+        case .meetNew:         return "hand.wave"
         case .explore:         return "camera.fill"
         }
     }
@@ -1058,7 +1042,7 @@ struct HomeSurfaceView: View {
                     switchTab(to: .people)
                     return
                 }
-                // "Find them" — find the specific person
+                // "Walk over" — find the specific person
                 handlePeopleCTA(specificPersonId: decision.personId)
             } else {
                 switch decision.secondaryAction {
@@ -1178,17 +1162,10 @@ struct HomeSurfaceView: View {
         return Group {
             if !remainingItems.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        Image(systemName: HomeSurfaceSection.continue.icon)
-                            .font(.caption)
-                            .foregroundColor(accentColor)
-                        Text(HomeSurfaceSection.continue.title.uppercased())
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(accentColor)
-                            .tracking(1.2)
-                    }
-                    .padding(.horizontal)
+                    Text(HomeSurfaceSection.continue.title)
+                        .font(.caption)
+                        .foregroundColor(accentColor.opacity(0.6))
+                        .padding(.horizontal)
 
                     ForEach(remainingItems) { item in
                         surfaceCard(item, accentColor: accentColor)
@@ -1207,17 +1184,10 @@ struct HomeSurfaceView: View {
         accentColor: Color
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: section.icon)
-                    .font(.caption)
-                    .foregroundColor(accentColor)
-                Text(section.title.uppercased())
-                    .font(.caption)
-                    .fontWeight(.bold)
-                    .foregroundColor(accentColor)
-                    .tracking(1.2)
-            }
-            .padding(.horizontal)
+            Text(section.title)
+                .font(.caption)
+                .foregroundColor(accentColor.opacity(0.6))
+                .padding(.horizontal)
 
             ForEach(items) { item in
                 surfaceCard(item, accentColor: accentColor)
@@ -1300,7 +1270,7 @@ struct HomeSurfaceView: View {
     private func surfaceActionButton(_ item: HomeSurfaceItem, accentColor: Color) -> some View {
         let icon: String
         switch item.actionType {
-        case .findAttendee: icon = item.actionLabel == "Go say hi" ? "hand.wave" : "location"
+        case .findAttendee: icon = item.actionLabel == "Say hello" ? "hand.wave" : "arrow.right"
         case .reply:        icon = "arrowshape.turn.up.left"
         case .followUp:     icon = "bubble.left"
         case .message:      icon = "bubble.left"
@@ -1489,7 +1459,7 @@ struct HomeSurfaceView: View {
 
             HStack(spacing: 12) {
                 FeedActionButton(
-                    title: "Go say hi",
+                    title: "Say hello",
                     icon: "hand.wave",
                     color: .cyan,
                     action: {
@@ -1498,7 +1468,7 @@ struct HomeSurfaceView: View {
                         print("[TargetResolution] attendee match found: \(targetIntent.targetName ?? "unknown")")
                         #endif
                         handleFindAttendee(profileId: targetId)
-                        targetIntent.clear(reason: "acted on → Go say hi")
+                        targetIntent.clear(reason: "acted on → Say hello")
                     }
                 )
 
@@ -1540,11 +1510,9 @@ struct HomeSurfaceView: View {
                 Divider().background(Color.white.opacity(0.08))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("HERE NOW")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.cyan.opacity(0.7))
-                        .tracking(0.8)
+                    Text("Someone else is here")
+                        .font(.caption)
+                        .foregroundColor(.cyan.opacity(0.6))
 
                     HStack(spacing: 12) {
                         // Avatar
@@ -1898,7 +1866,7 @@ struct HomeSurfaceView: View {
     /// Renders the "MEET NEXT" row inside the event card.
     /// CTA is context-aware:
     ///   - Non-event: "Rejoin to find them" → rejoins event
-    ///   - Live event: "Go say hi" → radar/find attendee
+    ///   - Live event: "Say hello" → radar/find attendee
     private func meetNextSection(_ candidate: MeetNextCandidate, rejoinEventId: String?) -> some View {
         let isLive = eventJoin.isEventJoined
 
@@ -1930,7 +1898,7 @@ struct HomeSurfaceView: View {
                 if isLive {
                     // Live event — route to radar / find attendee
                     FeedActionButton(
-                        title: "Go say hi",
+                        title: "Say hello",
                         icon: "hand.wave",
                         color: .cyan,
                         action: {
@@ -2632,7 +2600,7 @@ struct HomeSurfaceView: View {
             HStack(spacing: 12) {
                 FeedActionButton(
                     title: isInside ? UserPresenceStateResolver.shortMeetLabel : item.actionLabel,
-                    icon: item.actionLabel == "Go say hi" || isInside ? "hand.wave" : "location",
+                    icon: item.actionLabel == "Say hello" || isInside ? "hand.wave" : "arrow.right",
                     color: .orange,
                     action: { handleAction(item) }
                 )
@@ -2926,7 +2894,7 @@ struct HomeSurfaceView: View {
 
     // MARK: - People CTA Routing
     //
-    // Routes the "See who's here" / "Go say hi" action based on attendee count.
+    // Routes the walk-over action based on attendee count.
     // Zero attendees → solo-state sheet.
     // One attendee → direct to that person.
     // Multiple → find the specific person or show ranked list.

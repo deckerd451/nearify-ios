@@ -64,10 +64,9 @@ struct EventBriefView: View {
             // ── 0. START HERE (primary decision section) ──
             if !brief.startHere.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("START HERE")
-                        .font(.system(size: 11, weight: .heavy))
-                        .foregroundColor(.green.opacity(0.8))
-                        .tracking(1.0)
+                    Text("Start here")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.green.opacity(0.7))
 
                     ForEach(brief.startHere) { target in
                         Button {
@@ -106,7 +105,7 @@ struct EventBriefView: View {
 
             // ── 1. HERE NOW ──
             if !brief.hereNow.isEmpty {
-                briefSection(title: "HERE NOW", color: .green) {
+                briefSection(title: "Here now", color: .green) {
                     ForEach(brief.hereNow) { person in
                         personRow(person, color: .green)
                     }
@@ -115,7 +114,7 @@ struct EventBriefView: View {
 
             // ── 2. LIKELY ATTENDEES ──
             if !brief.likelyAttendees.isEmpty {
-                briefSection(title: "LIKELY HERE", color: .cyan.opacity(0.7)) {
+                briefSection(title: "Likely here", color: .cyan.opacity(0.7)) {
                     ForEach(brief.likelyAttendees) { person in
                         personRow(person, color: .cyan.opacity(0.7))
                     }
@@ -124,7 +123,7 @@ struct EventBriefView: View {
 
             // ── 3. SUGGESTED CONNECTIONS ──
             if !brief.suggestedConnections.isEmpty {
-                briefSection(title: "SUGGESTED CONNECTIONS", color: .orange) {
+                briefSection(title: "Worth saying hello", color: .orange) {
                     ForEach(brief.suggestedConnections) { conn in
                         connectionRow(conn)
                     }
@@ -133,7 +132,7 @@ struct EventBriefView: View {
 
             // ── 4. TALKING POINTS ──
             if !brief.talkingPoints.isEmpty {
-                briefSection(title: "TALKING POINTS", color: .white.opacity(0.3)) {
+                briefSection(title: "Talking points", color: .white.opacity(0.3)) {
                     ForEach(Array(brief.talkingPoints.enumerated()), id: \.offset) { _, point in
                         Text(point)
                             .font(.footnote)

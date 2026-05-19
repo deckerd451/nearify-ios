@@ -104,12 +104,12 @@ enum DecisionResolver {
                     personAvatarUrl: target.avatarUrl,
                     confidence: presence == .insideEvent ? 0.9 : 0.6,
                     headline: "\(firstName(target.name)) is here",
-                    contextLine: "Go say hi",
+                    contextLine: "Say hello",
                     whyNowLine: attendeeCount == 2
-                        ? "\(attendeeCount) people here — early conversations stick"
-                        : "Just the two of you — easy intro",
+                        ? "Early conversations tend to stick."
+                        : "Just the two of you — a natural moment.",
                     subtext: nil,
-                    primaryAction: "Find them",
+                    primaryAction: "Walk over",
                     secondaryAction: "Preview your network"
                 )
             }
@@ -128,9 +128,9 @@ enum DecisionResolver {
             if isConnected && overlapMins >= 2 {
                 reason = "Already connected · near you now"
             } else if isConnected {
-                reason = "Someone you know — easy starting point"
+                reason = "Someone you know — a natural starting point"
             } else if overlapMins >= 3 {
-                reason = "You've been near each other for \(overlapMins) min"
+                reason = "You've already crossed paths for \(overlapMins) min"
             } else {
                 // Derive from shared interests if available
                 let myInterests = Set((AuthService.shared.currentUser?.interests ?? []).map { $0.lowercased() })
@@ -139,7 +139,7 @@ enum DecisionResolver {
                 if let topic = shared.first {
                     reason = "You both share an interest in \(topic)"
                 } else {
-                    reason = "Strongest signal in the room"
+                    reason = "A natural starting point"
                 }
             }
 
@@ -155,7 +155,7 @@ enum DecisionResolver {
                 contextLine: "Start with \(firstName(startHere.name))",
                 whyNowLine: reason,
                 subtext: nil,
-                primaryAction: "Find them",
+                primaryAction: "Walk over",
                 secondaryAction: "View everyone"
             )
         }
@@ -174,7 +174,7 @@ enum DecisionResolver {
                 contextLine: nil,
                 whyNowLine: nil,
                 subtext: nil,
-                primaryAction: "Rejoin Event",
+                primaryAction: "Rejoin",
                 secondaryAction: "Browse Events"
             )
         }
@@ -240,7 +240,7 @@ enum DecisionResolver {
                 contextLine: contextLine,
                 whyNowLine: whyNowLine,
                 subtext: nil,
-                primaryAction: "Go say hi",
+                primaryAction: "Say hello",
                 secondaryAction: "View profile"
             )
         }
@@ -258,7 +258,7 @@ enum DecisionResolver {
             contextLine: nil,
             whyNowLine: nil,
             subtext: nil,
-            primaryAction: "Scan Event QR",
+            primaryAction: "Scan a QR code",
             secondaryAction: "Browse Events"
         )
     }

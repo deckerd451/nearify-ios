@@ -200,7 +200,7 @@ final class HomeSurfaceService: ObservableObject {
                     avatarUrl: avatarMap[profileId],
                     headline: headline, subtitle: subtitle,
                     actionType: .findAttendee,
-                    actionLabel: isConnected ? "Go say hi" : "Find",
+                    actionLabel: isConnected ? "Say hello" : "Walk over",
                     temporalState: temporal,
                     priority: temporal == .immediate ? priority + 0.3 : priority,
                     eventId: eventId, eventName: eventName, isFind: true
@@ -239,7 +239,7 @@ final class HomeSurfaceService: ObservableObject {
                     isEncounter: true
                 ),
                 actionType: .findAttendee,
-                actionLabel: isConnected ? "Go say hi" : "Find",
+                actionLabel: isConnected ? "Say hello" : "Walk over",
                 temporalState: temporal, priority: priority,
                 eventId: item.eventId, eventName: item.metadata?.eventName, isFind: true
             ))
@@ -331,8 +331,8 @@ final class HomeSurfaceService: ObservableObject {
             if !memory.isSuppressed(profileId: nil, eventId: eventId, section: .nextMoves) {
                 nextMovePool.append(HomeSurfaceItem(
                     section: .nextMoves, profileId: nil, name: lastEventName,
-                    headline: "Jump back into \(lastEventName)",
-                    actionType: .jumpBack, actionLabel: "Join",
+                    headline: "\(lastEventName) is still going",
+                    actionType: .jumpBack, actionLabel: "Rejoin",
                     temporalState: .recent, priority: 0.1,
                     eventId: eventId, eventName: lastEventName
                 ))

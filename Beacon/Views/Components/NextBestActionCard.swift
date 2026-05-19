@@ -93,7 +93,7 @@ struct NextBestActionCard: View {
             candidates.append(DisplayAction(
                 headline: headline,
                 subtitle: topPerson.reason.isEmpty ? nil : topPerson.reason,
-                ctaLabel: isLocatable && matchedAttendee != nil ? "Find them" : "Who's here",
+                ctaLabel: isLocatable && matchedAttendee != nil ? "Walk over" : "Who's here",
                 icon: "sparkles",
                 accentColor: VisualStyle.intelligence,
                 action: isLocatable && matchedAttendee != nil
