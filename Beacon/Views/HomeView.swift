@@ -305,6 +305,21 @@ struct HomeView: View {
                 .foregroundColor(VisualStyle.secondaryText)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if eventJoin.isCheckedIn {
+                HStack {
+                    Spacer()
+                    Button {
+                        showWrapUpFlow = true
+                    } label: {
+                        Text("Say goodbye")
+                            .font(.caption2)
+                            .foregroundColor(VisualStyle.tertiaryText.opacity(0.55))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
