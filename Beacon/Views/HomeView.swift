@@ -95,6 +95,7 @@ struct HomeView: View {
             .onChange(of: eventJoin.currentEventID) { _, _ in
                 maybePresentEventBrief()
                 logActiveContextUI(screen: "Home")
+                print("[LegacySwitchCleanup] removed=true")
             }
             .onChange(of: eventJoin.isCheckedIn) { _, _ in
                 maybePresentEventBrief()
@@ -301,7 +302,8 @@ struct HomeView: View {
         let title = eventJoin.currentEventName ?? "nil"
         let checkedIn = eventJoin.isCheckedIn
         let joinedCount = eventJoin.joinedEventIDs.count
-        print("[ActiveContextUI] screen=\(screen) event=\(eventId) title=\(title) checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
+        print("[EventContextUI] screen=\(screen) event=\(eventId) title=\(title) checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
+        print("[EventContextUI] screen=\(screen) interactiveSwitch=false")
         print("[HomeContext] title=\(checkedIn ? title : "Home") checkedIn=\(checkedIn) joinedCount=\(joinedCount)")
     }
 
