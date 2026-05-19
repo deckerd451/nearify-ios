@@ -18,6 +18,11 @@ enum DesignTokens {
 
     /// Bottom padding for scrollable content.
     static let scrollBottomPadding: CGFloat = 32
+
+    /// Extra clearance reserved by scrollable root-tab content for the custom
+    /// floating tab bar. Keep this centralized so root tabs do not each guess at
+    /// the overlay height.
+    static let tabBarContentClearance: CGFloat = 120
 }
 
 
@@ -28,6 +33,29 @@ extension View {
         regularPadding: CGFloat = 28
     ) -> some View {
         modifier(ResponsiveContentContainer(maxWidth: maxWidth, compactPadding: compactPadding, regularPadding: regularPadding))
+    }
+
+    func tabbedScrollContentClearance(screen: String) -> some View {
+        modifier(TabbedScrollContentClearance(screen: screen))
+    }
+}
+
+private struct TabbedScrollContentClearance: ViewModifier {
+    let screen: String
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(height: DesignTokens.tabBarContentClearance)
+                    .accessibilityHidden(true)
+            }
+            .onAppear {
+                #if DEBUG
+                print("[TabSafeArea] applied clearance=\(Int(DesignTokens.tabBarContentClearance)) screen=\(screen)")
+                print("[ScrollClearance] bottom content reachable screen=\(screen)")
+                #endif
+            }
     }
 }
 

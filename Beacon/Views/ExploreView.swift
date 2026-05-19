@@ -35,6 +35,7 @@ struct ExploreView: View {
                         loadingState
                             .frame(maxWidth: .infinity)
                     }
+                    .tabbedScrollContentClearance(screen: "ExploreView")
                 } else {
                     mainContent
                 }
@@ -110,6 +111,7 @@ struct ExploreView: View {
             .padding(.top, DesignTokens.titleToContent)
             .padding(.bottom, DesignTokens.scrollBottomPadding)
         }
+        .tabbedScrollContentClearance(screen: "ExploreView")
     }
 
     @ViewBuilder
