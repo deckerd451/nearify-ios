@@ -269,7 +269,7 @@ struct HomeView: View {
     // MARK: - Four-Layer Momentum Surface
 
     private var homeFourLayerSurface: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             contextNarrativeLayer
             primaryActionLayer
             curatedMomentumLayer
@@ -396,13 +396,11 @@ struct HomeView: View {
     }
 
     private var curatedMomentumLayer: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "Momentum")
-
+        VStack(alignment: .leading, spacing: 8) {
             if curatedMomentumItems.isEmpty {
                 quietEmptyMomentum
             } else {
-                VStack(spacing: 10) {
+                VStack(spacing: 8) {
                     ForEach(curatedMomentumItems, id: \.id) { item in
                         momentumRow(item)
                     }
@@ -411,40 +409,20 @@ struct HomeView: View {
 
             if eventJoin.isCheckedIn && !attendeesService.attendees.isEmpty {
                 nearbyPeopleContinuityStrip
+                    .padding(.top, 4)
             }
         }
-        .padding(16)
-        .elevatedCard(accent: VisualStyle.intelligence, glow: 0.08)
     }
 
     private var ambientIntelligenceLayer: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkle.magnifyingglass")
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(VisualStyle.intelligence.opacity(0.75))
-                Text("Quiet signal")
-                    .font(.caption)
-                    .foregroundColor(VisualStyle.tertiaryText.opacity(0.7))
-                Spacer()
-            }
-
-            Text(ambientIntelligenceCopy)
-                .font(.caption)
-                .foregroundColor(VisualStyle.secondaryText)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.028))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.07), lineWidth: 1)
-                )
-        )
+        Text(ambientIntelligenceCopy)
+            .font(.caption)
+            .foregroundColor(VisualStyle.tertiaryText.opacity(0.6))
+            .lineSpacing(3)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
     }
 
     private func sectionHeader(title: String, subtitle: String? = nil) -> some View {
