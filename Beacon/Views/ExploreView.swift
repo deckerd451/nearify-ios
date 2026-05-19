@@ -484,9 +484,7 @@ private struct EventFocusCardView: View {
                     .fill(isPrimary ? Color.green : Color.blue)
                     .frame(width: 7, height: 7)
 
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundColor((isPrimary ? Color.green : Color.blue).opacity(0.85))
+                NearifyContextChip(text: statusText, tint: isPrimary ? .green : .blue)
             }
 
             Button(actionTitle, action: onAction)
@@ -500,12 +498,12 @@ private struct EventFocusCardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white.opacity(0.06))
+                .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.055))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke((isPrimary ? Color.green : Color.blue).opacity(0.25), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke((isPrimary ? Color.green : Color.blue).opacity(0.22), lineWidth: 1)
                 )
         )
     }
@@ -592,7 +590,7 @@ private struct SimpleEventCardView: View {
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.55))
                 .lineSpacing(2.5)
-                .lineLimit(isDescriptionExpanded ? nil : 3)
+                .lineLimit(isDescriptionExpanded ? nil : 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 // Gradient-mask fade on the last line when collapsed.

@@ -91,7 +91,7 @@ struct HomeView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-            .background(Color.black.ignoresSafeArea())
+            .background(NearifyShellBackground())
             .refreshable { attendeesService.refresh() }
             .onChange(of: eventJoin.currentEventID) { _, _ in
                 maybePresentEventBrief()

@@ -16,6 +16,7 @@ struct ProfileView: View {
     var body: some View {
         NavigationView {
             ZStack {
+                NearifyShellBackground()
                 ScrollView {
                     VStack(spacing: 24) {
                         // Profile Header
@@ -23,16 +24,16 @@ struct ProfileView: View {
                             // Avatar placeholder
                             Circle()
                                 .fill(Color.blue.opacity(0.2))
-                                .frame(width: 100, height: 100)
+                                .frame(width: 136, height: 136)
                                 .overlay(
                                     Text(String(profile.name.prefix(1)))
-                                        .font(.system(size: 40))
+                                        .font(.system(size: 52, weight: .bold))
                                         .fontWeight(.bold)
                                         .foregroundColor(.blue)
                                 )
                             
                             Text(profile.name)
-                                .font(.title2)
+                                .font(.title)
                                 .fontWeight(.bold)
                             
                             if let publicEmail = sanitizedContactValue(profile.publicEmail), profile.shareEmail == true {
@@ -42,9 +43,6 @@ struct ProfileView: View {
                             }
                         }
                         .padding(.top, 32)
-                        
-                        Divider()
-                            .padding(.horizontal)
                         
                         // Action Buttons
                         VStack(spacing: 16) {
@@ -75,8 +73,8 @@ struct ProfileView: View {
                                     }
                                     .frame(maxWidth: .infinity)
                                     .padding()
-                                    .background(Color.blue)
-                                    .foregroundColor(.white)
+                                     .background(Color.white)
+                                     .foregroundColor(.black)
                                     .cornerRadius(12)
                                 }
                                 .disabled(isCreatingConnection)
@@ -95,8 +93,8 @@ struct ProfileView: View {
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.orange)
-                                .foregroundColor(.white)
+                                 .background(Color.white.opacity(0.16))
+                                 .foregroundColor(.black)
                                 .cornerRadius(12)
                             }
                             }
@@ -110,12 +108,13 @@ struct ProfileView: View {
                                 }
                                 .frame(maxWidth: .infinity)
                                 .padding()
-                                .background(Color.green)
-                                .foregroundColor(.white)
+                                 .background(Color.white.opacity(0.16))
+                                 .foregroundColor(.black)
                                 .cornerRadius(12)
                             }
                         }
                         .padding(.horizontal)
+                        .background(RoundedRectangle(cornerRadius: 22).fill(Color.white.opacity(0.05)).overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.12), lineWidth: 1)))
                         
                         Spacer()
                     }
@@ -128,17 +127,17 @@ struct ProfileView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.title3)
-                                .foregroundColor(.white)
+                                 .foregroundColor(.black)
                             
                             Text(successMessage)
                                 .font(.subheadline)
                                 .fontWeight(.medium)
-                                .foregroundColor(.white)
+                                 .foregroundColor(.black)
                             
                             Spacer()
                         }
                         .padding()
-                        .background(Color.green)
+                         .background(Color.white.opacity(0.16))
                         .cornerRadius(12)
                         .shadow(radius: 4)
                         .padding()
