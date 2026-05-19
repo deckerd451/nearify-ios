@@ -219,7 +219,7 @@ struct ExploreView: View {
                         selectedPastEvent = event
                     },
                     onCheckIn: {
-                        Task { await eventJoin.checkIn(targetEventID: event.id.uuidString) }
+                        Task { await enterEvent(eventId: event.id.uuidString) }
                     }
                 )
             }
@@ -275,13 +275,18 @@ struct ExploreView: View {
     }
 
     private func enterEvent(eventId: String) async {
-        if !eventJoin.joinedEventIDs.contains(eventId) {
-            await MainActor.run { joinInFlightEventID = eventId }
-            let targetEventName = allEvents.first(where: { $0.id.uuidString == eventId })?.name
-            await eventJoin.joinEvent(eventID: eventId, eventName: targetEventName)
+        await MainActor.run { joinInFlightEventID = eventId }
+        let targetEventName = allEvents.first(where: { $0.id.uuidString == eventId })?.name
+        let didSwitch = await eventJoin.enterEventAtomically(targetEventID: eventId, targetEventName: targetEventName)
+        await MainActor.run {
+            joinInFlightEventID = nil
+            if didSwitch {
+                switchTab(to: .home)
+            } else {
+                let error = eventJoin.joinError ?? "Something went wrong"
+                joinState = .failed(message: error)
+            }
         }
-        await eventJoin.checkIn(targetEventID: eventId)
-        await MainActor.run { switchTab(to: .home) }
     }
 
     private var allEvents: [ExploreEvent] {

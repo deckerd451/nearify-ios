@@ -86,6 +86,7 @@ final class EventJoinService: ObservableObject {
     }
 
     @Published var pendingCheckInSwitch: PendingCheckInSwitch?
+    @Published private(set) var isEventSwitchInProgress: Bool = false
 
     private let supabase = AppEnvironment.shared.supabaseClient
     private let presence = EventPresenceService.shared
@@ -95,6 +96,7 @@ final class EventJoinService: ObservableObject {
     private var beaconCancellable: AnyCancellable?
     private var joinedProfileId: UUID?
     private var isLeaveInProgress = false
+    private var eventSwitchSequence = 0
     /// Tracks the background reconciliation task so it can be cancelled on auth loss,
     /// preventing a stale-session query from wiping the persisted context mid-restoration.
     private var activeReconciliationTask: Task<Void, Never>?
@@ -661,6 +663,62 @@ final class EventJoinService: ObservableObject {
         }
 
         await performCheckIn(targetEventID: targetID)
+    }
+
+    /// Canonical Explore entry pathway: join (if needed) + activate presence atomically.
+    /// This is the single orchestration point for switching the user's live event context.
+    @discardableResult
+    func enterEventAtomically(targetEventID: String, targetEventName: String? = nil, source: String = "exploreEnterEvent") async -> Bool {
+        eventSwitchSequence += 1
+        let switchId = eventSwitchSequence
+        let from = currentEventID ?? "none"
+        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=preparing success=true")
+        isEventSwitchInProgress = true
+        defer { isEventSwitchInProgress = false }
+
+        if isCheckedIn, currentEventID != targetEventID {
+                print("[EventSwitch] from=\(from) to=\(targetEventID) phase=leavingOld success=true")
+                await endActiveCheckIn()
+        } else {
+            print("[EventSwitch] from=\(from) to=\(targetEventID) phase=leavingOld success=true")
+        }
+
+        if !joinedEventIDs.contains(targetEventID) {
+            guard let targetUUID = UUID(uuidString: targetEventID) else {
+                joinError = "Invalid event ID"
+                print("[EventSwitch] from=\(from) to=\(targetEventID) phase=failed success=false")
+                return false
+            }
+            await performJoin(eventUUID: targetUUID, isPrimary: true)
+            guard joinedEventIDs.contains(targetEventID) else {
+                print("[EventSwitch] from=\(from) to=\(targetEventID) phase=failed success=false")
+                return false
+            }
+        } else if currentEventID != targetEventID {
+            currentEventID = targetEventID
+            currentEventName = targetEventName ?? joinedEventNames[targetEventID] ?? currentEventName
+            isEventJoined = true
+            isCheckedIn = false
+            membershipState = .joined(eventName: currentEventName ?? "event")
+            persistActiveJoinedState()
+        }
+
+        pendingCheckInSwitch = nil
+        postEventSummary = nil
+        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=activatingNew success=true")
+        await performCheckIn(targetEventID: targetEventID)
+        guard isCheckedIn, currentEventID == targetEventID else {
+            print("[EventSwitch] from=\(from) to=\(targetEventID) phase=failed success=false")
+            return false
+        }
+
+        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=refreshingPresence success=true")
+        EventAttendeesService.shared.refresh()
+        print("[EventSwitch] from=\(from) to=\(targetEventID) phase=completed success=true")
+        #if DEBUG
+        print("[EventSwitch] sequence=\(switchId) source=\(source)")
+        #endif
+        return true
     }
 
     /// Internal: performs the actual check-in after all guards have passed.
