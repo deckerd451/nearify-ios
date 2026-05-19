@@ -34,6 +34,7 @@ struct PeopleView: View {
     @State private var lastFocusedTargetId: UUID?
     @State private var lastContextMode: PeopleContextMode?
     @State private var showFullRoster = false
+    @State private var semanticTick = 0
 
     /// Sections are read from the controller, which handles debouncing
     /// and change detection. No direct computation in the view.
@@ -147,6 +148,10 @@ struct PeopleView: View {
             SavedContactsStateService.shared.requestRefresh()
             PeopleRefreshCoordinator.shared.requestRefresh(reason: "people-appear")
         }
+
+        .onReceive(Timer.publish(every: 12, on: .main, in: .common).autoconnect()) { _ in
+            semanticTick += 1
+        }
         .onChange(of: eventJoin.isEventJoined) { _, isJoined in
             // Clear event context when user leaves the event
             if !isJoined && navigationState.eventContext != nil {
@@ -203,7 +208,7 @@ struct PeopleView: View {
                     if !supportingPeople.isEmpty {
                         compactSectionBlock(
                             title: "Worth continuing",
-                            subtitle: "Quiet signals around conversations with momentum",
+                            subtitle: "People where continuing should feel easy",
                             people: supportingPeople
                         )
                     }
@@ -274,7 +279,7 @@ struct PeopleView: View {
             Text("Live now")
                 .font(.title3.weight(.semibold))
                 .foregroundColor(.white.opacity(0.95))
-            Text("People currently entering your orbit")
+            Text("The room is shifting — these people are active right now")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.62))
             ForEach(liveNowPeople) { person in
@@ -285,7 +290,7 @@ struct PeopleView: View {
         .onAppear {
             #if DEBUG
             if let lead = liveNowPeople.first {
-                debugLog("[PeopleLivePriority] lead=\(lead.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: lead))) freshnessAge=\(Int(freshnessAge(for: lead) ?? -1)) source=\(lead.presenceSource.rawValue)")
+                debugLog("[PeopleLiveState] lead=\(lead.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: lead))) freshnessAge=\(Int(freshnessAge(for: lead) ?? -1)) source=\(lead.presenceSource.rawValue)")
             }
             #endif
         }
@@ -325,7 +330,8 @@ struct PeopleView: View {
         }
         .onAppear {
             #if DEBUG
-            debugLog("[PeopleHierarchy] dominant=\(dominantPerson?.id.uuidString.prefix(8) ?? "nil") supporting=\(supportingPeople.count) rosterExpanded=\(showFullRoster)")
+            debugLog("[PeopleSectionPriority] dominant=\(dominantPerson?.id.uuidString.prefix(8) ?? "nil") supporting=\(supportingPeople.count) rosterExpanded=\(showFullRoster)")
+            debugLog("[PeopleActionSurface] live=\(sections.hereNow.count) followUp=\(sections.followUp.count) passive=\(sections.notHere.count)")
             #endif
         }
     }
@@ -517,32 +523,25 @@ struct PeopleView: View {
                 HStack(spacing: 6) {
                     Text(person.displayName)
                         .font(.body.weight(.semibold)).foregroundColor(.white)
-                    let relationshipState = person.relationshipState
-                    relationshipBadge(for: relationshipState)
-                        .onAppear {
-                            logRelationshipState(relationshipState)
-                        }
-                    if person.isTargetIntent {
-                        Image(systemName: "eye.fill").font(.system(size: 9)).foregroundColor(.cyan)
+                    if person.presence == .hereNow {
+                        Text("NOW")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.green.opacity(0.95))
+                    } else if person.presence == .followUp {
+                        Text("LATER")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.white.opacity(0.6))
+                    } else {
+                        Text("PASSIVE")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.white.opacity(0.45))
                     }
                 }
 
-                if person.relationshipState == .encountered || person.relationshipState == .repeated {
-                    Text(person.distilledInsight)
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.75))
-                        .lineLimit(1)
-                } else if !person.topTraits.isEmpty {
-                    Text(person.topTraits.joined(separator: " · "))
-                        .font(.caption)
-                        .foregroundColor(.white.opacity(0.75))
-                        .lineLimit(1)
-                } else {
-                    Text(person.distilledInsight)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                        .lineLimit(1)
-                }
+                Text(dominantHeadline(for: person))
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.76))
+                    .lineLimit(1)
 
                 if let why = humanizedWhyText(for: person) {
                     Text(why)
@@ -630,6 +629,11 @@ struct PeopleView: View {
             actionButton(person.primaryAction, person: person, color: sectionColor, compact: compact)
         }
         .padding(.top, 4)
+        .onAppear {
+            #if DEBUG
+            debugLog("[PeopleDominantAction] person=\(person.id.uuidString.prefix(8)) cta=\(primaryActionLabel(for: person.primaryAction, person: person))")
+            #endif
+        }
     }
 
     private func actionButton(_ action: PersonAction, person: PersonIntelligence, color: Color, compact: Bool) -> some View {
@@ -640,41 +644,41 @@ struct PeopleView: View {
                 Image(systemName: action.icon).font(.caption2)
                 Text(primaryActionLabel(for: action, person: person)).font(.caption).fontWeight(.medium)
             }
-            .foregroundColor(color)
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(color.opacity(compact ? 0.08 : 0.12)).cornerRadius(8)
+            .foregroundColor(person.presence == .hereNow ? .black : color)
+            .padding(.horizontal, compact ? 10 : 12).padding(.vertical, compact ? 6 : 8)
+            .background((person.presence == .hereNow ? Color.white.opacity(0.95) : color.opacity(compact ? 0.08 : 0.12)))
+            .cornerRadius(10)
         }
     }
 
     private func dominantMomentumCard(_ person: PersonIntelligence) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Start here")
-                .font(.subheadline)
-                .foregroundColor(.white.opacity(0.75))
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Live thread to act on")
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.white.opacity(0.78))
+            HStack(spacing: 14) {
                 avatarView(person, color: .white)
-                    .frame(width: 52, height: 52)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(person.displayName)
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    if let continuity = humanizedWhyText(for: person) {
-                        Text(continuity)
-                            .font(.subheadline)
-                            .foregroundColor(.white.opacity(0.7))
-                            .lineLimit(1)
-                    }
-                }
+                    .frame(width: 56, height: 56)
+                Text(person.displayName)
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.white)
+                Spacer()
+                livePulseDot
             }
             Text(dominantHeadline(for: person))
-                .font(.title3)
-                .fontWeight(.semibold)
+                .font(.title3.weight(.semibold))
                 .foregroundColor(.white)
+                .lineLimit(2)
             actionButton(person.primaryAction, person: person, color: .white, compact: false)
         }
-        .padding(22)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color.white.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.08), lineWidth: 1))
+        .padding(26)
+        .background(
+            RoundedRectangle(cornerRadius: 22)
+                .fill(
+                    LinearGradient(colors: [Color.white.opacity(0.14), Color.white.opacity(0.06)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+        )
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.16), lineWidth: 1.1))
         .padding(.horizontal)
         .onAppear {
             #if DEBUG
@@ -685,16 +689,20 @@ struct PeopleView: View {
     }
 
     private func dominantHeadline(for person: PersonIntelligence) -> String {
-        switch navigationState.peopleContext?.mode {
-        case .unfinishedMomentum, .continuityFocus:
-            return "This conversation still feels open."
-        case .liveNearby:
-            return "A familiar signal is nearby."
-        case .recommendedNow:
-            return "Someone nearby may be worth continuing with."
-        default:
-            return "You already have context here."
+        let lines: [String]
+        switch person.presence {
+        case .hereNow:
+            lines = ["Still nearby.", "You already crossed paths tonight.", "You’re both still active.", "Likely easy to reconnect with."]
+        case .followUp:
+            lines = ["Conversation reopened naturally.", "Easy to continue with.", "You already have context.", "Social momentum detected."]
+        case .notHere:
+            lines = ["You’ve interacted before.", "Recurring overlap.", "Quiet momentum is still here.", "Pick this back up when ready."]
         }
+        let pick = lines[(semanticTick + Int(person.priorityScore.rounded())) % lines.count]
+        #if DEBUG
+        debugLog("[PeopleSemanticRotation] person=\(person.id.uuidString.prefix(8)) phrase=\(pick)")
+        #endif
+        return pick
     }
 
     private func humanizedWhyText(for person: PersonIntelligence) -> String? {
@@ -714,11 +722,12 @@ struct PeopleView: View {
             let canFind = canShowFind(for: person)
             #if DEBUG
             debugLog("[PeopleCTAResolution] person=\(person.id.uuidString.prefix(8)) confidence=\(String(format: "%.2f", liveConfidence(for: person))) source=\(person.presenceSource.rawValue) reason=\(canFind ? "live-proximity" : "softened-cta")")
+            debugLog("[PeopleUrgency] person=\(person.id.uuidString.prefix(8)) state=\(person.presence.rawValue) weighting=\(String(format: "%.2f", liveConfidence(for: person)))")
             #endif
             return canFind ? "Find them" : "Continue"
         case .message: return "Continue"
-        case .viewProfile: return "Open thread"
-        case .keepWatching: return "Keep in view"
+        case .viewProfile: return "Reconnect"
+        case .keepWatching: return "Still nearby"
         }
     }
 
@@ -735,6 +744,15 @@ struct PeopleView: View {
         debugLog("[PeopleTemporalTruth] person=\(person.id.uuidString.prefix(8)) freshnessAge=\(Int(age))s staleDowngrade=expired")
         #endif
         return 0.62
+    }
+
+        private var livePulseDot: some View {
+        ZStack {
+            Circle().fill(Color.green.opacity(0.3)).frame(width: 20, height: 20)
+                .scaleEffect(semanticTick % 2 == 0 ? 0.85 : 1.05)
+                .animation(.easeInOut(duration: 1.4), value: semanticTick)
+            Circle().fill(Color.green).frame(width: 9, height: 9)
+        }
     }
 
     // MARK: - Avatar
@@ -895,9 +913,9 @@ struct PeopleView: View {
             Spacer()
             Image(systemName: "person.2.circle")
                 .font(.system(size: 48)).foregroundColor(.gray.opacity(0.4))
-            Text("You're early.")
+            Text("The room is still settling.")
                 .font(.title3).fontWeight(.semibold).foregroundColor(.white.opacity(0.6))
-            Text("People will appear here as they arrive.")
+            Text("People are beginning to appear nearby. Signals become clearer as activity increases.")
                 .font(.subheadline).foregroundColor(.gray)
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
             Spacer()
