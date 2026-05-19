@@ -33,6 +33,7 @@ struct MainTabView: View {
     @State private var lastPeoplePathMutationSignature: String?
     @ObservedObject private var messaging = MessagingService.shared
     @ObservedObject private var navigationState = NavigationState.shared
+    @ObservedObject private var eventJoin = EventJoinService.shared
 
     init(currentUser: User, selectedTab: Binding<AppTab>) {
         self.currentUser = currentUser
@@ -48,7 +49,7 @@ struct MainTabView: View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 HomeView(selectedTab: $selectedTab)
-                    .nearifyTabHeader("Home")
+                    .nearifyTabHeader(homeTabTitle)
             }
             .tag(AppTab.home)
 
@@ -197,6 +198,13 @@ struct MainTabView: View {
         .onChange(of: messaging.totalUnreadCount) { _, newCount in
             DebugLog.verbose("[MessagesBadge] unread count=\(newCount)")
         }
+    }
+
+    private var homeTabTitle: String {
+        let trimmed = eventJoin.currentEventName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = (eventJoin.isCheckedIn && !trimmed.isEmpty) ? trimmed : "Home"
+        print("[HomeContext] title=\(title) checkedIn=\(eventJoin.isCheckedIn) joinedCount=\(eventJoin.joinedEventIDs.count)")
+        return title
     }
 
     @ViewBuilder

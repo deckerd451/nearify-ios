@@ -145,21 +145,25 @@ struct ExploreView: View {
                 return "Happening now"
             }()
             let actionTitle: String = {
-                if isCheckedInHere { return "Open Event" }
-                if isJoined && isCheckedInElsewhere { return "Check in here instead" }
-                if isJoined { return "Check In" }
-                return "Open Event"
+                if isCheckedInHere { return "Current Event" }
+                if isJoined { return "Enter Event" }
+                return "Join"
             }()
             EventFocusCardView(
                 title: current.name,
                 statusText: statusText,
                 actionTitle: actionTitle,
                 isPrimary: true,
-                isActionDisabled: false,
+                isActionDisabled: isCheckedInHere,
                 onAction: {
-                    if isJoined && isCheckedInElsewhere {
+                    if isCheckedInHere {
+                        return
+                    } else if isJoined {
                         Task { await eventJoin.checkIn(targetEventID: current.id.uuidString) }
                     } else {
+                        performJoin(eventId: current.id.uuidString)
+                    }
+                    if isJoined {
                         switchTab(to: .home)
                     }
                 }
@@ -523,7 +527,7 @@ private struct SimpleEventCardView: View {
     let onJoin: () -> Void
     let onGoToEvent: () -> Void
     let onOpenPastEvent: () -> Void
-    /// Called when the user taps "Check In" or "Check in here instead".
+    /// Called when the user taps "Enter Event".
     let onCheckIn: () -> Void
 
     @State private var isDescriptionExpanded = false
@@ -651,37 +655,22 @@ private struct SimpleEventCardView: View {
             }
         } else if isJoined {
             if isCheckedInHere {
-                Button("Open Event", action: onGoToEvent)
+                Button("Current Event", action: onGoToEvent)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.black)
+                    .foregroundColor(.white.opacity(0.8))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.green))
-            } else if role == .happeningNow && isCheckedInElsewhere {
-                Button(action: onCheckIn) {
-                    Text("Check in here instead")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.green))
-                }
-            } else if role == .happeningNow {
-                Button(action: onCheckIn) {
-                    Text("I'm here")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.green))
-                }
+                    .background(Capsule().fill(Color.green.opacity(0.35)))
+                    .disabled(true)
             } else {
-                Button("Open Event", action: onGoToEvent)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Color.blue))
+                Button(action: onCheckIn) {
+                    Text("Enter Event")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.green))
+                }
             }
         } else {
             // Not joined — show Join button (no "Switch Event" concept).
