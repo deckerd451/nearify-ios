@@ -365,7 +365,7 @@ struct HomeView: View {
 
     private var curatedMomentumLayer: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "Momentum", subtitle: "What’s worth carrying forward")
+            sectionHeader(title: "Momentum")
 
             if curatedMomentumItems.isEmpty {
                 quietEmptyMomentum
@@ -415,15 +415,17 @@ struct HomeView: View {
         )
     }
 
-    private func sectionHeader(title: String, subtitle: String) -> some View {
+    private func sectionHeader(title: String, subtitle: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white.opacity(0.9))
-                Text(subtitle)
-                    .font(.caption2)
-                    .foregroundColor(VisualStyle.tertiaryText)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundColor(VisualStyle.tertiaryText)
+                }
             }
             Spacer()
         }
@@ -562,11 +564,11 @@ struct HomeView: View {
         if let matched = matchedBriefAttendee, items.count < 3 {
             items.append(MomentumItem(
                 id: "brief-\(matched.id.uuidString)",
-                title: "A useful conversation may start with \(matched.displayName)",
-                subtitle: topBriefPerson?.reason.isEmpty == false ? topBriefPerson?.reason ?? "" : "Nearify is keeping this suggestion soft until there is stronger context.",
+                title: "\(matched.displayName) is worth saying hello to.",
+                subtitle: topBriefPerson?.reason.isEmpty == false ? topBriefPerson?.reason ?? "" : "Not enough context yet — this might be worth watching.",
                 icon: "sparkles",
                 accent: VisualStyle.live,
-                accessory: "Find",
+                accessory: "Walk over",
                 action: .find(matched)
             ))
         }
@@ -617,11 +619,11 @@ struct HomeView: View {
         }
 
         if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
-            return HomePrimaryAction(kind: .checkIn, title: "I’m here", subtitle: "Activate live recommendations for this event.", icon: "checkmark.circle.fill", accent: VisualStyle.primaryAction)
+            return HomePrimaryAction(kind: .checkIn, title: "I’m here", subtitle: "Join to see who’s here.", icon: "checkmark.circle.fill", accent: VisualStyle.primaryAction)
         }
 
         if messaging.totalUnreadCount > 0 {
-            return HomePrimaryAction(kind: .seePeople, title: "See who needs attention", subtitle: "You have a live thread waiting in your network.", icon: "person.2.wave.2.fill", accent: VisualStyle.primaryAction)
+            return HomePrimaryAction(kind: .seePeople, title: "See who needs attention", subtitle: "Someone in your orbit is here.", icon: "person.2.wave.2.fill", accent: VisualStyle.primaryAction)
         }
 
         if let attendee = matchedBriefAttendee {
@@ -736,7 +738,7 @@ struct HomeView: View {
                 return unfinishedMomentumCount == 1 ? "You have unfinished momentum with someone" : "You have unfinished momentum with \(unfinishedMomentumCount) people"
             }
             if let person = topBriefPerson {
-                return "A useful conversation may be close by"
+                return "Someone worth talking to may be nearby."
             }
             return attendeesService.liveOtherCount > 0 ? "The room is starting to take shape" : "You’re checked in. Let the room come into focus"
         }
@@ -755,10 +757,10 @@ struct HomeView: View {
     private var contextSubheadline: String {
         if eventJoin.isCheckedIn {
             if let person = topBriefPerson {
-                return "Start with one human next step. The full attendee roster is still available, but it should not be the first thing you have to parse."
+                return "One conversation is enough for now. More context will surface as the room fills."
             }
             if attendeesService.liveOtherCount == 0 {
-                return "Nearify is listening for useful proximity and relationship signals without turning the moment into a dashboard."
+                return "Picking up signals as they form."
             }
             return "Home is prioritizing continuity, timing, and one clear next move over a stacked list of utilities."
         }
@@ -800,9 +802,9 @@ struct HomeView: View {
             return recurring == 1 ? "One person has appeared across more than one moment. Repetition may matter, but Home will keep it quiet." : "A few people have appeared across more than one moment. Repetition may matter, but Home will keep it quiet."
         }
         if eventJoin.isCheckedIn && attendeesService.liveOtherCount > 0 {
-            return "Nearby signals are live. Recommendations will stay restrained until there is enough context to be useful."
+            return "Still reading the room."
         }
-        return "Nearify is using relationship memory, event context, and proximity as soft signals — not as certainty."
+        return "Picking up signals as they form."
     }
 
     private func logHomeHierarchyAudit(reason: String) {
