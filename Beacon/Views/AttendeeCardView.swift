@@ -10,67 +10,48 @@ struct AttendeeCardView: View {
     }
     
     var body: some View {
-        HStack(spacing: 12) {
-            // Avatar
-            avatarView
-                .frame(width: 44, height: 44)
-            
-            // Profile info
-            VStack(alignment: .leading, spacing: 4) {
-                // Name
-                Text(attendee.displayName)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(isRecentlySeen ? VisualStyle.secondaryText : .white)
-                
-                // Subtitle from bio/skills/interests
-                Text(attendee.detailSubtitleText)
-                    .font(.caption)
-                    .foregroundColor(VisualStyle.secondaryText)
-                    .lineLimit(1)
-                
-                // Tags (if available)
-                if !attendee.topTags.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(attendee.topTags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.system(size: 10))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .fill(VisualStyle.intelligence.opacity(0.18))
-                                )
-                                .foregroundColor(.white.opacity(0.9))
-                        }
+        ZStack(alignment: .bottomLeading) {
+            heroImage
+            LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.15), .clear], startPoint: .bottom, endPoint: .top)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(attendee.displayName)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.white)
+                    if attendee.isActiveNow {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundStyle(.cyan)
                     }
                 }
-            }
-            
-            Spacer()
-            
-            // Status indicator
-            VStack(alignment: .trailing, spacing: 4) {
-                Circle()
-                    .fill(attendee.isActiveNow ? VisualStyle.live : VisualStyle.primaryAction.opacity(0.8))
-                    .frame(width: 8, height: 8)
-
-                if isRecentlySeen {
-                    Text("Recently seen")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(VisualStyle.tertiaryText)
+                Text(attendee.detailSubtitleText)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .foregroundStyle(.white.opacity(0.88))
+                HStack(spacing: 10) {
+                    Text(attendee.lastSeenText)
+                    if isRecentlySeen { Text("Recently seen") }
                 }
-                
-                Text(attendee.lastSeenText)
-                    .font(.system(size: 10))
-                    .foregroundColor(VisualStyle.tertiaryText)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.75))
+            }
+            .padding(16)
+
+            HStack {
+                Spacer()
+                Button("Connect") {}
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(14)
             }
         }
-        .padding(12)
-        .elevatedCard(accent: attendee.isActiveNow ? VisualStyle.live : VisualStyle.primaryAction, glow: 0.10)
+        .frame(height: 184)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: .black.opacity(0.2), radius: 16, y: 8)
         .opacity(isRecentlySeen ? 0.82 : 1.0)
         .opacity(isVisible ? 1 : 0.0)
-        .offset(y: isVisible ? 0 : 6)
+        .scaleEffect(isVisible ? 1 : 0.985)
         .onAppear {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
                 isVisible = true
@@ -80,20 +61,17 @@ struct AttendeeCardView: View {
     
     // MARK: - Avatar View
     
-    private var avatarView: some View {
+    private var heroImage: some View {
         Group {
             if let imageUrl = attendee.avatarUrl, let url = URL(string: imageUrl) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .empty:
-                        ProgressView()
-                            .frame(width: 44, height: 44)
+                        initialsPlaceholder
                     case .success(let image):
                         image
                             .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: 44, height: 44)
-                            .clipShape(Circle())
+                            .scaledToFill()
                     case .failure:
                         initialsPlaceholder
                     @unknown default:
@@ -107,13 +85,13 @@ struct AttendeeCardView: View {
     }
     
     private var initialsPlaceholder: some View {
-        Circle()
+        Rectangle()
             .fill(VisualStyle.primaryAction.opacity(0.25))
             .overlay(
                 Text(attendee.initials)
-                    .font(.headline)
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white.opacity(0.7))
             )
     }
 }

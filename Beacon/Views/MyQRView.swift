@@ -24,9 +24,11 @@ struct MyQRView: View {
     @State private var showingEditProfile = false
     @State private var showingPhotoOptions = false
     @State private var showingPhotoPicker = false
+    @State private var showingCameraCapture = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isUploadingPhoto = false
     @State private var uploadError: String?
+    @State private var identityWarnings: [String] = []
     @State private var authUserId: String?
     @State private var authProvider: String?
     @State private var showProfilePreview = false
@@ -106,7 +108,13 @@ struct MyQRView: View {
             )
             .onChange(of: selectedPhotoItem) { _, newValue in
                 if let newValue {
+                    debugLog("[ProfileIdentity] imageSelected")
                     Task { await uploadPhoto(newValue) }
+                }
+            }
+            .sheet(isPresented: $showingCameraCapture) {
+                IdentityCameraCaptureView { capturedImage in
+                    Task { await uploadCapturedPhoto(capturedImage) }
                 }
             }
             .sheet(isPresented: $showingEditProfile) {
@@ -163,7 +171,12 @@ struct MyQRView: View {
                 .buttonStyle(.plain)
                 .disabled(isUploadingPhoto)
                 .confirmationDialog("Profile Photo", isPresented: $showingPhotoOptions) {
-                    Button(displayUser.imageUrl != nil ? "Change Photo" : "Add Photo") {
+                    Button("Take Photo") {
+                        debugLog("[ProfileIdentity] captureStarted")
+                        showingCameraCapture = true
+                    }
+
+                    Button("Choose Existing Photo") {
                         showingPhotoPicker = true
                     }
 
@@ -175,6 +188,10 @@ struct MyQRView: View {
 
                     Button("Cancel", role: .cancel) {}
                 }
+
+                Text("A clear photo helps people confidently recognize and approach you at events.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.82))
 
                 Text(displayUser.name)
                     .font(.system(size: 40, weight: .bold, design: .rounded))
@@ -403,6 +420,16 @@ struct MyQRView: View {
                     .foregroundColor(.red)
             }
 
+            if !identityWarnings.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(identityWarnings, id: \.self) { warning in
+                        Text("• \(warning)")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+
             Spacer(minLength: 36)
         }
         .frame(maxWidth: layout.contentMaxWidth)
@@ -594,31 +621,38 @@ struct MyQRView: View {
             debugLog("[EditProfilePhoto] ✅ Raw data loaded: \(rawData.count) bytes")
             debugLog("[EditProfilePhoto] 🔄 Processing image...")
 
-            let processedData = try ProfileImageService.shared.processImageData(rawData)
+            let processed = try ProfileImageService.shared.processIdentityImageVariants(rawData)
+            let processedData = processed.primary
+            debugLog("[ProfileIdentity] imageProcessed")
 
             debugLog("[EditProfilePhoto] ✅ Image processed: \(processedData.count) bytes")
             debugLog("[EditProfilePhoto] ⬆️ Uploading to storage...")
 
+            debugLog("[ProfileIdentity] uploadStarted")
             let result = try await ProfileImageService.shared.uploadProfileImage(
                 processedData,
                 for: displayUser.id
             )
 
             debugLog("[EditProfilePhoto] ✅ Upload successful!")
+            debugLog("[ProfileIdentity] uploadSucceeded")
             debugLog("[EditProfilePhoto]    Image URL: \(result.imageUrl)")
             debugLog("[EditProfilePhoto]    Image Path: \(result.imagePath)")
             debugLog("[EditProfilePhoto] 🔄 Refreshing profile...")
 
             await authService.refreshProfile()
+            debugLog("[ProfileIdentity] profileUpdated")
 
             debugLog("[EditProfilePhoto] ✅ Profile refresh complete")
 
             await MainActor.run {
                 isUploadingPhoto = false
                 selectedPhotoItem = nil
+                identityWarnings = processed.warnings
                 debugLog("[EditProfilePhoto] ✅ Upload flow complete - UI updated")
             }
         } catch {
+            debugLog("[ProfileIdentity] uploadFailed")
             debugLog("[EditProfilePhoto] ❌ Upload error: \(error)")
             debugLog("[EditProfilePhoto]    Error type: \(type(of: error))")
             debugLog("[EditProfilePhoto]    Error description: \(error.localizedDescription)")
@@ -692,6 +726,50 @@ struct MyQRView: View {
         } catch {
             debugLog("Failed to load auth details: \(error)")
         }
+    }
+
+    private func uploadCapturedPhoto(_ image: UIImage) async {
+        guard let rawData = image.jpegData(compressionQuality: 0.95) else { return }
+        do {
+            let processed = try ProfileImageService.shared.processIdentityImageVariants(rawData)
+            _ = try await ProfileImageService.shared.uploadProfileImage(processed.primary, for: displayUser.id)
+            await authService.refreshProfile()
+            await MainActor.run { identityWarnings = processed.warnings }
+        } catch {
+            debugLog("[ProfileIdentity] uploadFailed")
+            await MainActor.run { uploadError = "Failed to upload captured photo: \(error.localizedDescription)" }
+        }
+    }
+}
+
+private struct IdentityCameraCaptureView: UIViewControllerRepresentable {
+    let onCapture: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(onCapture: onCapture, dismiss: dismiss) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let onCapture: (UIImage) -> Void
+        let dismiss: DismissAction
+        init(onCapture: @escaping (UIImage) -> Void, dismiss: DismissAction) {
+            self.onCapture = onCapture
+            self.dismiss = dismiss
+        }
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage { onCapture(image) }
+            dismiss()
+        }
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { dismiss() }
     }
 }
 
