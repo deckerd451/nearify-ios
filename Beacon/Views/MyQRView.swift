@@ -53,6 +53,7 @@ struct MyQRView: View {
                         profileContent(layout: layout)
                     }
                 }
+                .tabbedScrollContentClearance(screen: "Profile")
                 .background(Color.black)
             }
             .background(Color.black.ignoresSafeArea())

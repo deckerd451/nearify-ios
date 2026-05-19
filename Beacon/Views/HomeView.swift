@@ -81,6 +81,7 @@ struct HomeView: View {
                     .padding(.top, 18)
                     .padding(.bottom, 36)
             }
+            .tabbedScrollContentClearance(screen: "HomeView")
             if showCheckInConfirmation {
                 checkInConfirmationCard
                     .padding(.horizontal)
@@ -352,6 +353,15 @@ struct HomeView: View {
             )
         }
         .buttonStyle(PressableScaleButtonStyle())
+        .onAppear {
+            logHomePrimaryCTA(action)
+        }
+        .onChange(of: eventJoin.isEventJoined) { _, _ in
+            logHomePrimaryCTA(primaryHomeAction)
+        }
+        .onChange(of: eventJoin.isCheckedIn) { _, _ in
+            logHomePrimaryCTA(primaryHomeAction)
+        }
     }
 
     private var curatedMomentumLayer: some View {
@@ -609,10 +619,7 @@ struct HomeView: View {
         }
 
         if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
-            if state == .nearVenueNotCheckedIn {
-                return HomePrimaryAction(kind: .checkIn, title: "Check in now", subtitle: "Start live, nearby recommendations for \(eventDisplayName).", icon: "checkmark.circle.fill", accent: VisualStyle.primaryAction)
-            }
-            return HomePrimaryAction(kind: .openBrief, title: "Open your brief", subtitle: "Arrive with one calm path, not a dashboard.", icon: "doc.text.magnifyingglass", accent: VisualStyle.intelligence)
+            return HomePrimaryAction(kind: .checkIn, title: "I’m here", subtitle: "Activate live recommendations for this event.", icon: "checkmark.circle.fill", accent: VisualStyle.primaryAction)
         }
 
         if messaging.totalUnreadCount > 0 {
@@ -632,7 +639,7 @@ struct HomeView: View {
 
     private func performPrimaryHomeAction(_ kind: HomePrimaryActionKind) {
         #if DEBUG
-        print("[PrimaryCTA] action=\(primaryCTAIdentifier(kind))")
+        print("[HomePrimaryCTA] state=\(homePrimaryCTAStateIdentifier) action=\(primaryCTAIdentifier(kind))")
         #endif
         switch kind {
         case .scanEvent:
@@ -642,8 +649,7 @@ struct HomeView: View {
         case .reviewSession:
             showLastSummaryRecap = true
         case .checkIn:
-            EventPresenceService.shared.setActivationIntent(.userCheckIn)
-            Task { await eventJoin.checkIn() }
+            invokeExistingCheckInPathway(source: "primaryCTA")
         case .openBrief:
             setEventBriefPresentation(true, reason: .userInitiated, source: "primaryMomentumCTA")
         case .findAttendee(let attendee):
@@ -663,6 +669,27 @@ struct HomeView: View {
         case .findAttendee: return "findAttendee"
         case .seePeople: return "seePeople"
         }
+    }
+
+    private var homePrimaryCTAStateIdentifier: String {
+        if eventJoin.isCheckedIn { return "checkedIn" }
+        if eventJoin.isEventJoined { return "joinedNotCheckedIn" }
+        if EventParticipationStateResolver.resolve() == .left { return "left" }
+        return "notJoined"
+    }
+
+    private func logHomePrimaryCTA(_ action: HomePrimaryAction) {
+        #if DEBUG
+        print("[HomePrimaryCTA] state=\(homePrimaryCTAStateIdentifier) action=\(primaryCTAIdentifier(action.kind))")
+        #endif
+    }
+
+    private func invokeExistingCheckInPathway(source: String) {
+        #if DEBUG
+        print("[HomeCheckInCTA] invoking existing check-in pathway event=\(eventJoin.currentEventID ?? "nil") source=\(source)")
+        #endif
+        EventPresenceService.shared.setActivationIntent(.userCheckIn)
+        Task { await eventJoin.checkIn() }
     }
 
     private var topBriefPerson: PreEventBriefBuilder.PriorityPerson? {
@@ -717,10 +744,7 @@ struct HomeView: View {
         }
 
         if eventJoin.isEventJoined {
-            if let person = topBriefPerson {
-                return "A calm path into \(eventDisplayName) is forming"
-            }
-            return "\(eventDisplayName) is on your horizon"
+            return "You’re expected at \(eventDisplayName)"
         }
 
         if EventParticipationStateResolver.resolve() == .left, eventJoin.postEventSummary != nil {
@@ -742,7 +766,7 @@ struct HomeView: View {
         }
 
         if eventJoin.isEventJoined {
-            return "Use the brief when it helps, then let Home stay quiet until there is a real next step."
+            return "When you arrive, check in to activate live recommendations."
         }
 
         if EventParticipationStateResolver.resolve() == .left, eventJoin.postEventSummary != nil {
@@ -1076,10 +1100,9 @@ struct HomeView: View {
             if isNearVenue {
                 // At the venue: check-in is the decisive action
                 Button {
-                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
-                    Task { await eventJoin.checkIn() }
+                    invokeExistingCheckInPathway(source: "preCheckInCard.nearVenue")
                 } label: {
-                    Text("Check In Now")
+                    Text("I’m here")
                         .font(.subheadline.weight(.semibold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -1113,10 +1136,9 @@ struct HomeView: View {
                 .buttonStyle(PressableScaleButtonStyle())
 
                 Button {
-                    EventPresenceService.shared.setActivationIntent(.userCheckIn)
-                    Task { await eventJoin.checkIn() }
+                    invokeExistingCheckInPathway(source: "preCheckInCard.arrival")
                 } label: {
-                    Text("Check In When You Arrive")
+                    Text("I’m here")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(VisualStyle.secondaryText)
                         .frame(maxWidth: .infinity)

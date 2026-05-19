@@ -49,8 +49,10 @@ struct PeopleView: View {
 
             if memory.isLoading && memory.relationships.isEmpty && attendeesService.attendees.isEmpty {
                 ScrollView { loadingState.frame(maxWidth: .infinity) }
+                    .tabbedScrollContentClearance(screen: "PeopleView")
             } else if isEmpty {
                 ScrollView { emptyState.frame(maxWidth: .infinity) }
+                    .tabbedScrollContentClearance(screen: "PeopleView")
             } else {
                 sectionedList
             }
@@ -152,6 +154,7 @@ struct PeopleView: View {
                 .padding(.top, DesignTokens.titleToContent)
                 .padding(.bottom, DesignTokens.sectionSpacing)
             }
+            .tabbedScrollContentClearance(screen: "PeopleView")
             .onChange(of: navigationState.peopleFocusTarget) { _, target in
                 guard let target = target else { return }
                 #if DEBUG

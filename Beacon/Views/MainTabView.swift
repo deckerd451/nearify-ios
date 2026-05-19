@@ -38,8 +38,9 @@ struct MainTabView: View {
         self.currentUser = currentUser
         self._selectedTab = selectedTab
         // Hide the system tab bar so the custom floating bar takes its place.
-        // .safeAreaInset(edge: .bottom) in body provides the bottom inset for
-        // scroll views and content, so no explicit bottom padding is needed.
+        // .safeAreaInset(edge: .bottom) in body renders the custom bar above
+        // the home indicator; scrollable root tabs add their own centralized
+        // clearance so their last content stays reachable above the overlay.
         UITabBar.appearance().isHidden = true
     }
 
@@ -346,6 +347,7 @@ private struct MessagesHubView: View {
                         }
                     }
                     .listStyle(.plain)
+                    .tabbedScrollContentClearance(screen: "Messages")
                 }
             }
         .task {
