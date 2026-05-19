@@ -14,6 +14,8 @@ struct HomeView: View {
     @ObservedObject private var resolver = AttendeeStateResolver.shared
     @ObservedObject private var briefController = BriefHydrationController.shared
     @ObservedObject private var socialResolver = SocialStateResolver.shared
+    @ObservedObject private var memory = RelationshipMemoryService.shared
+    @ObservedObject private var messaging = MessagingService.shared
     @State private var showScanner = false
     @State private var showLeaveConfirmation = false
     @State private var showLastSummaryRecap = false
@@ -53,45 +55,39 @@ struct HomeView: View {
 
     private let manualDismissSuppressionWindow: TimeInterval = 2.5
 
+    private enum HomePrimaryActionKind {
+        case scanEvent
+        case browseEvents
+        case reviewSession
+        case checkIn
+        case openBrief
+        case findAttendee(EventAttendee)
+        case seePeople
+    }
+
+    private struct HomePrimaryAction {
+        let kind: HomePrimaryActionKind
+        let title: String
+        let subtitle: String
+        let icon: String
+        let accent: Color
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        eventHeader
-                             .responsiveContentContainer(maxWidth: 720)
-                            .padding(.top, 16)
-                            .padding(.bottom, 24)
-
-                        if attendeesService.isLoading && attendeesService.attendees.isEmpty && eventJoin.isCheckedIn {
-                            loadingState.padding(.top, 60)
-                        } else if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
-                            EmptyView()
-                        } else if !eventJoin.isCheckedIn {
-                            notJoinedState
-                        } else if attendeesService.attendees.isEmpty {
-                            // Checked in but nobody visible yet — surface the best
-                            // contextual action (brief person, follow-up, messages).
-                            nextBestActionCard(minPriority: 0.35)
-                            .responsiveContentContainer(maxWidth: 720)
-                            emptyState.padding(.top, 60)
-                        } else {
-                            // Attendee list is the primary surface; only surface
-                            // unread messages (priority ≥ 0.95) so the card
-                            // doesn't compete with the list itself.
-                            nextBestActionCard(minPriority: 0.95)
-                            .responsiveContentContainer(maxWidth: 720)
-                            attendeeList
-                                .responsiveContentContainer(maxWidth: 720)
-                        }
-                    }
-                }
-                if showCheckInConfirmation {
-                    checkInConfirmationCard
-                        .padding(.horizontal)
-                        .padding(.bottom, 24)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+            ScrollView {
+                homeFourLayerSurface
+                    .responsiveContentContainer(maxWidth: 720)
+                    .padding(.top, 18)
+                    .padding(.bottom, 36)
             }
+            if showCheckInConfirmation {
+                checkInConfirmationCard
+                    .padding(.horizontal)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
             .background(Color.black.ignoresSafeArea())
             .refreshable { attendeesService.refresh() }
             .onChange(of: eventJoin.currentEventID) { _, _ in
@@ -116,6 +112,7 @@ struct HomeView: View {
             }
             .onChange(of: attendeesService.liveOtherCount) { _, _ in
                 logHomeStateUI()
+                logHomeHierarchyAudit(reason: "liveOtherCount")
             }
             .onChange(of: selectedTab) { oldValue, newValue in
                 guard oldValue != newValue else { return }
@@ -150,6 +147,8 @@ struct HomeView: View {
                     maybePresentEventBrief()
                 }
                 logHomeStateUI()
+                RelationshipMemoryService.shared.requestRefresh(reason: "home-four-layer-appear")
+                logHomeHierarchyAudit(reason: "onAppear")
                 #if DEBUG
                 EventParticipationStateResolver.logAudit(renderingSurface: "HomeView.onAppear")
                 #endif
@@ -198,6 +197,7 @@ struct HomeView: View {
             }
             .onChange(of: showEventBrief) { _, isPresented in
                 updateBriefPresentationState(isPresented: isPresented)
+                logHomeHierarchyAudit(reason: "briefPresentation")
                 #if DEBUG
                 print("[PresentationAudit] HomeView.showEventBrief=\(isPresented) hasMounted=\(hasMounted)")
                 #endif
@@ -250,6 +250,548 @@ struct HomeView: View {
         var seen = Set<UUID>()
         let orderedUnique = profileIds.filter { seen.insert($0).inserted }
         return orderedUnique.compactMap { attendeeNamesById[$0] }.prefix(3).map { $0 }
+    }
+
+    // MARK: - Four-Layer Momentum Surface
+
+    private var homeFourLayerSurface: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            contextNarrativeLayer
+            primaryActionLayer
+            curatedMomentumLayer
+            ambientIntelligenceLayer
+        }
+        .padding(.horizontal)
+    }
+
+    private var contextNarrativeLayer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                PresencePulseDot(color: contextAccentColor)
+                Text(contextEyebrow)
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1.2)
+                    .foregroundColor(contextAccentColor.opacity(0.92))
+                Spacer()
+                Text(contextStatusPill)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(VisualStyle.tertiaryText)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.06)))
+            }
+
+            Text(contextHeadline)
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                .foregroundColor(.white)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(contextSubheadline)
+                .font(.subheadline)
+                .foregroundColor(VisualStyle.secondaryText)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [contextAccentColor.opacity(0.18), Color.white.opacity(0.045)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(contextAccentColor.opacity(0.22), lineWidth: 1)
+                )
+                .shadow(color: contextAccentColor.opacity(0.18), radius: 22, x: 0, y: 10)
+        )
+    }
+
+    private var primaryActionLayer: some View {
+        let action = primaryHomeAction
+        return Button {
+            performPrimaryHomeAction(action.kind)
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.14))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: action.icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(action.title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundColor(.white)
+                    Text(action.subtitle)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.72))
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 10)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.85))
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(action.accent.opacity(0.78))
+                    .shadow(color: action.accent.opacity(0.26), radius: 18, x: 0, y: 8)
+            )
+        }
+        .buttonStyle(PressableScaleButtonStyle())
+    }
+
+    private var curatedMomentumLayer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(title: "Momentum", subtitle: "What’s worth carrying forward")
+
+            if curatedMomentumItems.isEmpty {
+                quietEmptyMomentum
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(curatedMomentumItems, id: \.id) { item in
+                        momentumRow(item)
+                    }
+                }
+            }
+
+            if eventJoin.isCheckedIn && !attendeesService.attendees.isEmpty {
+                nearbyPeopleContinuityStrip
+            }
+        }
+        .padding(16)
+        .elevatedCard(accent: VisualStyle.intelligence, glow: 0.08)
+    }
+
+    private var ambientIntelligenceLayer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkle.magnifyingglass")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(VisualStyle.intelligence.opacity(0.75))
+                Text("Quiet signal")
+                    .font(.caption2.weight(.semibold))
+                    .tracking(1.1)
+                    .foregroundColor(VisualStyle.tertiaryText)
+                Spacer()
+            }
+
+            Text(ambientIntelligenceCopy)
+                .font(.caption)
+                .foregroundColor(VisualStyle.secondaryText)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.028))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.07), lineWidth: 1)
+                )
+        )
+    }
+
+    private func sectionHeader(title: String, subtitle: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.9))
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundColor(VisualStyle.tertiaryText)
+            }
+            Spacer()
+        }
+    }
+
+    private var quietEmptyMomentum: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "leaf")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(VisualStyle.tertiaryText)
+                .padding(.top, 2)
+            Text(emptyMomentumCopy)
+                .font(.caption)
+                .foregroundColor(VisualStyle.tertiaryText)
+                .lineSpacing(3)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.035)))
+    }
+
+    private var nearbyPeopleContinuityStrip: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.2")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(VisualStyle.live.opacity(0.8))
+            Text(nearbyCountLine)
+                .font(.caption)
+                .foregroundColor(VisualStyle.secondaryText)
+            Spacer()
+            Button {
+                performPrimaryHomeAction(.seePeople)
+            } label: {
+                Text("See all")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(VisualStyle.live.opacity(0.86))
+            }
+            .buttonStyle(PressableScaleButtonStyle())
+        }
+        .padding(.top, 2)
+    }
+
+    private func momentumRow(_ item: MomentumItem) -> some View {
+        Button {
+            performMomentumAction(item)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(item.accent.opacity(0.13))
+                        .frame(width: 34, height: 34)
+                    Image(systemName: item.icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(item.accent)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.white.opacity(0.92))
+                        .lineLimit(2)
+                    Text(item.subtitle)
+                        .font(.caption)
+                        .foregroundColor(VisualStyle.tertiaryText)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 8)
+
+                if let accessory = item.accessory {
+                    Text(accessory)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(item.accent.opacity(0.82))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(item.accent.opacity(0.10)))
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.035)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private struct MomentumItem: Identifiable {
+        enum Action {
+            case people
+            case openBrief
+            case find(EventAttendee)
+            case messages
+            case none
+        }
+
+        let id: String
+        let title: String
+        let subtitle: String
+        let icon: String
+        let accent: Color
+        let accessory: String?
+        let action: Action
+    }
+
+    private var curatedMomentumItems: [MomentumItem] {
+        var items: [MomentumItem] = []
+
+        if messaging.totalUnreadCount > 0 {
+            let unread = messaging.totalUnreadCount
+            items.append(MomentumItem(
+                id: "messages",
+                title: unread == 1 ? "A reply is waiting" : "A few replies are waiting",
+                subtitle: "Handle it when you have a quiet moment.",
+                icon: "bubble.left.fill",
+                accent: VisualStyle.primaryAction,
+                accessory: "Reply",
+                action: .messages
+            ))
+        }
+
+        let followUps = memory.relationships
+            .filter { $0.needsFollowUp }
+            .sorted { ($0.lastEncounterAt ?? .distantPast) > ($1.lastEncounterAt ?? .distantPast) }
+            .prefix(2)
+        for relationship in followUps {
+            items.append(MomentumItem(
+                id: "followup-\(relationship.profileId.uuidString)",
+                title: "Unfinished momentum with \(IdentityDisplayName.primaryName(name: relationship.name, debugSource: "HomeView.momentum.followUp"))",
+                subtitle: relationship.whyLine.isEmpty ? "You had enough context to make a next note worthwhile." : relationship.whyLine,
+                icon: "arrow.turn.up.right",
+                accent: VisualStyle.intelligence,
+                accessory: "Continue",
+                action: .people
+            ))
+        }
+
+        if let matched = matchedBriefAttendee, items.count < 3 {
+            items.append(MomentumItem(
+                id: "brief-\(matched.id.uuidString)",
+                title: "A useful conversation may start with \(matched.displayName)",
+                subtitle: topBriefPerson?.reason.isEmpty == false ? topBriefPerson?.reason ?? "" : "Nearify is keeping this suggestion soft until there is stronger context.",
+                icon: "sparkles",
+                accent: VisualStyle.live,
+                accessory: "Find",
+                action: .find(matched)
+            ))
+        }
+
+        let recurring = memory.relationships
+            .filter { $0.encounterCount >= 2 && !$0.needsFollowUp }
+            .sorted { $0.encounterCount > $1.encounterCount }
+            .prefix(max(0, 3 - items.count))
+        for relationship in recurring {
+            items.append(MomentumItem(
+                id: "recurring-\(relationship.profileId.uuidString)",
+                title: "\(IdentityDisplayName.primaryName(name: relationship.name, debugSource: "HomeView.momentum.recurring")) keeps reappearing in your orbit",
+                subtitle: relationship.whyLine.isEmpty ? "Repeated context can be worth remembering, even without rushing it." : relationship.whyLine,
+                icon: "arrow.triangle.2.circlepath",
+                accent: VisualStyle.intelligence,
+                accessory: nil,
+                action: .people
+            ))
+        }
+
+        return Array(items.prefix(3))
+    }
+
+    private func performMomentumAction(_ item: MomentumItem) {
+        switch item.action {
+        case .people:
+            switchTab(to: .people)
+        case .openBrief:
+            setEventBriefPresentation(true, reason: .userInitiated, source: "momentum.openBrief")
+        case .find(let attendee):
+            launchFindDestination(BriefConnectionDestination(attendee: attendee), reason: "momentumRow")
+        case .messages:
+            switchTab(to: .messages)
+        case .none:
+            break
+        }
+    }
+
+    private var primaryHomeAction: HomePrimaryAction {
+        let state = EventParticipationStateResolver.resolve()
+
+        if state == .left, eventJoin.postEventSummary != nil {
+            return HomePrimaryAction(kind: .reviewSession, title: "Review the last session", subtitle: "Keep the useful threads from fading.", icon: "arrow.counterclockwise", accent: VisualStyle.intelligence)
+        }
+
+        if !eventJoin.isEventJoined && !eventJoin.isCheckedIn {
+            return HomePrimaryAction(kind: .scanEvent, title: "Join an event", subtitle: "Scan the room code when you arrive.", icon: "qrcode.viewfinder", accent: VisualStyle.primaryAction)
+        }
+
+        if eventJoin.isEventJoined && !eventJoin.isCheckedIn {
+            if state == .nearVenueNotCheckedIn {
+                return HomePrimaryAction(kind: .checkIn, title: "Check in now", subtitle: "Start live, nearby recommendations for \(eventDisplayName).", icon: "checkmark.circle.fill", accent: VisualStyle.primaryAction)
+            }
+            return HomePrimaryAction(kind: .openBrief, title: "Open your brief", subtitle: "Arrive with one calm path, not a dashboard.", icon: "doc.text.magnifyingglass", accent: VisualStyle.intelligence)
+        }
+
+        if messaging.totalUnreadCount > 0 {
+            return HomePrimaryAction(kind: .seePeople, title: "See who needs attention", subtitle: "You have a live thread waiting in your network.", icon: "person.2.wave.2.fill", accent: VisualStyle.primaryAction)
+        }
+
+        if let attendee = matchedBriefAttendee {
+            return HomePrimaryAction(kind: .findAttendee(attendee), title: "Find \(attendee.displayName)", subtitle: "One timely conversation is enough for now.", icon: "location.magnifyingglass", accent: VisualStyle.live)
+        }
+
+        if eventJoin.isCheckedIn && !attendeesService.attendees.isEmpty {
+            return HomePrimaryAction(kind: .seePeople, title: "See who’s here", subtitle: "Browse nearby people without turning Home into a roster.", icon: "person.2.fill", accent: VisualStyle.live)
+        }
+
+        return HomePrimaryAction(kind: .openBrief, title: "Keep the brief in mind", subtitle: "Suggestions will sharpen as people arrive.", icon: "sparkles", accent: VisualStyle.intelligence)
+    }
+
+    private func performPrimaryHomeAction(_ kind: HomePrimaryActionKind) {
+        #if DEBUG
+        print("[PrimaryCTA] action=\(primaryCTAIdentifier(kind))")
+        #endif
+        switch kind {
+        case .scanEvent:
+            showScanner = true
+        case .browseEvents:
+            switchTab(to: .event)
+        case .reviewSession:
+            showLastSummaryRecap = true
+        case .checkIn:
+            EventPresenceService.shared.setActivationIntent(.userCheckIn)
+            Task { await eventJoin.checkIn() }
+        case .openBrief:
+            setEventBriefPresentation(true, reason: .userInitiated, source: "primaryMomentumCTA")
+        case .findAttendee(let attendee):
+            launchFindDestination(BriefConnectionDestination(attendee: attendee), reason: "primaryMomentumCTA")
+        case .seePeople:
+            switchTab(to: .people)
+        }
+    }
+
+    private func primaryCTAIdentifier(_ kind: HomePrimaryActionKind) -> String {
+        switch kind {
+        case .scanEvent: return "scanEvent"
+        case .browseEvents: return "browseEvents"
+        case .reviewSession: return "reviewSession"
+        case .checkIn: return "checkIn"
+        case .openBrief: return "openBrief"
+        case .findAttendee: return "findAttendee"
+        case .seePeople: return "seePeople"
+        }
+    }
+
+    private var topBriefPerson: PreEventBriefBuilder.PriorityPerson? {
+        resolvedBriefForSheet?.priorityPeople.first
+    }
+
+    private var matchedBriefAttendee: EventAttendee? {
+        guard eventJoin.isCheckedIn, let person = topBriefPerson else { return nil }
+        return attendeesService.attendees.first(where: { $0.id == person.id })
+    }
+
+    private var recurringNearbyCount: Int {
+        let nearbyIds = Set(attendeesService.attendees.map(\.id))
+        return memory.relationships.filter { $0.encounterCount >= 2 && nearbyIds.contains($0.profileId) }.count
+    }
+
+    private var unfinishedMomentumCount: Int {
+        memory.relationships.filter(\.needsFollowUp).count
+    }
+
+    private var contextAccentColor: Color {
+        if eventJoin.isCheckedIn { return VisualStyle.live }
+        if eventJoin.isEventJoined { return VisualStyle.intelligence }
+        return VisualStyle.primaryAction
+    }
+
+    private var contextEyebrow: String {
+        if eventJoin.isCheckedIn { return "LIVE CONTEXT" }
+        if eventJoin.isEventJoined { return "TONIGHT’S SHAPE" }
+        if EventParticipationStateResolver.resolve() == .left { return "CONTINUITY" }
+        return "READY WHEN YOU ARE"
+    }
+
+    private var contextStatusPill: String {
+        if eventJoin.isCheckedIn { return attendeesService.liveOtherCount == 0 ? "settling" : "live" }
+        if eventJoin.isEventJoined { return activeEventTimeLine }
+        return "home"
+    }
+
+    private var contextHeadline: String {
+        if eventJoin.isCheckedIn {
+            if recurringNearbyCount > 0 {
+                return recurringNearbyCount == 1 ? "Someone from your recent orbit is nearby" : "\(recurringNearbyCount) people from your recent orbit are nearby"
+            }
+            if unfinishedMomentumCount > 0 {
+                return unfinishedMomentumCount == 1 ? "You have unfinished momentum with someone" : "You have unfinished momentum with \(unfinishedMomentumCount) people"
+            }
+            if let person = topBriefPerson {
+                return "A useful conversation may be close by"
+            }
+            return attendeesService.liveOtherCount > 0 ? "The room is starting to take shape" : "You’re checked in. Let the room come into focus"
+        }
+
+        if eventJoin.isEventJoined {
+            if let person = topBriefPerson {
+                return "A calm path into \(eventDisplayName) is forming"
+            }
+            return "\(eventDisplayName) is on your horizon"
+        }
+
+        if EventParticipationStateResolver.resolve() == .left, eventJoin.postEventSummary != nil {
+            return "Carry forward what felt worth remembering"
+        }
+
+        return "Join the room when you’re ready"
+    }
+
+    private var contextSubheadline: String {
+        if eventJoin.isCheckedIn {
+            if let person = topBriefPerson {
+                return "Start with one human next step. The full attendee roster is still available, but it should not be the first thing you have to parse."
+            }
+            if attendeesService.liveOtherCount == 0 {
+                return "Nearify is listening for useful proximity and relationship signals without turning the moment into a dashboard."
+            }
+            return "Home is prioritizing continuity, timing, and one clear next move over a stacked list of utilities."
+        }
+
+        if eventJoin.isEventJoined {
+            return "Use the brief when it helps, then let Home stay quiet until there is a real next step."
+        }
+
+        if EventParticipationStateResolver.resolve() == .left, eventJoin.postEventSummary != nil {
+            return "Your last session can become a few thoughtful follow-ups instead of another stale event recap."
+        }
+
+        return "Scan into an event and Nearify will surface people and context only when there is enough signal."
+    }
+
+    private var emptyMomentumCopy: String {
+        if eventJoin.isCheckedIn {
+            return attendeesService.isLoading ? "Looking for signal in the room…" : "No strong continuity yet. That is okay — Home will stay quiet until something is worth surfacing."
+        }
+        if eventJoin.isEventJoined {
+            return "Momentum will become clearer as people join and your brief hydrates."
+        }
+        return "After an event, this space keeps track of meaningful continuity without becoming a feed."
+    }
+
+    private var ambientIntelligenceCopy: String {
+        let recurring = memory.relationships.filter { $0.encounterCount >= 2 }.count
+        let sharedThemes = memory.relationships.flatMap(\.sharedInterests)
+        let theme = sharedThemes.reduce(into: [String: Int]()) { counts, value in
+            counts[value, default: 0] += 1
+        }
+        .sorted { $0.value > $1.value }
+        .first?.key
+
+        if let theme, recurring > 0 {
+            return "A few of your recurring conversations touch \(theme). Treat it as a soft pattern, not a conclusion."
+        }
+        if recurring > 0 {
+            return recurring == 1 ? "One person has appeared across more than one moment. Repetition may matter, but Home will keep it quiet." : "A few people have appeared across more than one moment. Repetition may matter, but Home will keep it quiet."
+        }
+        if eventJoin.isCheckedIn && attendeesService.liveOtherCount > 0 {
+            return "Nearby signals are live. Recommendations will stay restrained until there is enough context to be useful."
+        }
+        return "Nearify is using relationship memory, event context, and proximity as soft signals — not as certainty."
+    }
+
+    private func logHomeHierarchyAudit(reason: String) {
+        #if DEBUG
+        let action = primaryHomeAction
+        print("[HomeHierarchyAudit] reason=\(reason) firstSections=contextNarrative,primaryCTA,momentum,ambient dominantSection=contextNarrative legacySectionsDemoted=attendeeList,nextBestAction,eventHeader")
+        print("[ContextNarrative] headline=\(contextHeadline) checkedIn=\(eventJoin.isCheckedIn) joined=\(eventJoin.isEventJoined)")
+        print("[PrimaryCTA] action=\(primaryCTAIdentifier(action.kind)) title=\(action.title)")
+        print("[MomentumSurface] recurringPeople=\(memory.relationships.filter { $0.encounterCount >= 2 }.count) recurringNearby=\(recurringNearbyCount) unfinishedMomentum=\(unfinishedMomentumCount) renderedItems=\(curatedMomentumItems.count)")
+        print("[AmbientIntelligence] copy=\(ambientIntelligenceCopy)")
+        #endif
     }
 
     // MARK: - Event Header
