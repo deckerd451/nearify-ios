@@ -28,7 +28,7 @@ struct CustomTabBar: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(glassBackground)
-        .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 6)
+        .shadow(color: .black.opacity(0.35), radius: 30, x: 0, y: 8)
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
     }
@@ -96,10 +96,10 @@ struct CustomTabBar: View {
 
     private var glassBackground: some View {
         RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .fill(.ultraThinMaterial)
+            .fill(Color.white.opacity(0.08))
             .overlay {
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+                    .stroke(Color.white.opacity(0.16), lineWidth: 1)
             }
     }
 }
