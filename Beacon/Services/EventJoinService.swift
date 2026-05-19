@@ -58,6 +58,21 @@ final class EventJoinService: ObservableObject {
         return currentEventName
     }
 
+    /// Home-facing title for the currently active event context.
+    /// Keeps surfaces decoupled from Explore collections.
+    var activeEventDisplayTitle: String? {
+        if let currentEventName,
+           !currentEventName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return currentEventName
+        }
+        if let currentEventID,
+           let joinedName = joinedEventNames[currentEventID],
+           !joinedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return joinedName
+        }
+        return nil
+    }
+
     // MARK: - Check-In Switch Confirmation
     //
     // A check-in conflict arises only when the user tries to CHECK IN to

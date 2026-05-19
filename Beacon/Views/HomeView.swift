@@ -765,7 +765,7 @@ struct HomeView: View {
             if unfinishedMomentumCount > 0 {
                 return unfinishedMomentumCount == 1 ? "You have unfinished momentum with someone" : "You have unfinished momentum with \(unfinishedMomentumCount) people"
             }
-            if let person = topBriefPerson {
+            if topBriefPerson != nil {
                 return "Someone worth talking to may be nearby."
             }
             return attendeesService.liveOtherCount > 0 ? "The room is starting to take shape" : "You’re checked in. Let the room come into focus"
@@ -1063,7 +1063,7 @@ struct HomeView: View {
     private var preCheckInCard: some View {
         let state = EventParticipationStateResolver.resolve()
         let isNearVenue = state == .nearVenueNotCheckedIn
-        let attendeeCount = activeEventExploreModel?.activeAttendeeCount ?? 0
+        let attendeeCount = attendeesService.attendeeCount
         let relativeTime = activeEventTimeLine
         let currentEventId = eventJoin.currentEventID
         let localIntent = (selectedPreCheckInIntentEventId == currentEventId) ? selectedPreCheckInIntent : nil
@@ -1257,16 +1257,12 @@ struct HomeView: View {
         }
     }
 
-    private var activeEventExploreModel: ExploreEvent? {
-        guard let eventIdString = eventJoin.currentEventID,
-              let eventId = UUID(uuidString: eventIdString) else { return nil }
-        let allEvents = [explore.currentEvent] + explore.happeningNow + explore.upcoming + explore.recent
-        return allEvents.compactMap { $0 }.first(where: { $0.id == eventId })
-    }
-
     private var activeEventTimeLine: String {
-        guard let event = activeEventExploreModel else { return "Time pending" }
-        return event.dateDisplay ?? "Time pending"
+        if let stateEventName = eventJoin.activeEventDisplayTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !stateEventName.isEmpty {
+            return "Active: \(stateEventName)"
+        }
+        return "Time pending"
     }
 
     private var notJoinedState: some View {
