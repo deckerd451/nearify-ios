@@ -281,35 +281,7 @@ struct HomeView: View {
     }
 
     private var activeEventContextStrip: some View {
-        Group {
-            if eventJoin.isCheckedIn {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("You’re live at")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(VisualStyle.tertiaryText)
-
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(eventJoin.currentEventName ?? "Event")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.white.opacity(0.92))
-                            .lineLimit(2)
-
-                        Spacer(minLength: 8)
-
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.045))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color.white.opacity(0.10), lineWidth: 1)
-                        )
-                )
-            }
-        }
+        EmptyView()
     }
 
     private func logActiveContextUI(screen: String) {
@@ -1612,14 +1584,7 @@ struct HomeView: View {
     }
 
     private func maybePresentEventBrief() {
-        guard hasMounted else { return }
-        guard let gateBlockReason = autoPresentGateBlockReason() else {
-            scheduleDeferredAutoPresent()
-            return
-        }
-        #if DEBUG
-        print("[AutoPresentGate] blocked reason=\(gateBlockReason)")
-        #endif
+        return
     }
 
     private func autoPresentGateBlockReason() -> String? {
