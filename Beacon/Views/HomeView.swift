@@ -100,6 +100,18 @@ struct HomeView: View {
                 maybePresentEventBrief()
                 logActiveContextUI(screen: "Home")
             }
+            .onChange(of: eventJoin.isEventSwitchInProgress) { _, inProgress in
+                if inProgress {
+                    cancelDeferredAutoPresent(reason: "eventSwitchInProgress")
+                    pendingBriefConnectionDestination = nil
+                    autoPresentedBriefEventId = nil
+                    if showEventBrief {
+                        setEventBriefPresentation(false, reason: .stateRecovery, source: "eventSwitch.suppressBrief")
+                    }
+                } else {
+                    maybePresentEventBrief()
+                }
+            }
             .onChange(of: eventJoin.isRestoringFromPersist) { _, isRestoring in
                 // When cold-launch restore completes, decide whether to show the brief.
                 if !isRestoring {
@@ -1596,6 +1608,7 @@ struct HomeView: View {
         if briefPresentationState == .presenting || briefPresentationState == .dismissing {
             return "activeTransitionInProgress"
         }
+        if eventJoin.isEventSwitchInProgress { return "eventSwitchInProgress" }
         // Do not auto-present during cold-launch restore — wait for backend confirmation
         // so the brief doesn't flash and disappear if membership was revoked.
         if eventJoin.isRestoringFromPersist { return "restoringFromPersist" }
