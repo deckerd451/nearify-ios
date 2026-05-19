@@ -190,8 +190,8 @@ struct PeopleView: View {
                     }
                 }
                  .responsiveContentContainer(maxWidth: 740)
-                .padding(.top, DesignTokens.titleToContent)
-                .padding(.bottom, DesignTokens.sectionSpacing)
+                 .padding(.top, DesignTokens.titleToContent + 6)
+                .padding(.bottom, DesignTokens.sectionSpacing + 8)
             }
             .tabbedScrollContentClearance(screen: "PeopleView")
             .onChange(of: navigationState.peopleFocusTarget) { _, target in
@@ -232,15 +232,15 @@ struct PeopleView: View {
                 .font(.headline)
                 .foregroundColor(.white)
             Text(subtitle)
-                .font(.caption)
-                .foregroundColor(.gray)
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.6))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
     }
 
     private var rosterDisclosure: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showFullRoster.toggle()
@@ -254,8 +254,8 @@ struct PeopleView: View {
                     Image(systemName: showFullRoster ? "chevron.up" : "chevron.down")
                         .foregroundColor(.gray)
                 }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.03)))
+                .padding(14)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.045)))
             }
             .buttonStyle(.plain)
 
@@ -324,7 +324,7 @@ struct PeopleView: View {
             Image(systemName: "person.crop.circle.badge.checkmark")
                 .font(.title3)
                 .foregroundColor(.blue.opacity(0.9))
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text("Saved to Contacts")
                     .font(.headline)
                     .foregroundColor(.white)
@@ -334,11 +334,11 @@ struct PeopleView: View {
             }
             Spacer()
             Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.gray)
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.6))
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.04)))
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.04)))
     }
 
     // MARK: - Section Block
@@ -374,11 +374,11 @@ struct PeopleView: View {
     private func compactSectionBlock(title: String, subtitle: String, people: [PersonIntelligence]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.headline)
-                .foregroundColor(.white.opacity(0.9))
+                .font(.title3.weight(.semibold))
+                .foregroundColor(.white.opacity(0.92))
             Text(subtitle)
-                .font(.caption)
-                .foregroundColor(.gray)
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.6))
             ForEach(people) { person in
                 personCard(person, sectionColor: .white.opacity(0.55), compact: true)
             }
@@ -420,16 +420,16 @@ struct PeopleView: View {
                 .padding(.bottom, 12)
         }
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(person.isTargetIntent ? sectionColor.opacity(compact ? 0.04 : 0.06) : Color.white.opacity(compact ? 0.025 : 0.04))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(person.isTargetIntent ? sectionColor.opacity(compact ? 0.03 : 0.045) : Color.white.opacity(compact ? 0.03 : 0.055))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(
                     highlightedProfileId == person.id
-                        ? Color.green.opacity(0.6)
-                        : (person.isTargetIntent ? sectionColor.opacity(0.25) : strengthAccent.opacity(0.3)),
-                    lineWidth: highlightedProfileId == person.id ? 2 : 1
+                        ? Color.white.opacity(0.35)
+                        : (person.isTargetIntent ? sectionColor.opacity(0.14) : strengthAccent.opacity(0.16)),
+                    lineWidth: highlightedProfileId == person.id ? 1.5 : 0.8
                 )
         )
         .scaleEffect(highlightedProfileId == person.id ? 1.02 : 1.0)
@@ -460,10 +460,10 @@ struct PeopleView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
                     Text(person.displayName)
-                        .font(.subheadline).fontWeight(.medium).foregroundColor(.white)
+                        .font(.body.weight(.semibold)).foregroundColor(.white)
                     let relationshipState = person.relationshipState
                     relationshipBadge(for: relationshipState)
                         .onAppear {
@@ -598,20 +598,30 @@ struct PeopleView: View {
             Text("Start here")
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.75))
+            HStack(spacing: 12) {
+                avatarView(person, color: .white)
+                    .frame(width: 52, height: 52)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(person.displayName)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    if let continuity = humanizedWhyText(for: person) {
+                        Text(continuity)
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                }
+            }
             Text(dominantHeadline(for: person))
                 .font(.title3)
                 .fontWeight(.semibold)
                 .foregroundColor(.white)
-            if let why = humanizedWhyText(for: person) {
-                Text(why)
-                    .font(.body)
-                    .foregroundColor(.white.opacity(0.78))
-            }
             actionButton(person.primaryAction, person: person, color: .white, compact: false)
         }
-        .padding(18)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .padding(22)
+        .background(RoundedRectangle(cornerRadius: 20).fill(Color.white.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.08), lineWidth: 1))
         .padding(.horizontal)
         .onAppear {
             #if DEBUG
@@ -624,13 +634,13 @@ struct PeopleView: View {
     private func dominantHeadline(for person: PersonIntelligence) -> String {
         switch navigationState.peopleContext?.mode {
         case .unfinishedMomentum, .continuityFocus:
-            return "You already started momentum with \(person.displayName)."
+            return "This conversation may be worth continuing."
         case .liveNearby:
-            return "\(person.displayName) has the strongest live signal right now."
+            return "\(person.displayName) is nearby."
         case .recommendedNow:
-            return "This conversation has context worth continuing."
+            return "You already have context here."
         default:
-            return "This is the most meaningful social action right now."
+            return "You already have context here."
         }
     }
 
@@ -662,13 +672,22 @@ struct PeopleView: View {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
+                        #if DEBUG
+                        let _ = debugLog("[PeopleAvatar] source=photo profile=\(person.id.uuidString.prefix(8))")
+                        #endif
                         image.resizable().aspectRatio(contentMode: .fill)
                             .frame(width: 42, height: 42).clipShape(Circle())
                     default:
+                        #if DEBUG
+                        let _ = debugLog("[PeopleAvatar] source=fallback profile=\(person.id.uuidString.prefix(8))")
+                        #endif
                         initialsCircle(person.displayName, color: color)
                     }
                 }
             } else {
+                #if DEBUG
+                let _ = debugLog("[PeopleAvatar] source=fallback profile=\(person.id.uuidString.prefix(8))")
+                #endif
                 initialsCircle(person.displayName, color: color)
             }
         }
