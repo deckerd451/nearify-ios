@@ -33,6 +33,7 @@ struct PeopleView: View {
     @State private var highlightedProfileId: UUID?
     @State private var lastFocusedTargetId: UUID?
     @State private var lastContextMode: PeopleContextMode?
+    @State private var showFullRoster = false
 
     /// Sections are read from the controller, which handles debouncing
     /// and change detection. No direct computation in the view.
@@ -59,6 +60,31 @@ struct PeopleView: View {
         case .eventCluster: return ("Active event cluster", "People active around this event context")
         case .continuityFocus: return ("Continuity focus", "People you already have momentum with")
         }
+    }
+
+    private var flattenedPeople: [PersonIntelligence] {
+        sections.hereNow + sections.followUp + sections.notHere
+    }
+
+    private var dominantPerson: PersonIntelligence? {
+        if let highlighted = navigationState.peopleContext?.highlightedProfileId,
+           let contextHit = flattenedPeople.first(where: { $0.id == highlighted }) {
+            return contextHit
+        }
+        if let highlightedProfileId,
+           let stickyHit = flattenedPeople.first(where: { $0.id == highlightedProfileId }) {
+            return stickyHit
+        }
+        return flattenedPeople.sorted { $0.priorityScore > $1.priorityScore }.first
+    }
+
+    private var supportingPeople: [PersonIntelligence] {
+        guard let dominantPerson else { return [] }
+        return flattenedPeople
+            .filter { $0.id != dominantPerson.id }
+            .sorted { $0.priorityScore > $1.priorityScore }
+            .prefix(3)
+            .map { $0 }
     }
 
     var body: some View {
@@ -142,33 +168,25 @@ struct PeopleView: View {
                         contextualHeader(contextHeader.title, subtitle: contextHeader.subtitle)
                     }
 
+                    if let dominantPerson {
+                        dominantMomentumCard(dominantPerson)
+                    }
+
+                    if !supportingPeople.isEmpty {
+                        compactSectionBlock(
+                            title: "Worth continuing",
+                            subtitle: "Quiet signals around conversations with momentum",
+                            people: supportingPeople
+                        )
+                    }
+
                     NavigationLink(value: PeopleRoute.nearifyContacts) {
                         nearifyContactsEntry
                     }
                      .buttonStyle(.plain)
 
-                    if !sections.hereNow.isEmpty {
-                        sectionBlock(
-                            title: "Here Now", icon: "circle.fill",
-                            color: .green, subtitle: "Live attendees nearby",
-                            people: sections.hereNow
-                        )
-                    }
-
-                    if !sections.followUp.isEmpty {
-                        sectionBlock(
-                            title: "Recently Seen", icon: "clock.arrow.circlepath",
-                            color: .yellow, subtitle: "Recently nearby at this event",
-                            people: sections.followUp
-                        )
-                    }
-
-                    if !sections.notHere.isEmpty {
-                        sectionBlock(
-                            title: "Met Before", icon: "sparkles",
-                            color: .white.opacity(0.6), subtitle: "People from past events",
-                            people: sections.notHere
-                        )
+                    if !flattenedPeople.isEmpty {
+                        rosterDisclosure
                     }
                 }
                  .responsiveContentContainer(maxWidth: 740)
@@ -196,7 +214,7 @@ struct PeopleView: View {
                 guard lastContextMode != context.mode else { return }
                 lastContextMode = context.mode
                 #if DEBUG
-                debugLog("[OperationalSurface] contextualEntry mode=\(context.mode.rawValue) reason=\(context.reason)")
+                debugLog("[ContextualEntry] mode=\(context.mode.rawValue) reason=\(context.reason)")
                 #endif
                 if let highlighted = context.highlightedProfileId {
                     highlightedProfileId = highlighted
@@ -219,6 +237,45 @@ struct PeopleView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
+    }
+
+    private var rosterDisclosure: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showFullRoster.toggle()
+                }
+            } label: {
+                HStack {
+                    Text(showFullRoster ? "Hide attendee roster" : "Show attendee roster")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.85))
+                    Spacer()
+                    Image(systemName: showFullRoster ? "chevron.up" : "chevron.down")
+                        .foregroundColor(.gray)
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.03)))
+            }
+            .buttonStyle(.plain)
+
+            if showFullRoster {
+                if !sections.hereNow.isEmpty {
+                    sectionBlock(title: "Still nearby", icon: "circle.fill", color: .white.opacity(0.6), subtitle: "People active around you", people: sections.hereNow)
+                }
+                if !sections.followUp.isEmpty {
+                    sectionBlock(title: "Existing momentum", icon: "clock.arrow.circlepath", color: .white.opacity(0.6), subtitle: "Conversations that may be worth continuing", people: sections.followUp)
+                }
+                if !sections.notHere.isEmpty {
+                    sectionBlock(title: "Familiar faces", icon: "sparkles", color: .white.opacity(0.55), subtitle: "People you may want to reconnect with", people: sections.notHere)
+                }
+            }
+        }
+        .onAppear {
+            #if DEBUG
+            debugLog("[PeopleHierarchy] dominant=\(dominantPerson?.id.uuidString.prefix(8) ?? "nil") supporting=\(supportingPeople.count) rosterExpanded=\(showFullRoster)")
+            #endif
+        }
     }
 
     private func focusPersonIfLoaded(target: PeopleFocusTarget, proxy: ScrollViewProxy) {
@@ -314,9 +371,24 @@ struct PeopleView: View {
         }
     }
 
+    private func compactSectionBlock(title: String, subtitle: String, people: [PersonIntelligence]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundColor(.white.opacity(0.9))
+            Text(subtitle)
+                .font(.caption)
+                .foregroundColor(.gray)
+            ForEach(people) { person in
+                personCard(person, sectionColor: .white.opacity(0.55), compact: true)
+            }
+        }
+        .padding(.horizontal)
+    }
+
     // MARK: - Person Card (Surface + Deep)
 
-    private func personCard(_ person: PersonIntelligence, sectionColor: Color) -> some View {
+    private func personCard(_ person: PersonIntelligence, sectionColor: Color, compact: Bool = false) -> some View {
         let isExpanded = expandedPersonId == person.id
         let strengthAccent = relationshipAccent(for: person.relationshipState)
 
@@ -332,24 +404,24 @@ struct PeopleView: View {
                     #endif
                 }
             } label: {
-                surfaceRow(person, sectionColor: sectionColor)
+                surfaceRow(person, sectionColor: sectionColor, compact: compact)
             }
             .buttonStyle(.plain)
 
             // ── Deep Layer (expandable) ──
-            if isExpanded && !person.deepInsights.isEmpty {
+            if isExpanded && !person.deepInsights.isEmpty && !compact {
                 Divider().background(Color.white.opacity(0.06)).padding(.horizontal, 14)
                 deepLayer(person, sectionColor: sectionColor)
             }
 
             // ── Actions ──
-            actionRow(person, sectionColor: sectionColor)
+            actionRow(person, sectionColor: sectionColor, compact: compact)
                 .padding(.horizontal, 14)
                 .padding(.bottom, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(person.isTargetIntent ? sectionColor.opacity(0.06) : Color.white.opacity(0.04))
+                .fill(person.isTargetIntent ? sectionColor.opacity(compact ? 0.04 : 0.06) : Color.white.opacity(compact ? 0.025 : 0.04))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -376,7 +448,7 @@ struct PeopleView: View {
 
     // MARK: - Surface Row
 
-    private func surfaceRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
+    private func surfaceRow(_ person: PersonIntelligence, sectionColor: Color, compact: Bool = false) -> some View {
         return HStack(spacing: 12) {
             // Avatar
             ZStack(alignment: .bottomTrailing) {
@@ -419,8 +491,8 @@ struct PeopleView: View {
                         .lineLimit(1)
                 }
 
-                if let why = person.whyThisMatters {
-                    Text("Why this matters: \(why)")
+                if let why = humanizedWhyText(for: person) {
+                    Text(why)
                         .font(.caption2)
                         .foregroundColor(.gray.opacity(0.9))
                         .lineLimit(1)
@@ -430,10 +502,12 @@ struct PeopleView: View {
             Spacer()
 
             // Expand indicator
-            Image(systemName: expandedPersonId == person.id ? "chevron.up" : "chevron.down")
-                .font(.system(size: 10)).foregroundColor(.gray.opacity(0.4))
+            if !compact {
+                Image(systemName: expandedPersonId == person.id ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10)).foregroundColor(.gray.opacity(0.4))
+            }
         }
-        .padding(.vertical, 10).padding(.horizontal, 14)
+        .padding(.vertical, compact ? 8 : 10).padding(.horizontal, 14)
     }
 
     private func logRelationshipState(_ state: PeopleRelationshipState) {
@@ -498,28 +572,85 @@ struct PeopleView: View {
 
     // MARK: - Action Row
 
-    private func actionRow(_ person: PersonIntelligence, sectionColor: Color) -> some View {
+    private func actionRow(_ person: PersonIntelligence, sectionColor: Color, compact: Bool) -> some View {
         HStack(spacing: 10) {
-            actionButton(person.primaryAction, person: person, color: sectionColor)
-
-            if let secondary = person.secondaryAction {
-                actionButton(secondary, person: person, color: .white.opacity(0.5))
-            }
+            actionButton(person.primaryAction, person: person, color: sectionColor, compact: compact)
         }
         .padding(.top, 4)
     }
 
-    private func actionButton(_ action: PersonAction, person: PersonIntelligence, color: Color) -> some View {
+    private func actionButton(_ action: PersonAction, person: PersonIntelligence, color: Color, compact: Bool) -> some View {
         Button {
             handleAction(action, person: person)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: action.icon).font(.caption2)
-                Text(action.label).font(.caption).fontWeight(.medium)
+                Text(primaryActionLabel(for: action, person: person)).font(.caption).fontWeight(.medium)
             }
             .foregroundColor(color)
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(color.opacity(0.12)).cornerRadius(8)
+            .background(color.opacity(compact ? 0.08 : 0.12)).cornerRadius(8)
+        }
+    }
+
+    private func dominantMomentumCard(_ person: PersonIntelligence) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Start here")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.75))
+            Text(dominantHeadline(for: person))
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+            if let why = humanizedWhyText(for: person) {
+                Text(why)
+                    .font(.body)
+                    .foregroundColor(.white.opacity(0.78))
+            }
+            actionButton(person.primaryAction, person: person, color: .white, compact: false)
+        }
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
+        .padding(.horizontal)
+        .onAppear {
+            #if DEBUG
+            debugLog("[DominantRecommendation] person=\(person.id.uuidString.prefix(8)) action=\(person.primaryAction.label)")
+            debugLog("[ActionPriority] primary=\(person.primaryAction.label) person=\(person.id.uuidString.prefix(8))")
+            #endif
+        }
+    }
+
+    private func dominantHeadline(for person: PersonIntelligence) -> String {
+        switch navigationState.peopleContext?.mode {
+        case .unfinishedMomentum, .continuityFocus:
+            return "You already started momentum with \(person.displayName)."
+        case .liveNearby:
+            return "\(person.displayName) has the strongest live signal right now."
+        case .recommendedNow:
+            return "This conversation has context worth continuing."
+        default:
+            return "This is the most meaningful social action right now."
+        }
+    }
+
+    private func humanizedWhyText(for person: PersonIntelligence) -> String? {
+        if let existing = person.whyThisMatters, !existing.isEmpty {
+            return existing.replacingOccurrences(of: "Why this matters:", with: "").trimmingCharacters(in: .whitespaces)
+        }
+        switch person.presence {
+        case .hereNow: return "You both stayed active nearby."
+        case .followUp: return "You already broke the ice."
+        case .notHere: return "You've crossed paths before."
+        }
+    }
+
+    private func primaryActionLabel(for action: PersonAction, person: PersonIntelligence) -> String {
+        switch action {
+        case .find: return person.presence == .hereNow ? "Find them" : "Find"
+        case .message: return "Continue"
+        case .viewProfile: return "Open thread"
+        case .keepWatching: return "Keep in view"
         }
     }
 
