@@ -360,6 +360,10 @@ struct PersonDetailView: View {
                     .padding(.top, layout.contentTopPadding + 10)
             }
 
+            if let rel = orbitRelationship, !orbitContinuityLines(for: rel).isEmpty {
+                orbitContinuitySection(rel)
+            }
+
             if let bio = attendee.bio, !bio.isEmpty {
                 sectionCard(title: "Bio") {
                     Text(bio)
@@ -480,13 +484,62 @@ struct PersonDetailView: View {
         encounterService.activeEncounters[attendee.id]?.totalSeconds ?? 0
     }
 
+    private var orbitRelationship: RelationshipMemory? {
+        RelationshipMemoryService.shared.relationships.first { $0.profileId == attendee.id }
+    }
+
+    private func orbitContinuityLines(for rel: RelationshipMemory) -> [String] {
+        var lines: [String] = []
+
+        if rel.encounterCount >= 2 {
+            lines.append(rel.encounterCount == 2
+                ? "You've crossed paths before."
+                : "You've crossed paths \(rel.encounterCount) times.")
+        }
+
+        if rel.eventContexts.count == 1, let event = rel.eventContexts.first {
+            lines.append("Both at \(event).")
+        } else if rel.eventContexts.count > 1 {
+            lines.append("\(rel.eventContexts.count) events in common.")
+        }
+
+        if rel.totalOverlapSeconds >= 300 {
+            let mins = rel.totalOverlapSeconds / 60
+            lines.append("\(mins) min of overlap across sessions.")
+        }
+
+        if let interest = rel.sharedInterests.first, !interest.isEmpty {
+            lines.append("You've both talked about \(interest).")
+        }
+
+        return lines
+    }
+
+    private func orbitContinuitySection(_ rel: RelationshipMemory) -> some View {
+        sectionCard(title: "In orbit") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(orbitContinuityLines(for: rel), id: \.self) { line in
+                    Text(line)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                }
+            }
+        }
+    }
+
     private var contextLine: String {
+        if let rel = orbitRelationship, rel.encounterCount >= 2 {
+            return rel.encounterCount == 2
+                ? "Crossed paths before"
+                : "Crossed paths \(rel.encounterCount) times"
+        }
+
         if let eventName = EventJoinService.shared.currentEventName {
             return "Met at \(eventName)"
         }
 
         if meaningfulEncounterDuration >= 120 {
-            return "You spent meaningful time together"
+            return "You spent time together"
         }
 
         return "Connected via Nearify"

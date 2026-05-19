@@ -494,7 +494,7 @@ struct HomeView: View {
                         Text(item.subtitle)
                             .font(.caption)
                             .foregroundColor(VisualStyle.tertiaryText)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                 }
 
@@ -569,11 +569,11 @@ struct HomeView: View {
         if let matched = matchedBriefAttendee, items.count < 3 {
             items.append(MomentumItem(
                 id: "brief-\(matched.id.uuidString)",
-                title: "\(matched.displayName) is worth saying hello to.",
-                subtitle: topBriefPerson?.reason.isEmpty == false ? topBriefPerson?.reason ?? "" : "Not enough context yet — this might be worth watching.",
+                title: "\(matched.displayName) is here.",
+                subtitle: topBriefPerson?.reason.isEmpty == false ? topBriefPerson?.reason ?? "" : "A familiar thread may continue.",
                 icon: "sparkles",
                 accent: VisualStyle.live,
-                accessory: "Walk over",
+                accessory: "Nearby",
                 action: .find(matched)
             ))
         }

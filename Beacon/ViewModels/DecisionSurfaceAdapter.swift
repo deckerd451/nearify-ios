@@ -47,8 +47,8 @@ enum DecisionActionType: String {
     var label: String {
         switch self {
         case .goSayHi:    return "Say hello"
-        case .find:       return "Walk over"
-        case .navigate:   return "Head over"
+        case .find:       return "Nearby"
+        case .navigate:   return "Nearby"
         case .followUp:   return "Pick up the thread"
         case .viewProfile: return "View profile"
         }
